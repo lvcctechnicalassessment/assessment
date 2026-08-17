@@ -6,9 +6,10 @@ const App = {
   async init() {
     const loading = document.getElementById('loading');
     try {
-      // Check if Firebase SDK loaded
-      if (typeof firebase === 'undefined' || !window.auth) {
-        this.showError('Firebase SDK failed to load. Check your internet connection or CDN blockers, then reload.');
+      // Give CDN scripts a moment, then try to initialize Firebase
+      const ok = await this.waitForFirebase(8000);
+      if (!ok) {
+        this.showFirebaseLoadError();
         return;
       }
 
@@ -20,7 +21,6 @@ const App = {
 
       const profile = await Auth.init();
       if (profile) {
-        // Check pending teacher promotion
         await Auth.checkPendingTeacher(Auth.currentUser);
         this.routeAfterLogin();
       } else {
@@ -32,6 +32,49 @@ const App = {
     } finally {
       if (loading) loading.classList.add('hidden');
     }
+  },
+
+  /** Wait up to `ms` milliseconds for the Firebase CDN scripts + init */
+  waitForFirebase(ms = 8000) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => {
+        if (typeof firebase !== 'undefined') {
+          const success = window.initFirebaseApp && window.initFirebaseApp();
+          resolve(!!success && !!window.auth);
+          return;
+        }
+        if (Date.now() - start > ms) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, 150);
+      };
+      tick();
+    });
+  },
+
+  showFirebaseLoadError() {
+    document.getElementById('app').innerHTML = `
+      <div class="auth-container" style="max-width:640px">
+        <h1>⚠️ Firebase SDK Failed to Load</h1>
+        <p>The Google Firebase scripts could not be downloaded. This is usually caused by one of the following:</p>
+        <div style="text-align:left;background:var(--bg);padding:1.25rem;border-radius:8px;margin:1.5rem 0;font-size:0.9rem;line-height:1.7">
+          <ol style="padding-left:1.25rem">
+            <li><strong>Ad-blocker / Privacy extension</strong> – temporarily disable uBlock, AdGuard, Privacy Badger, etc. for this site.</li>
+            <li><strong>School / corporate network</strong> – many schools block <code>gstatic.com</code>. Try a personal hotspot or home network.</li>
+            <li><strong>Browser extensions</strong> – try an Incognito/Private window with extensions disabled.</li>
+            <li><strong>Offline</strong> – confirm you have internet access.</li>
+          </ol>
+          <p style="margin-top:1rem">Quick test: open this link in a new tab:<br>
+            <a href="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js" target="_blank" style="color:var(--primary);word-break:break-all">
+              https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js
+            </a><br>
+            If it does <em>not</em> download a JavaScript file, the network is blocking Firebase.
+          </p>
+        </div>
+        <button class="btn btn-primary" onclick="location.reload()">Try Again</button>
+      </div>`;
   },
 
   showConfigNeeded() {
