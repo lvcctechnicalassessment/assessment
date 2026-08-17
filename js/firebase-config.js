@@ -12,12 +12,13 @@
  */
 
 window.firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyDF842O0lcMJvVBMzpuRkvKUTVXXikwa_8",
+  authDomain: "lvcc-technical-assessment.firebaseapp.com",
+  projectId: "lvcc-technical-assessment",
+  storageBucket: "lvcc-technical-assessment.firebasestorage.app",
+  messagingSenderId: "845757509653",
+  appId: "1:845757509653:web:bf7a89144c4e4bc859de1c",
+  measurementId: "G-H72G3FW9WY"
 };
 
 // ============================================
@@ -25,7 +26,8 @@ window.firebaseConfig = {
 // ============================================
 // Put your school Google email here. This user becomes Superadmin automatically.
 window.SUPERADMIN_EMAILS = [
-  "your.email@school.edu"   // <-- REPLACE with your actual school email
+  "joanepauline.maunes@laverdad.edu.ph",
+  "maunes.pauline@gmail.com"   // <-- REPLACE with your actual school email
 ];
 
 // Optional: Restrict login to school domain only (e.g. "school.edu")
