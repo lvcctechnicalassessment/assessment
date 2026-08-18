@@ -57,6 +57,14 @@ const Exam = {
     if (!exam) throw new Error('Exam not found');
     if (!exam.active) throw new Error('This exam is no longer active');
 
+    // Personal-email users may only join exams they were invited to
+    const allowed = await Auth.canAccessExam(Auth.userProfile.email, examId);
+    if (!allowed) {
+      throw new Error(
+        'You are not invited to this exam. Personal email access is limited to exams your teacher invited you to.'
+      );
+    }
+
     // Check if already has an active session
     const existing = await window.db.collection('sessions')
       .where('examId', '==', examId)

@@ -176,12 +176,10 @@ const App = {
       navItems = `
         <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin()">👥 Teachers</div>
         <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome()">📝 My Exams</div>
-        <div class="nav-item ${activeNav==='invites'?'active':''}" onclick="App.showInvites()">✉️ Invite Students</div>
       `;
     } else if (role === 'teacher') {
       navItems = `
         <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome()">📝 My Exams</div>
-        <div class="nav-item ${activeNav==='invites'?'active':''}" onclick="App.showInvites()">✉️ Invite Students</div>
       `;
     }
 
@@ -322,52 +320,55 @@ const App = {
     await Dashboard.renderMyExams(document.getElementById('exams-container'));
   },
 
-  async showInvites() {
+  async showExamInvites(examId) {
+    const exam = await Exam.getExam(examId);
+    const title = exam ? exam.title : examId;
     this.renderShell(`
-      <h2 class="page-title">Invite Students (Personal Email)</h2>
+      <h2 class="page-title">Invite to Exam</h2>
       <p class="page-subtitle">
-        Use this only when a student cannot access their La Verdad email.
-        Invited personal emails can sign in and take exams.
+        Invite a personal email for <strong>${escapeHtml(title)}</strong> only.
+        That student cannot access your other exams.
       </p>
       <div class="card">
         <div class="form-group">
           <label>Student personal email</label>
           <input type="email" id="invite-email" class="form-control" placeholder="student@gmail.com" />
         </div>
-        <button class="btn btn-primary" id="invite-btn">Send Invite</button>
+        <button class="btn btn-primary" id="invite-btn">Invite to this exam</button>
+        <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back to Exams</button>
         <p id="invite-msg" class="mt-1 text-muted"></p>
       </div>
       <div class="card mt-2">
-        <div class="card-header"><div class="card-title">Your Invites</div></div>
+        <div class="card-header"><div class="card-title">Invited to this exam</div></div>
         <div id="invites-list">Loading...</div>
       </div>
-    `, 'invites');
+    `, 'exams');
 
     document.getElementById('invite-btn').onclick = async () => {
       const email = document.getElementById('invite-email').value;
       const msg = document.getElementById('invite-msg');
       try {
-        const res = await Auth.inviteStudent(email);
+        const res = await Auth.inviteStudentToExam(examId, title, email);
         msg.textContent = res.message;
         msg.style.color = 'var(--success)';
         document.getElementById('invite-email').value = '';
-        this.loadInvitesList();
+        this.loadExamInvitesList(examId);
       } catch (err) {
         msg.textContent = err.message;
         msg.style.color = 'var(--danger)';
       }
     };
 
-    this.loadInvitesList();
+    this.loadExamInvitesList(examId);
   },
 
-  async loadInvitesList() {
+  async loadExamInvitesList(examId) {
     const el = document.getElementById('invites-list');
     if (!el) return;
     try {
-      const invites = await Auth.listInvites();
+      const invites = await Auth.listExamInvites(examId);
       if (invites.length === 0) {
-        el.innerHTML = '<p class="text-muted">No personal-email invites yet.</p>';
+        el.innerHTML = '<p class="text-muted">No personal-email invites for this exam yet.</p>';
         return;
       }
       el.innerHTML = `
@@ -379,7 +380,7 @@ const App = {
               return `<tr>
                 <td>${escapeHtml(i.email)}</td>
                 <td>${date}</td>
-                <td><button class="btn btn-sm btn-danger" onclick="App.removeInvite('${escapeHtml(i.email)}')">Remove</button></td>
+                <td><button class="btn btn-sm btn-danger" onclick="App.removeExamInvite('${examId}', '${escapeHtml(i.email)}')">Remove</button></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -389,10 +390,10 @@ const App = {
     }
   },
 
-  async removeInvite(email) {
-    if (!confirm('Remove invite for ' + email + '?')) return;
-    await Auth.removeInvite(email);
-    this.loadInvitesList();
+  async removeExamInvite(examId, email) {
+    if (!confirm('Remove invite for ' + email + ' from this exam?')) return;
+    await Auth.removeExamInvite(examId, email);
+    this.loadExamInvitesList(examId);
   },
 
   showCreateExam() {

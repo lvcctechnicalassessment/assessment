@@ -53,6 +53,7 @@ const Dashboard = {
             <td>
               <button class="btn btn-sm btn-primary" onclick="App.openLiveDashboard('${ex.id}')">Live Dashboard</button>
               <button class="btn btn-sm btn-ghost" onclick="App.copyExamLink('${ex.id}')">Copy Link</button>
+              <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
               <button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>
             </td>
           </tr>`;

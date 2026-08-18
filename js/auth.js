@@ -4,7 +4,8 @@
  * Rules:
  * - SUPERADMIN_EMAILS always allowed
  * - @student.laverdad.edu.ph and @laverdad.edu.ph always allowed
- * - Other emails (e.g. personal Gmail) allowed ONLY if invited by a teacher
+ * - Personal emails allowed only if invited to at least one exam
+ * - Personal-email users may only join exams they were invited to
  */
 
 const Auth = {
@@ -27,7 +28,6 @@ const Auth = {
             await window.auth.signOut();
             this.currentUser = null;
             this.userProfile = null;
-            // Friendly message instead of raw errors
             this.showAccessDenied(err.message || 'Access denied');
             resolve(null);
           }
@@ -41,7 +41,6 @@ const Auth = {
   },
 
   showAccessDenied(message) {
-    // Prefer in-app banner over browser alert when possible
     if (typeof App !== 'undefined' && App.showAccessDeniedScreen) {
       App.showAccessDeniedScreen(message);
     } else {
@@ -49,42 +48,69 @@ const Auth = {
     }
   },
 
-  /** Check if email has a teacher invite (personal email exception) */
-  async hasInvite(email) {
+  isSchoolEmail(email) {
+    const lower = (email || '').toLowerCase();
+    const domains = (window.ALLOWED_EMAIL_DOMAINS || [
+      'student.laverdad.edu.ph',
+      'laverdad.edu.ph'
+    ]).map(d => d.toLowerCase());
+    return domains.some(d => lower.endsWith('@' + d));
+  },
+
+  isSuperAdminEmail(email) {
+    const lower = (email || '').toLowerCase();
+    const superEmails = (window.SUPERADMIN_EMAILS || []).map(e => e.toLowerCase());
+    return superEmails.includes(lower);
+  },
+
+  /** Any per-exam invite for this personal email? */
+  async hasAnyExamInvite(email) {
     const lower = (email || '').toLowerCase();
     if (!lower) return false;
     try {
-      const snap = await window.db.collection('invitedStudents').doc(lower).get();
-      return snap.exists;
+      const snap = await window.db.collection('examInvites')
+        .where('email', '==', lower)
+        .limit(1)
+        .get();
+      return !snap.empty;
     } catch (e) {
       console.error('Invite check failed', e);
       return false;
     }
   },
 
-  /** Superadmins always allowed. School domains allowed. Invited personal emails allowed. */
+  /** Invite for a specific exam? */
+  async hasExamInvite(email, examId) {
+    const lower = (email || '').toLowerCase();
+    if (!lower || !examId) return false;
+    try {
+      const docId = examId + '_' + lower.replace(/[^a-z0-9]/g, '_');
+      const snap = await window.db.collection('examInvites').doc(docId).get();
+      if (snap.exists) return true;
+      // Fallback query
+      const q = await window.db.collection('examInvites')
+        .where('email', '==', lower)
+        .where('examId', '==', examId)
+        .limit(1)
+        .get();
+      return !q.empty;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
+  },
+
   async isEmailAllowed(email) {
     if (!email) return { allowed: false, reason: 'No email provided.' };
     const lower = email.toLowerCase();
 
-    // 1. Superadmin list
-    const superEmails = (window.SUPERADMIN_EMAILS || []).map(e => e.toLowerCase());
-    if (superEmails.includes(lower)) {
+    if (this.isSuperAdminEmail(lower)) {
       return { allowed: true, reason: 'superadmin' };
     }
-
-    // 2. School domains
-    const domains = (window.ALLOWED_EMAIL_DOMAINS || [
-      'student.laverdad.edu.ph',
-      'laverdad.edu.ph'
-    ]).map(d => d.toLowerCase());
-
-    if (domains.some(d => lower.endsWith('@' + d))) {
+    if (this.isSchoolEmail(lower)) {
       return { allowed: true, reason: 'school' };
     }
-
-    // 3. Teacher invite for personal email
-    if (await this.hasInvite(lower)) {
+    if (await this.hasAnyExamInvite(lower)) {
       return { allowed: true, reason: 'invited' };
     }
 
@@ -92,8 +118,16 @@ const Auth = {
       allowed: false,
       reason:
         'Only La Verdad emails are allowed (@student.laverdad.edu.ph or @laverdad.edu.ph).\n\n' +
-        'If you need to use a personal email, ask your teacher to invite you first.'
+        'Personal email is only allowed if a teacher invited you to a specific exam.'
     };
+  },
+
+  /** Personal-email students may only open exams they were invited to */
+  async canAccessExam(email, examId) {
+    const lower = (email || '').toLowerCase();
+    if (this.isSuperAdminEmail(lower) || this.isSchoolEmail(lower)) return true;
+    if (Auth.isTeacher && Auth.isTeacher()) return true;
+    return await this.hasExamInvite(lower, examId);
   },
 
   async ensureUserProfile(user) {
@@ -111,12 +145,8 @@ const Auth = {
       return { uid: user.uid, ...snap.data() };
     }
 
-    // New user – determine role
     let role = 'student';
-    const superEmails = (window.SUPERADMIN_EMAILS || []).map(e => e.toLowerCase());
-    if (superEmails.includes(email)) {
-      role = 'superadmin';
-    }
+    if (this.isSuperAdminEmail(email)) role = 'superadmin';
 
     const profile = {
       email: user.email,
@@ -141,7 +171,6 @@ const Auth = {
       return this.userProfile;
     } catch (err) {
       console.error('Sign-in error', err);
-      // Friendlier messages for common Firebase errors
       if (err.code === 'auth/network-request-failed') {
         throw new Error(
           'Network error during sign-in. Check your internet connection and try again.\n\n' +
@@ -154,10 +183,7 @@ const Auth = {
       if (err.code === 'auth/unauthorized-domain') {
         throw new Error('This website domain is not authorized in Firebase. Contact the administrator.');
       }
-      // Access denied from ensureUserProfile
-      if (err.message && err.message.includes('Only La Verdad')) {
-        throw err;
-      }
+      if (err.message && err.message.includes('Only La Verdad')) throw err;
       throw new Error(err.message || 'Sign-in failed. Please try again.');
     }
   },
@@ -180,42 +206,48 @@ const Auth = {
     return this.userProfile?.role === 'student';
   },
 
-  // ---- Teacher invites personal emails ----
-  async inviteStudent(email) {
+  // ---- Per-exam invites ----
+  inviteDocId(examId, email) {
+    return examId + '_' + email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  },
+
+  async inviteStudentToExam(examId, examTitle, email) {
     if (!this.isTeacher()) throw new Error('Only teachers can invite students');
     email = email.trim().toLowerCase();
     if (!email || !email.includes('@')) throw new Error('Enter a valid email address');
+    if (!examId) throw new Error('Exam is required');
 
-    await window.db.collection('invitedStudents').doc(email).set({
+    const docId = this.inviteDocId(examId, email);
+    await window.db.collection('examInvites').doc(docId).set({
       email,
+      examId,
+      examTitle: examTitle || '',
       invitedBy: this.currentUser.uid,
       invitedByEmail: this.userProfile.email,
       invitedByName: this.userProfile.name,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    return { success: true, message: 'Invited ' + email + '. They can now sign in with that email.' };
+    return { success: true, message: 'Invited ' + email + ' to this exam only.' };
   },
 
-  async removeInvite(email) {
+  async removeExamInvite(examId, email) {
     if (!this.isTeacher()) throw new Error('Only teachers can manage invites');
     email = email.trim().toLowerCase();
-    await window.db.collection('invitedStudents').doc(email).delete();
+    await window.db.collection('examInvites').doc(this.inviteDocId(examId, email)).delete();
   },
 
-  async listInvites() {
+  async listExamInvites(examId) {
     if (!this.isTeacher()) return [];
-    const snap = await window.db.collection('invitedStudents')
-      .where('invitedBy', '==', this.currentUser.uid)
+    const snap = await window.db.collection('examInvites')
+      .where('examId', '==', examId)
       .get();
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   },
 
   async addTeacher(email) {
     if (!this.isSuperAdmin()) throw new Error('Only superadmin can add teachers');
-
     email = email.trim().toLowerCase();
     const q = await window.db.collection('users').where('email', '==', email).limit(1).get();
-
     if (!q.empty) {
       const doc = q.docs[0];
       await doc.ref.update({
@@ -224,7 +256,6 @@ const Auth = {
       });
       return { success: true, message: 'Updated ' + email + ' to teacher role.' };
     }
-
     await window.db.collection('pendingTeachers').doc(email).set({
       email,
       addedBy: this.currentUser.uid,
