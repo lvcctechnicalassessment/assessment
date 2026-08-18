@@ -1,6 +1,5 @@
 /**
  * Authentication & Role Management
- * All Firebase objects are accessed via window.* to avoid scope issues.
  */
 
 const Auth = {
@@ -9,14 +8,23 @@ const Auth = {
 
   async init() {
     if (!window.auth) {
-      throw new Error('Firebase Auth is not initialized. Check firebase-config.js and that the Firebase CDN scripts loaded.');
+      throw new Error('Firebase Auth is not initialized. Check firebase-config.js.');
     }
     return new Promise((resolve) => {
       window.auth.onAuthStateChanged(async (user) => {
         if (user) {
           this.currentUser = user;
-          this.userProfile = await this.ensureUserProfile(user);
-          resolve(this.userProfile);
+          try {
+            this.userProfile = await this.ensureUserProfile(user);
+            resolve(this.userProfile);
+          } catch (err) {
+            console.error(err);
+            await window.auth.signOut();
+            this.currentUser = null;
+            this.userProfile = null;
+            alert(err.message || 'Access denied');
+            resolve(null);
+          }
         } else {
           this.currentUser = null;
           this.userProfile = null;
@@ -26,7 +34,38 @@ const Auth = {
     });
   },
 
+  /** Superadmins always allowed. Everyone else must be a La Verdad email. */
+  isEmailAllowed(email) {
+    if (!email) return false;
+    const lower = email.toLowerCase();
+
+    // 1. Superadmin emails (including personal Gmail) — always allowed
+    const superEmails = (window.SUPERADMIN_EMAILS || []).map(e => e.toLowerCase());
+    if (superEmails.includes(lower)) return true;
+
+    // 2. Must match one of the allowed school domains
+    const domains = (window.ALLOWED_EMAIL_DOMAINS || []).map(d => d.toLowerCase());
+    if (domains.length > 0) {
+      return domains.some(d => lower.endsWith('@' + d));
+    }
+
+    // Fallback to older settings
+    if (window.STUDENT_DOMAIN && lower.endsWith('@' + window.STUDENT_DOMAIN.toLowerCase())) return true;
+    const teacherDomains = (window.TEACHER_DOMAINS || []).map(d => d.toLowerCase());
+    if (teacherDomains.some(d => lower.endsWith('@' + d))) return true;
+
+    return false;
+  },
+
   async ensureUserProfile(user) {
+    const email = (user.email || '').toLowerCase();
+
+    if (!this.isEmailAllowed(email)) {
+      throw new Error(
+        'Access denied. Only La Verdad emails (@student.laverdad.edu.ph or @laverdad.edu.ph) are allowed.'
+      );
+    }
+
     const ref = window.db.collection('users').doc(user.uid);
     const snap = await ref.get();
 
@@ -37,14 +76,8 @@ const Auth = {
     // New user – determine role
     let role = 'student';
     const superEmails = (window.SUPERADMIN_EMAILS || []).map(e => e.toLowerCase());
-    if (superEmails.includes((user.email || '').toLowerCase())) {
+    if (superEmails.includes(email)) {
       role = 'superadmin';
-    }
-
-    // Domain check
-    if (window.ALLOWED_DOMAIN && !user.email.endsWith('@' + window.ALLOWED_DOMAIN)) {
-      await window.auth.signOut();
-      throw new Error(`Only @${window.ALLOWED_DOMAIN} accounts are allowed.`);
     }
 
     const profile = {
@@ -63,9 +96,6 @@ const Auth = {
   async signInWithGoogle() {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
-    if (window.ALLOWED_DOMAIN) {
-      provider.setCustomParameters({ hd: window.ALLOWED_DOMAIN });
-    }
     try {
       const result = await window.auth.signInWithPopup(provider);
       this.userProfile = await this.ensureUserProfile(result.user);
@@ -94,7 +124,6 @@ const Auth = {
     return this.userProfile?.role === 'student';
   },
 
-  // Superadmin: promote a user to teacher by email
   async addTeacher(email) {
     if (!this.isSuperAdmin()) throw new Error('Only superadmin can add teachers');
 
@@ -107,16 +136,15 @@ const Auth = {
         role: 'teacher',
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
-      return { success: true, message: `Updated ${email} to teacher role.` };
+      return { success: true, message: 'Updated ' + email + ' to teacher role.' };
     }
 
-    // User hasn't logged in yet – store pending teacher invite
     await window.db.collection('pendingTeachers').doc(email).set({
       email,
       addedBy: this.currentUser.uid,
       addedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    return { success: true, message: `Invitation stored for ${email}. They will become teacher on first login.` };
+    return { success: true, message: 'Invitation stored for ' + email + '. They will become teacher on first login.' };
   },
 
   async removeTeacher(uid) {
@@ -132,7 +160,6 @@ const Auth = {
     return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
   },
 
-  // On login, check pending teacher invites
   async checkPendingTeacher(user) {
     const pending = await window.db.collection('pendingTeachers').doc(user.email.toLowerCase()).get();
     if (pending.exists) {
