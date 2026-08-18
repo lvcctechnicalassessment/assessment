@@ -10,7 +10,7 @@
  * 4. Create a Firestore Database (start in test mode)
  * 5. Project Settings > Your apps > Web app > Copy the config object
  */
-
+ 
 window.firebaseConfig = {
   apiKey: "AIzaSyDF842O0lcMJvVBMzpuRkvKUTVXXikwa_8",
   authDomain: "lvcc-technical-assessment.firebaseapp.com",
