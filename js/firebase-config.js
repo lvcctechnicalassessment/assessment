@@ -22,6 +22,7 @@ window.SUPERADMIN_EMAILS = [
   "maunes.pauline@gmail.com"   // <-- put your real Gmail here
 ];
 
+
 // ============================================
 // DOMAIN RULES
 // ============================================
