@@ -155,6 +155,16 @@ const Auth = {
     });
   },
 
+  async setRole(uid, role) {
+    if (!this.isSuperAdmin()) throw new Error('Only superadmin');
+    const allowed = ['student', 'teacher', 'superadmin'];
+    if (!allowed.includes(role)) throw new Error('Invalid role');
+    await window.db.collection('users').doc(uid).update({
+      role,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  },
+
   async listTeachers() {
     const snap = await window.db.collection('users').where('role', 'in', ['teacher', 'superadmin']).get();
     return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
