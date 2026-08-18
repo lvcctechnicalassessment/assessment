@@ -100,24 +100,50 @@ const App = {
 
   showLogin() {
     document.getElementById('app').innerHTML = `
-      <div class="auth-container">
-        <h1>🛡️ Exam Integrity</h1>
-        <p>Secure coding examinations with live monitoring and anti-cheat protection.</p>
+      <div class="auth-container" style="max-width:460px">
+        <img src="assets/lvcc-logo.png" alt="LVCC Logo" class="brand-logo" />
+        <h1>LVCC Assessment Portal</h1>
+        <p class="brand-subtitle">True to our name, true to our test</p>
         <button class="google-btn" id="google-signin">
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
-          Sign in with School Google Account
+          Sign in with Google
         </button>
-        <p class="mt-2 text-muted" style="font-size:0.8rem">Only authorized school accounts. Roles: Superadmin · Teacher · Student</p>
+        <p class="mt-2 text-muted" style="font-size:0.85rem;line-height:1.5">
+          Use your <strong>@student.laverdad.edu.ph</strong> or <strong>@laverdad.edu.ph</strong> account.<br>
+          Personal email is only allowed if your teacher invited you.
+        </p>
+        <div id="login-error" class="hidden" style="margin-top:1rem;padding:0.85rem 1rem;background:rgba(220,38,38,0.15);border:1px solid var(--danger);border-radius:8px;color:#fca5a5;font-size:0.9rem;white-space:pre-wrap;text-align:left"></div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
+      const errBox = document.getElementById('login-error');
+      errBox.classList.add('hidden');
+      errBox.textContent = '';
       try {
         await Auth.signInWithGoogle();
-        await Auth.checkPendingTeacher(Auth.currentUser);
-        this.routeAfterLogin();
+        if (Auth.currentUser) {
+          await Auth.checkPendingTeacher(Auth.currentUser);
+        }
+        if (Auth.userProfile) {
+          this.routeAfterLogin();
+        }
       } catch (err) {
-        alert('Sign-in failed: ' + err.message);
+        errBox.textContent = err.message || 'Sign-in failed. Please try again.';
+        errBox.classList.remove('hidden');
       }
     };
+  },
+
+  showAccessDeniedScreen(message) {
+    document.getElementById('app').innerHTML = `
+      <div class="auth-container" style="max-width:520px">
+        <h1>Access Denied</h1>
+        <p style="color:#fca5a5;white-space:pre-wrap;margin:1rem 0;line-height:1.6">${escapeHtml(message)}</p>
+        <p class="text-muted" style="font-size:0.9rem;margin-bottom:1.5rem">
+          Allowed: <strong>@student.laverdad.edu.ph</strong> · <strong>@laverdad.edu.ph</strong><br>
+          Or a personal email that your teacher has invited.
+        </p>
+        <button class="btn btn-primary" onclick="App.showLogin()">Back to Sign In</button>
+      </div>`;
   },
 
   routeAfterLogin() {
@@ -150,16 +176,21 @@ const App = {
       navItems = `
         <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin()">👥 Teachers</div>
         <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome()">📝 My Exams</div>
+        <div class="nav-item ${activeNav==='invites'?'active':''}" onclick="App.showInvites()">✉️ Invite Students</div>
       `;
     } else if (role === 'teacher') {
       navItems = `
         <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome()">📝 My Exams</div>
+        <div class="nav-item ${activeNav==='invites'?'active':''}" onclick="App.showInvites()">✉️ Invite Students</div>
       `;
     }
 
     document.getElementById('app').innerHTML = `
       <header class="app-header">
-        <div class="logo">🛡️ Exam<span>Integrity</span></div>
+        <div class="logo">
+          <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" />
+          <span>LVCC Assessment Portal</span>
+        </div>
         <div class="user-info">
           <span class="role-badge ${role}">${role}</span>
           <span>${escapeHtml(name)}</span>
@@ -291,6 +322,79 @@ const App = {
     await Dashboard.renderMyExams(document.getElementById('exams-container'));
   },
 
+  async showInvites() {
+    this.renderShell(`
+      <h2 class="page-title">Invite Students (Personal Email)</h2>
+      <p class="page-subtitle">
+        Use this only when a student cannot access their La Verdad email.
+        Invited personal emails can sign in and take exams.
+      </p>
+      <div class="card">
+        <div class="form-group">
+          <label>Student personal email</label>
+          <input type="email" id="invite-email" class="form-control" placeholder="student@gmail.com" />
+        </div>
+        <button class="btn btn-primary" id="invite-btn">Send Invite</button>
+        <p id="invite-msg" class="mt-1 text-muted"></p>
+      </div>
+      <div class="card mt-2">
+        <div class="card-header"><div class="card-title">Your Invites</div></div>
+        <div id="invites-list">Loading...</div>
+      </div>
+    `, 'invites');
+
+    document.getElementById('invite-btn').onclick = async () => {
+      const email = document.getElementById('invite-email').value;
+      const msg = document.getElementById('invite-msg');
+      try {
+        const res = await Auth.inviteStudent(email);
+        msg.textContent = res.message;
+        msg.style.color = 'var(--success)';
+        document.getElementById('invite-email').value = '';
+        this.loadInvitesList();
+      } catch (err) {
+        msg.textContent = err.message;
+        msg.style.color = 'var(--danger)';
+      }
+    };
+
+    this.loadInvitesList();
+  },
+
+  async loadInvitesList() {
+    const el = document.getElementById('invites-list');
+    if (!el) return;
+    try {
+      const invites = await Auth.listInvites();
+      if (invites.length === 0) {
+        el.innerHTML = '<p class="text-muted">No personal-email invites yet.</p>';
+        return;
+      }
+      el.innerHTML = `
+        <table class="table">
+          <thead><tr><th>Email</th><th>Invited</th><th></th></tr></thead>
+          <tbody>
+            ${invites.map(i => {
+              const date = i.createdAt?.toDate ? i.createdAt.toDate().toLocaleString() : '—';
+              return `<tr>
+                <td>${escapeHtml(i.email)}</td>
+                <td>${date}</td>
+                <td><button class="btn btn-sm btn-danger" onclick="App.removeInvite('${escapeHtml(i.email)}')">Remove</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+    } catch (err) {
+      el.innerHTML = `<p style="color:var(--danger)">${escapeHtml(err.message)}</p>`;
+    }
+  },
+
+  async removeInvite(email) {
+    if (!confirm('Remove invite for ' + email + '?')) return;
+    await Auth.removeInvite(email);
+    this.loadInvitesList();
+  },
+
   showCreateExam() {
     this.renderShell(`
       <h2 class="page-title">Create Coding Exam</h2>
@@ -380,7 +484,10 @@ def solution():
     document.getElementById('app').innerHTML = `
       <div class="lock-banner hidden" id="lock-banner"></div>
       <header class="app-header">
-        <div class="logo">🛡️ Exam<span>Integrity</span> — Coding Exam</div>
+        <div class="logo">
+          <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" />
+          <span>LVCC Assessment Portal — Coding Exam</span>
+        </div>
         <div class="user-info">
           <span>${escapeHtml(Auth.userProfile.name)}</span>
           <button class="btn btn-sm btn-danger" id="submit-exam-btn">Submit Exam</button>

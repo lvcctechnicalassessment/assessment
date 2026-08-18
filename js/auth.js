@@ -1,5 +1,10 @@
 /**
  * Authentication & Role Management
+ *
+ * Rules:
+ * - SUPERADMIN_EMAILS always allowed
+ * - @student.laverdad.edu.ph and @laverdad.edu.ph always allowed
+ * - Other emails (e.g. personal Gmail) allowed ONLY if invited by a teacher
  */
 
 const Auth = {
@@ -22,7 +27,8 @@ const Auth = {
             await window.auth.signOut();
             this.currentUser = null;
             this.userProfile = null;
-            alert(err.message || 'Access denied');
+            // Friendly message instead of raw errors
+            this.showAccessDenied(err.message || 'Access denied');
             resolve(null);
           }
         } else {
@@ -34,36 +40,68 @@ const Auth = {
     });
   },
 
-  /** Superadmins always allowed. Everyone else must be a La Verdad email. */
-  isEmailAllowed(email) {
-    if (!email) return false;
+  showAccessDenied(message) {
+    // Prefer in-app banner over browser alert when possible
+    if (typeof App !== 'undefined' && App.showAccessDeniedScreen) {
+      App.showAccessDeniedScreen(message);
+    } else {
+      alert(message);
+    }
+  },
+
+  /** Check if email has a teacher invite (personal email exception) */
+  async hasInvite(email) {
+    const lower = (email || '').toLowerCase();
+    if (!lower) return false;
+    try {
+      const snap = await window.db.collection('invitedStudents').doc(lower).get();
+      return snap.exists;
+    } catch (e) {
+      console.error('Invite check failed', e);
+      return false;
+    }
+  },
+
+  /** Superadmins always allowed. School domains allowed. Invited personal emails allowed. */
+  async isEmailAllowed(email) {
+    if (!email) return { allowed: false, reason: 'No email provided.' };
     const lower = email.toLowerCase();
 
-    // 1. Superadmin emails (including personal Gmail) — always allowed
+    // 1. Superadmin list
     const superEmails = (window.SUPERADMIN_EMAILS || []).map(e => e.toLowerCase());
-    if (superEmails.includes(lower)) return true;
-
-    // 2. Must match one of the allowed school domains
-    const domains = (window.ALLOWED_EMAIL_DOMAINS || []).map(d => d.toLowerCase());
-    if (domains.length > 0) {
-      return domains.some(d => lower.endsWith('@' + d));
+    if (superEmails.includes(lower)) {
+      return { allowed: true, reason: 'superadmin' };
     }
 
-    // Fallback to older settings
-    if (window.STUDENT_DOMAIN && lower.endsWith('@' + window.STUDENT_DOMAIN.toLowerCase())) return true;
-    const teacherDomains = (window.TEACHER_DOMAINS || []).map(d => d.toLowerCase());
-    if (teacherDomains.some(d => lower.endsWith('@' + d))) return true;
+    // 2. School domains
+    const domains = (window.ALLOWED_EMAIL_DOMAINS || [
+      'student.laverdad.edu.ph',
+      'laverdad.edu.ph'
+    ]).map(d => d.toLowerCase());
 
-    return false;
+    if (domains.some(d => lower.endsWith('@' + d))) {
+      return { allowed: true, reason: 'school' };
+    }
+
+    // 3. Teacher invite for personal email
+    if (await this.hasInvite(lower)) {
+      return { allowed: true, reason: 'invited' };
+    }
+
+    return {
+      allowed: false,
+      reason:
+        'Only La Verdad emails are allowed (@student.laverdad.edu.ph or @laverdad.edu.ph).\n\n' +
+        'If you need to use a personal email, ask your teacher to invite you first.'
+    };
   },
 
   async ensureUserProfile(user) {
     const email = (user.email || '').toLowerCase();
+    const check = await this.isEmailAllowed(email);
 
-    if (!this.isEmailAllowed(email)) {
-      throw new Error(
-        'Access denied. Only La Verdad emails (@student.laverdad.edu.ph or @laverdad.edu.ph) are allowed.'
-      );
+    if (!check.allowed) {
+      throw new Error(check.reason);
     }
 
     const ref = window.db.collection('users').doc(user.uid);
@@ -85,6 +123,7 @@ const Auth = {
       name: user.displayName || user.email.split('@')[0],
       photoURL: user.photoURL || null,
       role,
+      invited: check.reason === 'invited',
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
@@ -102,7 +141,24 @@ const Auth = {
       return this.userProfile;
     } catch (err) {
       console.error('Sign-in error', err);
-      throw err;
+      // Friendlier messages for common Firebase errors
+      if (err.code === 'auth/network-request-failed') {
+        throw new Error(
+          'Network error during sign-in. Check your internet connection and try again.\n\n' +
+          'If you are on school Wi-Fi, try a mobile hotspot.'
+        );
+      }
+      if (err.code === 'auth/popup-closed-by-user') {
+        throw new Error('Sign-in was cancelled. Please try again and complete the Google popup.');
+      }
+      if (err.code === 'auth/unauthorized-domain') {
+        throw new Error('This website domain is not authorized in Firebase. Contact the administrator.');
+      }
+      // Access denied from ensureUserProfile
+      if (err.message && err.message.includes('Only La Verdad')) {
+        throw err;
+      }
+      throw new Error(err.message || 'Sign-in failed. Please try again.');
     }
   },
 
@@ -122,6 +178,36 @@ const Auth = {
 
   isStudent() {
     return this.userProfile?.role === 'student';
+  },
+
+  // ---- Teacher invites personal emails ----
+  async inviteStudent(email) {
+    if (!this.isTeacher()) throw new Error('Only teachers can invite students');
+    email = email.trim().toLowerCase();
+    if (!email || !email.includes('@')) throw new Error('Enter a valid email address');
+
+    await window.db.collection('invitedStudents').doc(email).set({
+      email,
+      invitedBy: this.currentUser.uid,
+      invitedByEmail: this.userProfile.email,
+      invitedByName: this.userProfile.name,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    return { success: true, message: 'Invited ' + email + '. They can now sign in with that email.' };
+  },
+
+  async removeInvite(email) {
+    if (!this.isTeacher()) throw new Error('Only teachers can manage invites');
+    email = email.trim().toLowerCase();
+    await window.db.collection('invitedStudents').doc(email).delete();
+  },
+
+  async listInvites() {
+    if (!this.isTeacher()) return [];
+    const snap = await window.db.collection('invitedStudents')
+      .where('invitedBy', '==', this.currentUser.uid)
+      .get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   },
 
   async addTeacher(email) {

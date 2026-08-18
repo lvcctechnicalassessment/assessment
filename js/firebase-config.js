@@ -1,16 +1,9 @@
 /**
  * Firebase Configuration
  *
- * IMPORTANT: Replace the placeholder values below with your own Firebase project config.
- *
- * How to get this:
- * 1. Go to https://console.firebase.google.com/
- * 2. Create a new project
- * 3. Enable Authentication > Sign-in method > Google
- * 4. Create a Firestore Database (start in test mode)
- * 5. Project Settings > Your apps > Web app > Copy the config object
+ * Keep your REAL firebaseConfig values on GitHub (do not replace them with these placeholders).
  */
- 
+
 window.firebaseConfig = {
   apiKey: "AIzaSyDF842O0lcMJvVBMzpuRkvKUTVXXikwa_8",
   authDomain: "lvcc-technical-assessment.firebaseapp.com",
@@ -22,34 +15,36 @@ window.firebaseConfig = {
 };
 
 // ============================================
-// SUPERADMIN CONFIGURATION
+// SUPERADMIN — always allowed (even Gmail)
 // ============================================
-// Put your school Google email here. This user becomes Superadmin automatically.
 window.SUPERADMIN_EMAILS = [
   "joanepauline.maunes@laverdad.edu.ph",
-  "maunes.pauline@gmail.com"   // <-- REPLACE with your actual school email
+  "maunes.pauline@gmail.com"   // <-- put your real Gmail here
 ];
 
-// Optional: Restrict login to school domain only (e.g. "school.edu")
+// ============================================
+// DOMAIN RULES
+// ============================================
+// Everyone EXCEPT superadmins must use one of these domains.
+window.ALLOWED_EMAIL_DOMAINS = [
+  "student.laverdad.edu.ph",  // students
+  "laverdad.edu.ph"           // teachers / staff
+];
+
+// (legacy – not used when ALLOWED_EMAIL_DOMAINS is set)
+window.STUDENT_DOMAIN = "student.laverdad.edu.ph";
+window.TEACHER_DOMAINS = ["laverdad.edu.ph"];
 window.ALLOWED_DOMAIN = null;
 
-// Everyone else must use a La Verdad email
-window.ALLOWED_EMAIL_DOMAINS = [
-  "student.laverdad.edu.ph",
-  "laverdad.edu.ph"
-];
-
 /**
- * Initialize Firebase. Called by app.js after scripts have had time to load.
+ * Initialize Firebase
  */
 window.initFirebaseApp = function initFirebaseApp() {
   if (typeof firebase === "undefined") {
     console.error("Firebase global is undefined – CDN scripts did not load.");
     return false;
   }
-
   try {
-    // Avoid double-init
     if (!firebase.apps || !firebase.apps.length) {
       firebase.initializeApp(window.firebaseConfig);
     }
