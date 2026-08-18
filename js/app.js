@@ -231,19 +231,33 @@ const App = {
         el.innerHTML = '<p class="text-muted">No teachers yet.</p>';
         return;
       }
+      const myUid = Auth.currentUser?.uid;
       el.innerHTML = `
         <table class="table">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Actions</th></tr></thead>
           <tbody>
-            ${teachers.map(t => `
+            ${teachers.map(t => {
+              const isMe = t.uid === myUid;
+              let actions = '';
+              if (t.role === 'teacher') {
+                actions = `
+                  <button class="btn btn-sm btn-primary" onclick="App.makeSuperAdmin('${t.uid}')">Make Superadmin</button>
+                  <button class="btn btn-sm btn-danger" onclick="App.removeTeacher('${t.uid}')">Demote</button>`;
+              } else if (t.role === 'superadmin' && !isMe) {
+                actions = `
+                  <button class="btn btn-sm btn-ghost" onclick="App.setRole('${t.uid}', 'teacher')">Make Teacher</button>
+                  <button class="btn btn-sm btn-danger" onclick="App.removeTeacher('${t.uid}')">Demote</button>`;
+              } else if (isMe) {
+                actions = `<span class="text-muted" style="font-size:0.8rem">You</span>`;
+              }
+              return `
               <tr>
                 <td>${escapeHtml(t.name)}</td>
                 <td>${escapeHtml(t.email)}</td>
                 <td><span class="role-badge ${t.role}">${t.role}</span></td>
-                <td>
-                  ${t.role === 'teacher' ? `<button class="btn btn-sm btn-danger" onclick="App.removeTeacher('${t.uid}')">Demote</button>` : ''}
-                </td>
-              </tr>`).join('')}
+                <td class="flex gap-2">${actions}</td>
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>`;
     } catch (err) {
@@ -252,8 +266,20 @@ const App = {
   },
 
   async removeTeacher(uid) {
-    if (!confirm('Demote this teacher to student?')) return;
+    if (!confirm('Demote this user to student?')) return;
     await Auth.removeTeacher(uid);
+    this.loadTeachersList();
+  },
+
+  async makeSuperAdmin(uid) {
+    if (!confirm('Promote this user to Superadmin?')) return;
+    await Auth.setRole(uid, 'superadmin');
+    this.loadTeachersList();
+  },
+
+  async setRole(uid, role) {
+    if (!confirm('Change this user role to "' + role + '"?')) return;
+    await Auth.setRole(uid, role);
     this.loadTeachersList();
   },
 
