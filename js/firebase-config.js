@@ -33,6 +33,12 @@ window.SUPERADMIN_EMAILS = [
 // Optional: Restrict login to school domain only (e.g. "school.edu")
 window.ALLOWED_DOMAIN = null;
 
+// Everyone else must use a La Verdad email
+window.ALLOWED_EMAIL_DOMAINS = [
+  "student.laverdad.edu.ph",
+  "laverdad.edu.ph"
+];
+
 /**
  * Initialize Firebase. Called by app.js after scripts have had time to load.
  */
