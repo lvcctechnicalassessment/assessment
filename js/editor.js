@@ -164,14 +164,24 @@ const CodeEditor = {
       this._flag('copy', 'Copy action detected');
     });
 
-    // 3. Detect paste (especially large pastes)
+    // 3. Detect paste — record line ranges for teacher highlight
     document.addEventListener('paste', (e) => {
-      const text = (e.clipboardData || window.clipboardData).getData('text');
-      if (text && text.length > 30) {
-        this._flag('paste', `Large paste detected (${text.length} chars)`);
-      } else {
-        this._flag('paste', 'Paste action detected');
-      }
+      const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+      const lines = text.split(/\r?\n/).length;
+      let startLine = 1, endLine = lines;
+      try {
+        if (this.editor) {
+          const sel = this.editor.getSelection();
+          if (sel) {
+            startLine = sel.startLineNumber;
+            endLine = startLine + Math.max(lines - 1, 0);
+          }
+        }
+      } catch (_) {}
+      const pasteRange = { startLine, endLine, lines, chars: text.length, at: new Date().toISOString() };
+      this._flag('paste', `Student pasted code (${lines} line${lines === 1 ? '' : 's'})`, { pasteRange });
+      // Local highlight markers
+      this._highlightPaste(startLine, endLine);
     });
 
     // 4. Tab / window switch / minimize
@@ -205,24 +215,53 @@ const CodeEditor = {
     // document.documentElement.requestFullscreen?.().catch(() => {});
   },
 
-  _flag(type, details) {
+  _flag(type, details, extra = {}) {
     if (!this.sessionId) return;
-    // Throttle identical events
     const key = type + details;
     if (this._lastFlag === key && Date.now() - (this._lastFlagTime || 0) < 4000) return;
     this._lastFlag = key;
     this._lastFlagTime = Date.now();
 
-    Exam.logEvent(this.sessionId, type, details).catch(console.error);
+    Exam.logEvent(this.sessionId, type, details, extra).catch(console.error);
 
-    // Visual feedback for student (optional, can be removed for stealth)
     const banner = document.getElementById('lock-banner');
     if (banner) {
-      banner.textContent = `⚠ Integrity alert: ${details}`;
+      banner.textContent = '⚠ Integrity alert: ' + details;
       banner.classList.remove('hidden');
       setTimeout(() => banner.classList.add('hidden'), 3500);
     }
   },
+
+  _highlightPaste(startLine, endLine) {
+    if (!this.editor || !window.monaco) return;
+    const model = this.editor.getModel();
+    if (!model) return;
+    const markers = monaco.editor.getModelMarkers({ resource: model.uri }) || [];
+    markers.push({
+      severity: monaco.MarkerSeverity.Warning,
+      message: 'Recently pasted block',
+      startLineNumber: startLine,
+      startColumn: 1,
+      endLineNumber: endLine,
+      endColumn: 1
+    });
+    monaco.editor.setModelMarkers(model, 'paste-highlight', markers.filter(m => m.message === 'Recently pasted block' || m.owner === 'paste-highlight').concat([{
+      severity: monaco.MarkerSeverity.Warning,
+      message: 'Recently pasted block',
+      startLineNumber: startLine,
+      startColumn: 1,
+      endLineNumber: endLine,
+      endColumn: 200
+    }]));
+  },
+
+  lockEditor() {
+    if (this.editor) {
+      this.editor.updateOptions({ readOnly: true });
+    }
+    this.isLocked = true;
+  },
+
 
   dispose() {
     if (this.editor) {

@@ -399,24 +399,35 @@ const App = {
   showCreateExam() {
     this.renderShell(`
       <h2 class="page-title">Create Coding Exam</h2>
-      <p class="page-subtitle">Students will receive a unique link to take this exam in a monitored editor.</p>
-      
+      <p class="page-subtitle">Students receive a unique link. Set duration and optional answer key for auto-grading.</p>
       <div class="card">
         <div class="form-group">
           <label>Exam Title</label>
-          <input type="text" id="exam-title" class="form-control" placeholder="e.g. Python Midterm – Functions & Lists" />
+          <input type="text" id="exam-title" class="form-control" placeholder="e.g. Python Midterm" />
         </div>
         <div class="form-group">
           <label>Instructions</label>
-          <textarea id="exam-instructions" class="form-control" rows="8" placeholder="Write clear instructions, allowed libraries, time limits, what to implement, etc."></textarea>
+          <textarea id="exam-instructions" class="form-control" rows="6" placeholder="Clear instructions for students"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Duration (minutes)</label>
+          <input type="number" id="exam-duration" class="form-control" value="60" min="1" max="600" />
+        </div>
+        <div class="form-group">
+          <label>Max score (default base 50)</label>
+          <input type="number" id="exam-maxscore" class="form-control" value="50" min="1" max="100" />
         </div>
         <div class="form-group">
           <label>Starter Code (optional)</label>
-          <textarea id="exam-starter" class="form-control" rows="6" style="font-family:monospace"># Write your Python solution here
+          <textarea id="exam-starter" class="form-control" rows="5" style="font-family:monospace"># Write your Python solution here
 
 def solution():
     pass
 </textarea>
+        </div>
+        <div class="form-group">
+          <label>Answer key / correct solution (optional — for auto-grade)</label>
+          <textarea id="exam-answer" class="form-control" rows="6" style="font-family:monospace" placeholder="Paste the expected correct Python solution"></textarea>
         </div>
         <div class="modal-actions">
           <button class="btn btn-ghost" onclick="App.showTeacherHome()">Cancel</button>
@@ -429,18 +440,20 @@ def solution():
       const title = document.getElementById('exam-title').value.trim();
       const instructions = document.getElementById('exam-instructions').value.trim();
       const starterCode = document.getElementById('exam-starter').value;
+      const durationMinutes = Number(document.getElementById('exam-duration').value) || 60;
+      const maxScore = Number(document.getElementById('exam-maxscore').value) || 50;
+      const answerKey = document.getElementById('exam-answer').value;
       if (!title || !instructions) {
         alert('Title and instructions are required');
         return;
       }
       try {
-        const exam = await Exam.createExam({ title, instructions, starterCode });
+        const exam = await Exam.createExam({ title, instructions, starterCode, durationMinutes, maxScore, answerKey });
         alert('Exam created! Share the link with students.');
         this.showTeacherHome();
-        // Optionally auto-copy link
         this.copyExamLink(exam.id);
       } catch (err) {
-        alert('Error: ' + err.message);
+        alert('Error: ' + err.message + '\n\nIf this is a permissions error, publish firestore.rules in Firebase Console.');
       }
     };
   },
@@ -455,6 +468,8 @@ def solution():
   },
 
   async toggleExamActive(examId, active) {
+    const msg = active ? 'Reopen this exam?' : 'Close this exam? Students will no longer be able to join.';
+    if (!confirm(msg)) return;
     await Exam.updateExam(examId, { active });
     this.showTeacherHome();
   },
@@ -481,15 +496,21 @@ def solution():
   },
 
   async startStudentExam(examId) {
-    // Full-screen exam layout (no sidebar)
     document.getElementById('app').innerHTML = `
       <div class="lock-banner hidden" id="lock-banner"></div>
+      <div id="timesup-overlay" class="timesup-overlay hidden">
+        <div class="timesup-box">
+          <h1>Time's up!</h1>
+          <p>Your code has been submitted automatically.</p>
+        </div>
+      </div>
       <header class="app-header">
         <div class="logo">
           <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" />
           <span>LVCC Assessment Portal — Coding Exam</span>
         </div>
         <div class="user-info">
+          <span id="exam-timer" class="exam-timer">--:--</span>
           <span>${escapeHtml(Auth.userProfile.name)}</span>
           <button class="btn btn-sm btn-danger" id="submit-exam-btn">Submit Exam</button>
         </div>
@@ -506,7 +527,7 @@ def solution():
           <div class="editor-toolbar">
             <span class="text-muted">Python Editor • Auto-save & Live Sync enabled</span>
             <span style="flex:1"></span>
-            <span id="sync-status" class="text-muted" style="font-size:0.8rem">● Synced</span>
+            <span id="sync-status" class="text-muted" style="font-size:0.8rem">● Live</span>
           </div>
           <div id="monaco-container"></div>
           <div class="output-panel">
@@ -520,23 +541,47 @@ def solution():
     try {
       const session = await Exam.joinExam(examId);
       document.getElementById('exam-instructions-text').textContent = session.exam.instructions;
-
       await CodeEditor.init('monaco-container', session.code || session.exam.starterCode || '', session.id, examId);
 
       document.getElementById('check-code-btn').onclick = () => CodeEditor.checkCode();
       document.getElementById('submit-exam-btn').onclick = async () => {
         if (!confirm('Submit your exam? You will not be able to edit further.')) return;
-        await Exam.submitSession(session.id);
-        alert('Exam submitted successfully. You may close this window.');
+        await Exam.submitSession(session.id, 'manual');
+        alert('Exam submitted successfully.');
         CodeEditor.dispose();
         this.showStudentHome();
       };
 
-      // Visual sync indicator
-      setInterval(() => {
-        const el = document.getElementById('sync-status');
-        if (el) el.textContent = '● Live';
-      }, 5000);
+      // Timer
+      const endsAt = session.endsAt || (Date.now() + (session.durationMinutes || 60) * 60000);
+      this._examTimerInterval = setInterval(async () => {
+        // Refresh endsAt from session if teacher extended
+        const remain = endsAt - Date.now();
+        const el = document.getElementById('exam-timer');
+        if (el) {
+          el.textContent = typeof formatMs === 'function' ? formatMs(Math.max(0, remain)) : '';
+          if (remain < 5 * 60 * 1000) el.classList.add('timer-warn');
+        }
+        if (remain <= 0) {
+          clearInterval(this._examTimerInterval);
+          CodeEditor.lockEditor();
+          const ov = document.getElementById('timesup-overlay');
+          if (ov) ov.classList.remove('hidden');
+          try {
+            await Exam.submitSession(session.id, 'timeout');
+          } catch (e) { console.error(e); }
+        }
+      }, 500);
+
+      // Listen for teacher time extension
+      Exam.listenToSession(session.id, (s) => {
+        if (s.endsAt && s.endsAt > endsAt) {
+          // update local endsAt by reassignment via closure - use object
+        }
+        if (s.status === 'submitted' && s.submitReason === 'timeout') {
+          CodeEditor.lockEditor();
+        }
+      });
 
     } catch (err) {
       alert('Could not join exam: ' + err.message);
@@ -545,12 +590,151 @@ def solution():
   },
 
   async logout() {
+    if (!confirm('Are you sure you want to log out?')) return;
     Dashboard.clearListeners();
     CodeEditor.dispose();
     await Auth.signOut();
-    // Clear query params
     window.history.replaceState({}, '', window.location.pathname);
     this.showLogin();
+  },
+
+
+  async gradeSession(sessionId, examId) {
+    const exam = await Exam.getExam(examId);
+    const snap = await window.db.collection('sessions').doc(sessionId).get();
+    if (!snap.exists) { alert('Session not found'); return; }
+    const session = { id: snap.id, ...snap.data() };
+    const maxScore = Number(exam.maxScore) || 50;
+    const auto = Exam.autoGrade(session.code, exam.answerKey, maxScore);
+    const existing = await Exam.getGrade(sessionId);
+
+    const scoreDefault = existing?.score ?? auto.score ?? '';
+    const commentDefault = existing?.comment || '';
+
+    const scoreStr = prompt(
+      `Grade ${session.studentName || session.studentEmail}\n` +
+      `Max score: ${maxScore} (percentage shown on /100 scale)\n` +
+      (auto.note ? `Auto-grade hint: ${auto.note} → ${auto.score}\n` : '') +
+      `Enter score (0–${maxScore}):`,
+      String(scoreDefault)
+    );
+    if (scoreStr === null) return;
+    const score = Number(scoreStr);
+    if (Number.isNaN(score) || score < 0 || score > maxScore) {
+      alert('Invalid score');
+      return;
+    }
+    const comment = prompt('Comment (optional):', commentDefault) || '';
+    const percent = Math.round((score / maxScore) * 1000) / 10;
+    await Exam.saveGrade(sessionId, examId, {
+      studentId: session.studentId,
+      studentEmail: session.studentEmail,
+      studentName: session.studentName,
+      score,
+      maxScore,
+      percent,
+      comment,
+      method: existing ? 'manual' : (auto.method || 'manual')
+    });
+    alert(`Saved: ${score}/${maxScore} (${percent}%)`);
+  },
+
+  async showExamResults(examId) {
+    const exam = await Exam.getExam(examId);
+    this.renderShell(`
+      <div class="card-header">
+        <div>
+          <h2 class="page-title">Results — ${escapeHtml(exam.title)}</h2>
+          <p class="page-subtitle">Max score: ${exam.maxScore || 50} · Base scale shown as score/max and %</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-ghost" onclick="App.exportSummary('${examId}')">Export summary CSV</button>
+          <button class="btn btn-ghost" onclick="App.showTeacherHome()">← Back</button>
+        </div>
+      </div>
+      <div id="results-table">Loading...</div>
+    `, 'exams');
+
+    const sessionsSnap = await window.db.collection('sessions').where('examId', '==', examId).get();
+    const sessions = sessionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const grades = await Exam.listGrades(examId);
+    const gradeMap = Object.fromEntries(grades.map(g => [g.sessionId, g]));
+
+    const el = document.getElementById('results-table');
+    if (sessions.length === 0) {
+      el.innerHTML = '<p class="text-muted">No submissions yet.</p>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="table">
+        <thead><tr><th>Student</th><th>Email</th><th>Status</th><th>Score</th><th>%</th><th>Comment</th><th></th></tr></thead>
+        <tbody>
+          ${sessions.map(s => {
+            const g = gradeMap[s.id];
+            const score = g ? `${g.score}/${g.maxScore}` : '—';
+            const pct = g ? g.percent + '%' : '—';
+            return `<tr>
+              <td>${escapeHtml(s.studentName || '')}</td>
+              <td>${escapeHtml(s.studentEmail || '')}</td>
+              <td>${escapeHtml(s.status)}</td>
+              <td>${score}</td>
+              <td>${pct}</td>
+              <td>${escapeHtml(g?.comment || '')}</td>
+              <td style="display:flex;gap:0.35rem;flex-wrap:wrap">
+                <button class="btn btn-sm btn-primary" onclick="App.gradeSession('${s.id}', '${examId}')">Grade</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.exportStudentReport('${s.id}', '${examId}')">Export</button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  },
+
+  async exportStudentReport(sessionId, examId) {
+    const exam = await Exam.getExam(examId);
+    const snap = await window.db.collection('sessions').doc(sessionId).get();
+    const session = { id: snap.id, ...snap.data() };
+    const grade = await Exam.getGrade(sessionId);
+    const text = [
+      'LVCC Assessment Portal — Student Report',
+      'Exam: ' + (exam.title || ''),
+      'Student: ' + (session.studentName || ''),
+      'Email: ' + (session.studentEmail || ''),
+      'Status: ' + (session.status || ''),
+      'Score: ' + (grade ? `${grade.score}/${grade.maxScore} (${grade.percent}%)` : 'Not graded'),
+      'Comment: ' + (grade?.comment || ''),
+      '',
+      '--- Student answer ---',
+      session.code || '',
+      '',
+      '--- Correct answer / key ---',
+      exam.answerKey || '(none)',
+      ''
+    ].join('\\n');
+    downloadText(`report-${(session.studentEmail || sessionId).replace(/[^a-z0-9]/gi,'_')}.txt`, text);
+  },
+
+  async exportSummary(examId) {
+    const exam = await Exam.getExam(examId);
+    const sessionsSnap = await window.db.collection('sessions').where('examId', '==', examId).get();
+    const sessions = sessionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const grades = await Exam.listGrades(examId);
+    const gradeMap = Object.fromEntries(grades.map(g => [g.sessionId, g]));
+    const rows = [['Name', 'Email', 'Status', 'Score', 'Max', 'Percent', 'Comment']];
+    sessions.forEach(s => {
+      const g = gradeMap[s.id];
+      rows.push([
+        s.studentName || '',
+        s.studentEmail || '',
+        s.status || '',
+        g ? g.score : '',
+        g ? g.maxScore : (exam.maxScore || 50),
+        g ? g.percent : '',
+        (g?.comment || '').replace(/,/g, ';')
+      ]);
+    });
+    const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\\n');
+    downloadText(`summary-${examId}.csv`, csv);
   },
 
   showError(msg) {
@@ -567,3 +751,26 @@ def solution():
 document.addEventListener('DOMContentLoaded', () => App.init());
 
 window.App = App;
+
+
+function downloadText(filename, content) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+window.downloadText = downloadText;
+
+function formatMs(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const mm = String(m % 60).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  if (h > 0) return h + ':' + mm + ':' + ss;
+  return mm + ':' + ss;
+}
+window.formatMs = formatMs;
