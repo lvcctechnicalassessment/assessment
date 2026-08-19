@@ -5,6 +5,7 @@
 
 const App = {
   async init() {
+    Theme.init();
     const loading = document.getElementById('loading');
     try {
       const ok = await this.waitForFirebase(8000);
@@ -16,6 +17,7 @@ const App = {
       if (profile) {
         await Auth.checkPendingTeacher(Auth.currentUser);
         await Auth.resolveProctorState(Auth.currentUser);
+        await Theme.loadFromProfile();
         this.routeAfterLogin();
       } else {
         this.showLogin();
@@ -75,6 +77,9 @@ const App = {
           Personal email only if invited to a specific exam.
         </p>
         <div id="login-error" class="hidden login-error"></div>
+        <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
+          <div class="app-version">Build v1.4.2</div>
+        </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
       const errBox = document.getElementById('login-error');
@@ -85,7 +90,10 @@ const App = {
           await Auth.checkPendingTeacher(Auth.currentUser);
           await Auth.resolveProctorState(Auth.currentUser);
         }
-        if (Auth.userProfile) this.routeAfterLogin();
+        if (Auth.userProfile) {
+          await Theme.loadFromProfile();
+          this.routeAfterLogin();
+        }
       } catch (err) {
         errBox.textContent = err.message || 'Sign-in failed.';
         errBox.classList.remove('hidden');
@@ -148,10 +156,11 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.2</span>
           </div>
         </div>
         <div class="header-right">
+          ${Theme.buttonHtml()}
           <div class="user-info header-user-desktop">
             <span class="role-badge ${role}">${role}</span>
             <span class="user-name">${escapeHtml(name)}</span>
@@ -169,6 +178,7 @@ const App = {
             <div class="text-muted" style="font-size:0.75rem;margin-bottom:0.35rem">Signed in</div>
             <div style="font-weight:600;word-break:break-all">${escapeHtml(name)}</div>
             <span class="role-badge ${role}" style="margin-top:0.35rem;display:inline-block">${role}</span>
+            <div class="mt-1">${Theme.buttonHtml()}</div>
             <button class="btn btn-sm btn-ghost w-full mt-1" onclick="App.logout()">Logout</button>
           </div>
         </aside>
@@ -252,9 +262,9 @@ const App = {
     await Dashboard.renderMyExams(document.getElementById('exams-container'));
   },
 
-  showCreateExam() {
+  async showCreateExam() {
     if (!Auth.isTeacher()) {
-      alert('Only teachers can create assessments. Students can generate mock assessments from History.');
+      await UI.alert('Only teachers can create assessments. Students can generate mock assessments from History.', 'Access');
       this.showStudentHome();
       return;
     }
@@ -316,9 +326,10 @@ const App = {
           </div>
         </div>
         <div id="regular-fields" class="hidden">
-          <div class="card-title">Questions</div>
-          <div id="questions-builder"></div>
-          <button type="button" class="btn btn-ghost mt-1" id="add-q-btn">+ Add question</button>
+          <div class="card-title">Question sections</div>
+          <p class="text-muted" style="font-size:0.85rem">Pick a question type to create a section. Add more of the same type inside the section, or pick another type below for a new section.</p>
+          <div id="type-picker" class="type-picker"></div>
+          <div id="questions-builder" class="mt-2"></div>
         </div>
         <div class="modal-actions action-btns">
           <button class="btn btn-ghost" onclick="App.showTeacherHome()">Cancel</button>
@@ -340,139 +351,182 @@ const App = {
     typeEl.onchange = syncType;
     syncType();
 
-    window._builderQuestions = [];
+    window._builderSections = [];
+    window._builderQuestions = []; // flattened for save
+
+    const syncFlat = () => {
+      window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
+    };
+
     const renderBuilder = () => {
       const box = document.getElementById('questions-builder');
-      box.innerHTML = window._builderQuestions.map((q, i) => {
-        const typeSel = `<div class="form-row" style="margin-bottom:0.5rem">
-          <select data-i="${i}" class="form-control q-type">
-            ${QUESTION_TYPES.map(t => `<option value="${t.id}" ${q.type===t.id?'selected':''}>${t.label}</option>`).join('')}
-          </select>
-          <button class="btn btn-sm btn-danger" data-del="${i}">Remove</button>
-        </div>`;
-        if (q.type === 'multiple' || q.type === 'multiselect') {
-          return `<div class="card">${typeSel}${Regular.renderBuilderMC(q, i)}</div>`;
-        }
-        if (q.type === 'truefalse' || q.type === 'modified_tf') {
-          return `<div class="card">${typeSel}${Regular.renderBuilderTF(q, i)}</div>`;
-        }
-        return `<div class="card q-edit">${typeSel}
-          <textarea class="form-control q-prompt" data-i="${i}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
-          <input class="form-control mt-1" data-correct-text="${i}" value="${escapeHtml(String(q.correct ?? ''))}" placeholder="Correct answer" />
-        </div>`;
-      }).join('') || '<p class="text-muted">No questions yet. Add one and mark the correct option with ✓.</p>';
+      const sections = window._builderSections || [];
+      if (!sections.length) {
+        box.innerHTML = '<p class="text-muted">No sections yet. Choose a question type below to start a section.</p>';
+        return;
+      }
+      box.innerHTML = sections.map((sec, si) => {
+        const qs = sec.questions || [];
+        const qHtml = qs.map((q, qi) => {
+          // global index in flat list
+          const globalIdx = sections.slice(0, si).reduce((a, s) => a + (s.questions || []).length, 0) + qi;
+          const typeSel = ''; // type fixed per section
+          if (q.type === 'multiple' || q.type === 'multiselect') {
+            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${Regular.renderBuilderMC(q, globalIdx)}
+              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+          }
+          if (q.type === 'truefalse' || q.type === 'modified_tf') {
+            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${Regular.renderBuilderTF(q, globalIdx)}
+              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+          }
+          return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">
+            <textarea class="form-control q-prompt" data-gidx="${globalIdx}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
+            <input class="form-control mt-1" data-correct-text="${globalIdx}" value="${escapeHtml(String(q.correct ?? ''))}" placeholder="Correct answer" />
+            <label class="mt-1">Points <input type="number" class="form-control" style="width:80px;display:inline-block" data-points="${globalIdx}" value="${q.points??1}" /></label>
+            <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button>
+          </div>`;
+        }).join('');
+        return `
+          <div class="section-block" data-si="${si}">
+            <div class="section-head">
+              <h3>${escapeHtml(sec.title)}</h3>
+              <button type="button" class="btn btn-sm btn-danger" data-del-sec="${si}">Remove section</button>
+            </div>
+            <div class="form-group">
+              <label>Section instructions</label>
+              <textarea class="form-control" data-sec-instr="${si}" rows="2" placeholder="Instructions for this section">${escapeHtml(sec.instructions||'')}</textarea>
+            </div>
+            ${qHtml}
+            <button type="button" class="btn btn-ghost btn-sm" data-add-same="${si}">+ Add ${escapeHtml(sec.title)} question</button>
+          </div>`;
+      }).join('');
 
-      box.querySelectorAll('.q-type').forEach(el => {
-        el.onchange = () => {
-          window._builderQuestions[Number(el.dataset.i)] = Regular.newQuestion(el.value);
-          renderBuilder();
+      // wire section instructions
+      box.querySelectorAll('[data-sec-instr]').forEach(el => {
+        el.oninput = () => { window._builderSections[Number(el.dataset.secInstr)].instructions = el.value; };
+      });
+      box.querySelectorAll('[data-del-sec]').forEach(el => {
+        el.onclick = async () => {
+          if (!(await UI.confirm('Remove this entire section and its questions?', 'Remove section'))) return;
+          window._builderSections.splice(Number(el.dataset.delSec), 1);
+          syncFlat(); renderBuilder();
         };
       });
-      box.querySelectorAll('[data-del]').forEach(el => {
+      box.querySelectorAll('[data-del-q]').forEach(el => {
+        el.onclick = async () => {
+          if (!(await UI.confirm('Delete this question?', 'Delete question'))) return;
+          const [si, qi] = el.dataset.delQ.split(':').map(Number);
+          window._builderSections[si].questions.splice(qi, 1);
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-add-same]').forEach(el => {
         el.onclick = () => {
-          window._builderQuestions.splice(Number(el.dataset.del), 1);
-          renderBuilder();
+          const si = Number(el.dataset.addSame);
+          const type = (window._builderSections[si].questions[0] || {}).type || 'multiple';
+          window._builderSections[si].questions.push(Regular.newQuestion(type));
+          syncFlat(); renderBuilder();
         };
       });
+      // re-use global index handlers for MC/TF
+      const flat = window._builderQuestions;
       box.querySelectorAll('[data-prompt]').forEach(el => {
-        el.oninput = () => { window._builderQuestions[Number(el.dataset.prompt)].prompt = el.value; };
+        el.oninput = () => { const i = Number(el.dataset.prompt); if (flat[i]) flat[i].prompt = el.value; };
       });
       box.querySelectorAll('.q-prompt').forEach(el => {
-        if (el.dataset.i !== undefined) el.oninput = () => { window._builderQuestions[Number(el.dataset.i)].prompt = el.value; };
+        if (el.dataset.gidx !== undefined) el.oninput = () => { const i = Number(el.dataset.gidx); if (flat[i]) flat[i].prompt = el.value; };
       });
       box.querySelectorAll('[data-opt-text]').forEach(el => {
         el.oninput = () => {
           const [qi, oi] = el.dataset.optText.split(':').map(Number);
-          window._builderQuestions[qi].options[oi] = el.value;
+          if (flat[qi]) flat[qi].options[oi] = el.value;
         };
       });
       box.querySelectorAll('[data-correct]').forEach(el => {
         el.onclick = () => {
           const [qi, oi] = el.dataset.correct.split(':').map(Number);
-          const q = window._builderQuestions[qi];
-          if (q.type === 'multiselect' || q.multiCorrect) {
+          const q = flat[qi]; if (!q) return;
+          if (q.multiCorrect) {
             const arr = Array.isArray(q.correct) ? q.correct.map(Number) : [];
             const idx = arr.indexOf(oi);
             if (idx >= 0) arr.splice(idx, 1); else arr.push(oi);
             q.correct = arr;
-          } else {
-            q.correct = oi;
-          }
-          renderBuilder();
+          } else q.correct = oi;
+          // write back to section
+          syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-del-opt]').forEach(el => {
         el.onclick = () => {
           const [qi, oi] = el.dataset.delOpt.split(':').map(Number);
-          window._builderQuestions[qi].options.splice(oi, 1);
-          renderBuilder();
+          if (flat[qi]) flat[qi].options.splice(oi, 1);
+          syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-add-opt]').forEach(el => {
         el.onclick = () => {
           const qi = Number(el.dataset.addOpt);
-          window._builderQuestions[qi].options.push('');
-          renderBuilder();
+          if (flat[qi]) flat[qi].options.push('');
+          syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-multi]').forEach(el => {
         el.onchange = () => {
           const qi = Number(el.dataset.multi);
-          const q = window._builderQuestions[qi];
-          // Preserve pointsMode from current select before re-render
+          const q = flat[qi]; if (!q) return;
           const modeSel = box.querySelector(`[data-pointsmode="${qi}"]`);
           if (modeSel) q.pointsMode = modeSel.value;
           const ptsInp = box.querySelector(`[data-points="${qi}"]`);
           if (ptsInp) q.points = Number(ptsInp.value) || 1;
           q.multiCorrect = el.checked;
-          q.type = 'multiple'; // keep type multiple; multiCorrect flag only
           q.correct = el.checked
-            ? (Array.isArray(q.correct) ? q.correct : [q.correct].filter(x => x !== undefined && x !== null))
+            ? (Array.isArray(q.correct) ? q.correct : [q.correct].filter(x => x != null))
             : (Array.isArray(q.correct) ? (q.correct[0] ?? 0) : q.correct);
           if (!q.pointsMode) q.pointsMode = 'all';
-          renderBuilder();
+          syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-pointsmode]').forEach(el => {
-        el.onchange = () => {
-          const qi = Number(el.dataset.pointsmode);
-          window._builderQuestions[qi].pointsMode = el.value;
-        };
+        el.onchange = () => { const q = flat[Number(el.dataset.pointsmode)]; if (q) q.pointsMode = el.value; };
       });
       box.querySelectorAll('[data-points]').forEach(el => {
-        el.oninput = () => {
-          window._builderQuestions[Number(el.dataset.points)].points = Number(el.value) || 1;
-        };
+        el.oninput = () => { const q = flat[Number(el.dataset.points)]; if (q) q.points = Number(el.value) || 1; };
       });
       box.querySelectorAll('[data-modified]').forEach(el => {
-        el.oninput = () => { window._builderQuestions[Number(el.dataset.modified)].modifiedAnswer = el.value; };
+        el.oninput = () => { const q = flat[Number(el.dataset.modified)]; if (q) q.modifiedAnswer = el.value; };
       });
       box.querySelectorAll('[data-modified-alt]').forEach(el => {
         el.oninput = () => {
-          window._builderQuestions[Number(el.dataset.modifiedAlt)].modifiedAlternatives =
-            el.value.split(',').map(s => s.trim()).filter(Boolean);
+          const q = flat[Number(el.dataset.modifiedAlt)];
+          if (q) q.modifiedAlternatives = el.value.split(',').map(s => s.trim()).filter(Boolean);
         };
       });
       box.querySelectorAll('[data-correct-text]').forEach(el => {
-        el.oninput = () => { window._builderQuestions[Number(el.dataset.correctText)].correct = el.value; };
+        el.oninput = () => { const q = flat[Number(el.dataset.correctText)]; if (q) q.correct = el.value; };
       });
     };
-    document.getElementById('add-q-btn').onclick = async () => {
-      // Pick type → auto section
-      const typeList = QUESTION_TYPES.map(x => x.id + ' = ' + x.label).join('\n');
-      const type = await UI.prompt('Question type id (e.g. multiple, truefalse, modified_tf, essay, fill):\n\n' + typeList, 'multiple', 'Add question');
-      if (!type) return;
-      const tId = type.trim().split(/\s|=/)[0];
-      const label = (QUESTION_TYPES.find(x => x.id === tId) || { label: tId }).label;
-      if (!window._builderSections) window._builderSections = [];
-      const sec = Regular.newSection(label);
-      sec.instructions = '';
-      const q = Regular.newQuestion(tId);
-      sec.questions.push(q);
-      window._builderSections.push(sec);
-      window._builderQuestions.push(q);
-      renderBuilder();
-    };
+
+    // Type picker buttons outside sections
+    const typeBar = document.getElementById('type-picker');
+    if (typeBar) {
+      typeBar.innerHTML = QUESTION_TYPES.map(t =>
+        `<button type="button" class="btn btn-sm btn-ghost type-pick" data-type="${t.id}">${escapeHtml(t.label)}</button>`
+      ).join('');
+      typeBar.querySelectorAll('.type-pick').forEach(btn => {
+        btn.onclick = () => {
+          const type = btn.dataset.type;
+          const label = (QUESTION_TYPES.find(x => x.id === type) || { label: type }).label;
+          const sec = Regular.newSection(label);
+          sec.instructions = '';
+          sec.questions.push(Regular.newQuestion(type));
+          window._builderSections.push(sec);
+          syncFlat();
+          renderBuilder();
+        };
+      });
+    }
+
+    document.getElementById('add-q-btn')?.remove();
 
     const buildPayload = (status) => {
       const title = document.getElementById('exam-title').value.trim();
@@ -497,12 +551,13 @@ const App = {
           starterCode: document.getElementById('exam-starter').value,
           answerKey: document.getElementById('exam-answer').value,
           questions: p.examType === 'regular' ? window._builderQuestions : [],
+          sections: p.examType === 'regular' ? (window._builderSections || []) : [],
           status: 'draft',
           active: false
         });
         await UI.alert('Draft saved. You can edit and publish later.', 'Draft');
         this.showTeacherHome();
-      } catch (err) { await UI.alert(err.message); }
+      } catch (err) { await UI.alert(err.message || String(err), 'Error'); }
     };
 
     document.getElementById('create-exam-btn').onclick = async () => {
@@ -528,13 +583,14 @@ const App = {
           starterCode: document.getElementById('exam-starter').value,
           answerKey: document.getElementById('exam-answer').value,
           questions: examType === 'regular' ? window._builderQuestions : [],
+          sections: examType === 'regular' ? (window._builderSections || []) : [],
           status: 'published',
           active: true
         });
         await UI.alert('Assessment published. Share the link or QR with students.', 'Published');
         this.showSharePanel(exam.id);
       } catch (err) {
-        alert('Error: ' + err.message);
+        await UI.alert(err.message || String(err), 'Error');
       }
     };
   },
@@ -575,7 +631,7 @@ const App = {
       </div>
     `, 'exams');
     document.getElementById('copy-share').onclick = () => {
-      navigator.clipboard.writeText(url).then(() => alert('Link copied.')).catch(() => {});
+      navigator.clipboard.writeText(url).then(() => UI.alert('Link copied.', 'Share')).catch(() => {});
     };
   },
 
@@ -626,7 +682,7 @@ const App = {
       }
       await UI.alert('Shared with co-teacher. They will see a fresh copy to configure.', 'Shared');
     } catch (e) {
-      alert(e.message || String(e));
+      await UI.alert(e.message || String(e), 'Error');
     }
   },
 
@@ -643,13 +699,13 @@ const App = {
       await UI.alert('Assessment deleted.', 'Deleted');
       this.showTeacherHome();
     } catch (e) {
-      alert(e.message);
+      await UI.alert(e.message || String(e), 'Error');
     }
   },
 
   async editExam(examId) {
     const exam = await Exam.getExam(examId);
-    if (!exam) { alert('Not found'); return; }
+    if (!exam) { await UI.alert('Not found.', 'Error'); return; }
     const toLocal = (ms) => {
       const d = new Date(ms);
       const pad = n => String(n).padStart(2, '0');
@@ -712,9 +768,9 @@ const App = {
     const endAt = new Date(new Date(startAt).getTime() + (Number(mins) || 60) * 60000).toISOString();
     try {
       const exam = await Exam.duplicateExam(examId, { startAt, endAt, durationMinutes: Number(mins) || 60 });
-      alert('Duplicated: ' + exam.title);
+      await UI.alert('Duplicated: ' + exam.title);
       this.showTeacherHome();
-    } catch (e) { alert(e.message); }
+    } catch (e) { await UI.alert(e.message || String(e), 'Error'); }
   },
 
   openLiveDashboard(examId) {
@@ -985,7 +1041,7 @@ const App = {
       }
       return this.startCodeExam(session);
     } catch (err) {
-      alert(err.message);
+      await UI.alert(err.message || String(err), 'Error');
       this.showStudentHome();
     }
   },
@@ -1031,10 +1087,10 @@ const App = {
     await CodeEditor.init('monaco-container', session.code || exam.starterCode || '', session.id, exam.id, lang);
     document.getElementById('check-code-btn').onclick = () => CodeEditor.checkCode();
     document.getElementById('submit-exam-btn').onclick = async () => {
-      if (!confirm('Submit exam?')) return;
+      if (!(await UI.confirm('Submit this assessment?', 'Submit'))) return;
       await Exam.submitSession(session.id, 'manual');
       CodeEditor.dispose();
-      alert('Submitted.');
+      await UI.alert('Submitted successfully.', 'Done');
       this.showStudentHome();
     };
     this._runTimer(session);
@@ -1130,30 +1186,47 @@ const App = {
   },
 
   // ---- Grading / export (retained) ----
+  async publishDraft(examId) {
+    const exam = await Exam.getExam(examId);
+    if (!exam) { await UI.alert('Not found.', 'Error'); return; }
+    const toLocal = (ms) => {
+      const d = new Date(ms || Date.now());
+      const pad = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    };
+    const start = await UI.prompt('Start time (YYYY-MM-DDTHH:MM)', toLocal(Date.now()), 'Publish');
+    if (!start) return;
+    const end = await UI.prompt('End time (YYYY-MM-DDTHH:MM)', toLocal(Date.now() + 3600000), 'Publish');
+    if (!end) return;
+    const startAt = new Date(start).getTime();
+    const endAt = new Date(end).getTime();
+    if (endAt <= startAt) { await UI.alert('End must be after start.', 'Schedule'); return; }
+    if (startAt < Date.now() - 60000) { await UI.alert('Start cannot be in the past.', 'Schedule'); return; }
+    await Exam.updateExam(examId, {
+      startAt, endAt, status: 'published', active: true,
+      durationMinutes: Math.max(1, Math.round((endAt - startAt) / 60000))
+    });
+    await UI.alert('Assessment published.', 'Published');
+    this.showSharePanel(examId);
+  },
+
   async showIntegrityHistory(examId) {
     const exam = await Exam.getExam(examId);
     this.renderShell(`
       <div class="card-header page-header-responsive">
         <h2 class="page-title">Integrity issues — ${escapeHtml(exam?.title || '')}</h2>
-        <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+        <div class="action-btns">
+          <button class="btn btn-ghost" id="btn-export-integrity-pdf">Export PDF</button>
+          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+        </div>
       </div>
       <div class="card">
         <input type="search" id="integrity-filter-page" class="form-control" placeholder="Filter by name, email, type..." />
       </div>
       <div id="integrity-hist-list" class="mt-2">Loading...</div>
     `, 'exams');
+
     let all = [];
-    try {
-      const snap = await window.db.collection('integrityHistory')
-        .where('examId', '==', examId)
-        .get();
-      all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      all.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-    } catch (e) {
-      // fallback notifications
-      const snap = await window.db.collection('notifications').where('examId', '==', examId).get();
-      all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    }
     const render = () => {
       const q = (document.getElementById('integrity-filter-page')?.value || '').toLowerCase();
       const items = q ? all.filter(n =>
@@ -1176,33 +1249,70 @@ const App = {
         </div>`;
       }).join('') : '<p class="text-muted">No integrity events recorded.</p>';
     };
+
+    // Live sync from integrityHistory
+    const unsub = window.db.collection('integrityHistory')
+      .where('examId', '==', examId)
+      .onSnapshot(snap => {
+        all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        all.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+        render();
+      }, async (err) => {
+        // fallback notifications
+        try {
+          const snap = await window.db.collection('notifications').where('examId', '==', examId).get();
+          all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          render();
+        } catch (_) {
+          document.getElementById('integrity-hist-list').innerHTML = '<p class="text-muted">Could not load history.</p>';
+        }
+      });
+    Dashboard.unsubscribers.push(unsub);
+
     document.getElementById('integrity-filter-page').oninput = render;
-    render();
+    document.getElementById('btn-export-integrity-pdf').onclick = () => {
+      const w = window.open('', '_blank');
+      const rows = all.map(n => {
+        const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '';
+        return `<tr><td>${escapeHtml(n.studentName||'')}</td><td>${escapeHtml(n.studentEmail||'')}</td>
+          <td>${escapeHtml(n.type||'')}</td><td>${escapeHtml(n.details||'')}</td><td>${time}</td></tr>`;
+      }).join('');
+      w.document.write(`<!DOCTYPE html><html><head><title>Integrity — ${escapeHtml(exam?.title||'')}</title>
+        <style>body{font-family:system-ui;padding:24px} table{border-collapse:collapse;width:100%}
+        th,td{border:1px solid #ccc;padding:8px;font-size:12px;text-align:left} th{background:#eee}</style></head><body>
+        <h1>Integrity issues</h1><p>${escapeHtml(exam?.title||'')}</p>
+        <table><thead><tr><th>Name</th><th>Email</th><th>Type</th><th>Details</th><th>Time</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+        <script>window.onload=function(){window.print()}<\/script>
+        </body></html>`);
+      w.document.close();
+    };
   },
 
   async gradeSession(sessionId, examId) {
     const exam = await Exam.getExam(examId);
     const snap = await window.db.collection('sessions').doc(sessionId).get();
-    if (!snap.exists) { alert('Not found'); return; }
+    if (!snap.exists) { await UI.alert('Not found.', 'Error'); return; }
     const session = { id: snap.id, ...snap.data() };
     const maxScore = Number(exam.maxScore) || 50;
     const auto = Exam.autoGrade(session.code, exam.answerKey, maxScore);
     const existing = await Exam.getGrade(sessionId);
-    const scoreStr = prompt(
-      `Grade ${session.studentName || session.studentEmail}\nMax: ${maxScore}\n` +
-      (auto.note ? `Auto: ${auto.note} → ${auto.score}\n` : '') + `Score:`,
-      String(existing?.score ?? auto.score ?? '')
+    const scoreStr = await UI.prompt(
+      `Grade ${session.studentName || session.studentEmail}\nMax: ${maxScore}` +
+      (auto.note ? `\nAuto: ${auto.note} → ${auto.score}` : '') + `\nEnter score:`,
+      String(existing?.score ?? auto.score ?? ''),
+      'Grade'
     );
     if (scoreStr === null) return;
     const score = Number(scoreStr);
-    if (Number.isNaN(score) || score < 0 || score > maxScore) { alert('Invalid'); return; }
-    const comment = prompt('Comment:', existing?.comment || '') || '';
+    if (Number.isNaN(score) || score < 0 || score > maxScore) { await UI.alert('Invalid score.', 'Error'); return; }
+    const comment = (await UI.prompt('Comment (optional):', existing?.comment || '', 'Comment')) || '';
     const percent = Math.round((score / maxScore) * 1000) / 10;
     await Exam.saveGrade(sessionId, examId, {
       studentId: session.studentId, studentEmail: session.studentEmail, studentName: session.studentName,
       score, maxScore, percent, comment, method: 'manual'
     });
-    alert(`Saved ${score}/${maxScore} (${percent}%)`);
+    await UI.alert(`Saved ${score}/${maxScore} (${percent}%)`, 'Graded');
   },
 
   async showExamResults(examId) {
@@ -1255,11 +1365,13 @@ const App = {
     const hardest = Object.values(wrongCount).sort((a, b) => b.wrong - a.wrong).slice(0, 5);
 
     document.getElementById('results-stats').innerHTML = `
-      <div class="stat-card"><div class="stat-val">${studentCount}</div><div class="stat-label">Students</div></div>
-      <div class="stat-card"><div class="stat-val">${totalItems}</div><div class="stat-label">Total items</div></div>
-      <div class="stat-card"><div class="stat-val">${avg.toFixed(1)}%</div><div class="stat-label">Average score</div></div>
-      <div class="stat-card"><div class="stat-val">${perfect}</div><div class="stat-label">Perfect scores</div></div>
-      <div class="stat-card stat-wide"><div class="stat-label">Most incorrect</div>
+      <div class="stats-grid stats-centered">
+        <div class="stat-card stat-blue"><div class="stat-val">${studentCount}</div><div class="stat-label">Students</div></div>
+        <div class="stat-card stat-purple"><div class="stat-val">${totalItems}</div><div class="stat-label">Total items</div></div>
+        <div class="stat-card stat-teal"><div class="stat-val">${avg.toFixed(1)}%</div><div class="stat-label">Average score</div></div>
+        <div class="stat-card stat-green"><div class="stat-val">${perfect}</div><div class="stat-label">Perfect scores</div></div>
+      </div>
+      <div class="stat-card stat-wide stat-amber mt-2"><div class="stat-label">Most incorrect questions</div>
         <ol class="hardest-list">${hardest.map(h => `<li>${escapeHtml(h.prompt).slice(0, 80)} <span class="text-muted">(${h.wrong} wrong)</span></li>`).join('') || '<li class="text-muted">N/A</li>'}</ol>
       </div>`;
 

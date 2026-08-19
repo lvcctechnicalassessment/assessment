@@ -21,7 +21,7 @@ const QUESTION_TYPES = [
   { id: 'matchtable', label: 'Match table' },
   { id: 'labeling', label: 'Labeling' },
   { id: 'hotspot', label: 'Hotspot' },
-  { id: 'wordcloud', label: 'Word cloud' }
+  { id: 'wordbox', label: 'Word Box' }
 ];
 
 const OPTION_COLORS = ['#3b82f6', '#14b8a6', '#eab308', '#f43f5e', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16'];

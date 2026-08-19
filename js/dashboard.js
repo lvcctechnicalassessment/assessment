@@ -8,79 +8,27 @@ const Dashboard = {
   currentExam: null,
   sessionsCache: [],
   proctorFilterIds: null,
+  _allIntegrity: [],
+  _examList: [],
+  _tab: 'published',
+  _filter: '',
 
   clearListeners() {
     this.unsubscribers.forEach(u => u && u());
     this.unsubscribers = [];
   },
 
+  isExamLive(ex) {
+    if (!ex || ex.active === false || ex.status === 'draft') return false;
+    const { endAt } = Exam.getExamWindow(ex);
+    return Date.now() < endAt;
+  },
+
   async renderMyExams(container) {
     container.innerHTML = '<div class="loading-screen"><div class="spinner"></div></div>';
     try {
-      const exams = await Exam.listMyExams();
-      if (exams.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <div class="icon">📝</div>
-            <h3>No assessments yet</h3>
-            <p>Create a Code or Regular assessment.</p>
-            <button class="btn btn-primary mt-2" onclick="App.showCreateExam()">+ Create Assessment</button>
-          </div>`;
-        return;
-      }
-
-      let html = `
-        <div class="card-header page-header-responsive">
-          <h2 class="page-title">My Assessments</h2>
-          <button class="btn btn-primary" onclick="App.showCreateExam()">+ New Assessment</button>
-        </div>
-        <div class="assess-list">`;
-
-      exams.forEach(ex => {
-        const type = ex.examType === 'regular' ? 'Regular' : 'Code';
-        const lang = ex.examType !== 'regular' ? (ex.language || 'python') : '';
-        const start = ex.startAt ? new Date(ex.startAt).toLocaleString() : '—';
-        const end = ex.endAt ? new Date(ex.endAt).toLocaleString() : '—';
-        html += `
-          <div class="assess-card">
-            <div class="assess-card-main">
-              <div class="assess-title">${escapeHtml(ex.title)}</div>
-              <div class="assess-meta">
-                <span class="chip">${type}${lang ? ' · ' + lang : ''}</span>
-                <span class="chip">${escapeHtml(ex.subject || 'General')}</span>
-                <span class="chip ${ex.active ? 'chip-ok' : ''}">${ex.active ? 'Active' : 'Closed'}</span>
-              </div>
-              <div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">
-                ${start} → ${end}
-              </div>
-            </div>
-            <div class="assess-actions">
-              <div class="action-group">
-                <span class="action-label">Monitor</span>
-                <button class="btn btn-sm btn-primary" onclick="App.openLiveDashboard('${ex.id}')">Live</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity issues</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
-              </div>
-              <div class="action-group">
-                <span class="action-label">Share</span>
-                <button class="btn btn-sm btn-ghost" onclick="App.showSharePanel('${ex.id}')">Link / QR</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.shareToCoTeacher('${ex.id}')">Share to Co-teacher</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.showProctors('${ex.id}')">Proctors</button>
-              </div>
-              <div class="action-group">
-                <span class="action-label">Manage</span>
-                <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>
-                <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
-              </div>
-            </div>
-          </div>`;
-      });
-
-      html += '</div>';
-      container.innerHTML = html;
+      this._examList = await Exam.listMyExams();
+      this._renderExamList(container);
     } catch (err) {
       const msg = err.message || String(err);
       let help = /permission/i.test(msg)
@@ -89,10 +37,105 @@ const Dashboard = {
     }
   },
 
+  _renderExamList(container) {
+    const exams = this._examList || [];
+    const q = (this._filter || '').toLowerCase();
+    const isDraft = (ex) => ex.status === 'draft' || (ex.active === false && !ex.endAt);
+
+    let list = exams.filter(ex => {
+      if (this._tab === 'drafts') return isDraft(ex) || ex.status === 'draft';
+      // published
+      return !isDraft(ex) && ex.status !== 'draft';
+    });
+    if (q) {
+      list = list.filter(ex =>
+        (ex.title || '').toLowerCase().includes(q) ||
+        (ex.subject || '').toLowerCase().includes(q) ||
+        (ex.examType || '').toLowerCase().includes(q)
+      );
+    }
+
+    let html = `
+      <div class="card-header page-header-responsive">
+        <h2 class="page-title">My Assessments</h2>
+        <button class="btn btn-primary" onclick="App.showCreateExam()">+ New Assessment</button>
+      </div>
+      <div class="assess-tabs">
+        <button class="assess-tab ${this._tab === 'published' ? 'active' : ''}" onclick="Dashboard.setTab('published')">Published</button>
+        <button class="assess-tab ${this._tab === 'drafts' ? 'active' : ''}" onclick="Dashboard.setTab('drafts')">Drafts</button>
+        <input type="search" class="form-control assess-filter" placeholder="Filter assessments..."
+          value="${escapeHtml(this._filter)}" oninput="Dashboard.setFilter(this.value)" />
+      </div>
+      <div class="assess-list">`;
+
+    if (!list.length) {
+      html += `<div class="empty-state"><p>No ${this._tab} assessments.</p>
+        <button class="btn btn-primary mt-2" onclick="App.showCreateExam()">+ Create Assessment</button></div>`;
+    } else {
+      list.forEach(ex => {
+        const type = ex.examType === 'regular' ? 'Regular' : 'Code';
+        const lang = ex.examType !== 'regular' ? (ex.language || 'python') : '';
+        const start = ex.startAt ? new Date(ex.startAt).toLocaleString() : '—';
+        const end = ex.endAt ? new Date(ex.endAt).toLocaleString() : '—';
+        const live = this.isExamLive(ex);
+        html += `
+          <div class="assess-card">
+            <div class="assess-card-main">
+              <div class="assess-title">${escapeHtml(ex.title)}</div>
+              <div class="assess-meta">
+                <span class="chip">${type}${lang ? ' · ' + lang : ''}</span>
+                <span class="chip">${escapeHtml(ex.subject || 'General')}</span>
+                <span class="chip ${live ? 'chip-ok' : ''}">${live ? 'Live window open' : (ex.status === 'draft' ? 'Draft' : 'Closed / ended')}</span>
+              </div>
+              <div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">${start} → ${end}</div>
+            </div>
+            <div class="assess-actions">
+              <div class="action-group">
+                <span class="action-label">Monitor</span>
+                ${live ? `<button class="btn btn-sm btn-primary" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : ''}
+                <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity issues</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
+              </div>
+              <div class="action-group">
+                <span class="action-label">Share</span>
+                ${ex.status !== 'draft' ? `<button class="btn btn-sm btn-ghost" onclick="App.showSharePanel('${ex.id}')">Link / QR</button>` : ''}
+                <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.shareToCoTeacher('${ex.id}')">Share to Co-teacher</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.showProctors('${ex.id}')">Proctors</button>
+              </div>
+              <div class="action-group">
+                <span class="action-label">Manage</span>
+                <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
+                ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : `
+                <button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>`}
+                <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
+              </div>
+            </div>
+          </div>`;
+      });
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  },
+
+  setTab(tab) {
+    this._tab = tab;
+    const c = document.getElementById('exams-container');
+    if (c) this._renderExamList(c);
+  },
+
+  setFilter(val) {
+    this._filter = val;
+    const c = document.getElementById('exams-container');
+    if (c) this._renderExamList(c);
+  },
+
   async renderLiveDashboard(container, examId, proctorFilterIds = null) {
     this.clearListeners();
     this.currentExamId = examId;
     this.proctorFilterIds = proctorFilterIds;
+    this._sessionScreenFilter = '';
     container.innerHTML = '<div class="loading-screen"><div class="spinner"></div><p>Connecting...</p></div>';
 
     const exam = await Exam.getExam(examId);
@@ -121,11 +164,16 @@ const Dashboard = {
         </div>
       </div>
       <div id="integrity-modal-root"></div>
-      <div class="live-layout">
-        <div id="live-sessions-grid" class="live-grid">
-          <div class="empty-state">Waiting for students...</div>
+      <div class="live-layout live-layout-fixed">
+        <div class="live-main">
+          <div class="live-main-toolbar">
+            <input type="search" id="session-screen-filter" class="form-control" placeholder="Filter student screens by name or email..." />
+          </div>
+          <div id="live-sessions-grid" class="live-grid">
+            <div class="empty-state">Waiting for students...</div>
+          </div>
         </div>
-        <aside class="integrity-panel" id="integrity-panel">
+        <aside class="integrity-panel integrity-panel-fixed" id="integrity-panel">
           <div class="integrity-panel-head">
             <strong>Integrity issues</strong>
             <input type="search" id="integrity-filter" class="form-control" placeholder="Filter name, email..." />
@@ -138,6 +186,11 @@ const Dashboard = {
     const extBtn = document.getElementById('btn-extend-all');
     if (extBtn) extBtn.onclick = () => this.promptExtendAll(examId);
 
+    document.getElementById('session-screen-filter').oninput = (e) => {
+      this._sessionScreenFilter = e.target.value;
+      this._renderSessions(this.sessionsCache, exam);
+    };
+
     const unsub = Exam.listenToSessions(examId, (sessions) => {
       let list = sessions;
       if (proctorFilterIds) list = sessions.filter(s => proctorFilterIds.includes(s.studentId));
@@ -146,6 +199,7 @@ const Dashboard = {
     });
     this.unsubscribers.push(unsub);
 
+    // Live integrity from notifications
     const unsubN = Exam.listenToNotifications([examId], (notifs) => {
       let filtered = notifs;
       if (proctorFilterIds) {
@@ -160,10 +214,26 @@ const Dashboard = {
     });
     this.unsubscribers.push(unsubN);
 
-    const filterInput = document.getElementById('integrity-filter');
-    if (filterInput) {
-      filterInput.oninput = () => this.renderIntegrityPanel(this._allIntegrity || []);
-    }
+    // Also listen integrityHistory for permanent sync
+    try {
+      const unsubH = window.db.collection('integrityHistory')
+        .where('examId', '==', examId)
+        .onSnapshot(snap => {
+          const hist = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          hist.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+          // merge with notifications by id
+          const map = {};
+          (this._allIntegrity || []).forEach(n => { map[n.id] = n; });
+          hist.forEach(n => { map[n.id] = n; });
+          const merged = Object.values(map);
+          merged.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+          this._allIntegrity = merged;
+          this.renderIntegrityPanel(merged);
+        }, () => {});
+      this.unsubscribers.push(unsubH);
+    } catch (_) {}
+
+    document.getElementById('integrity-filter').oninput = () => this.renderIntegrityPanel(this._allIntegrity || []);
   },
 
   renderIntegrityPanel(notifs) {
@@ -198,14 +268,17 @@ const Dashboard = {
     }).join('');
   },
 
-  promptExtendAll(examId) {
-    const mins = prompt('Extend this assessment for ALL students by how many minutes?', '15');
+  async promptExtendAll(examId) {
+    const mins = await UI.prompt('Extend this assessment for ALL students by how many minutes?', '15', 'Extend all');
     if (!mins) return;
-    Exam.extendExam(examId, Number(mins)).then(() => {
-      alert('Extended by ' + mins + ' minutes.');
+    try {
+      await Exam.extendExam(examId, Number(mins));
+      await UI.alert('Extended by ' + mins + ' minutes.', 'Extended');
       const el = document.getElementById('live-container') || document.getElementById('main-content');
       this.renderLiveDashboard(el, examId, this.proctorFilterIds);
-    }).catch(e => alert(e.message));
+    } catch (e) {
+      await UI.alert(e.message || String(e), 'Error');
+    }
   },
 
   _lastPasteAlert: null,
@@ -221,10 +294,10 @@ const Dashboard = {
     const root = document.getElementById('integrity-modal-root');
     if (!root) return;
     root.innerHTML = `
-      <div class="modal-overlay" id="paste-modal">
-        <div class="modal">
+      <div class="modal-overlay ui-modal-overlay" id="paste-modal">
+        <div class="modal ui-modal">
           <h2>Suspicious activity</h2>
-          <p style="margin:0.75rem 0;line-height:1.5">
+          <p class="ui-modal-body">
             <strong>${escapeHtml(n.studentName || n.studentEmail)}</strong> pasted code
             (<strong>${escapeHtml(String(lines))}</strong> line${String(lines) === '1' ? '' : 's'}).
           </p>
@@ -243,7 +316,7 @@ const Dashboard = {
       const snap = await window.db.collection('sessions').doc(sessionId).get();
       if (snap.exists) session = { id: snap.id, ...snap.data() };
     }
-    if (!session) { alert('Session not found'); return; }
+    if (!session) { await UI.alert('Session not found.', 'Error'); return; }
 
     const ranges = session.pasteRanges || [];
     const exam = this.currentExam;
@@ -254,8 +327,8 @@ const Dashboard = {
 
     const root = document.getElementById('integrity-modal-root');
     root.innerHTML = `
-      <div class="modal-overlay" id="detail-modal">
-        <div class="modal modal-wide">
+      <div class="modal-overlay ui-modal-overlay" id="detail-modal">
+        <div class="modal ui-modal modal-wide">
           <h2>${escapeHtml(session.studentName || session.studentEmail)}</h2>
           <p class="text-muted">Status: ${escapeHtml(session.status)}</p>
           ${body}
@@ -281,23 +354,36 @@ const Dashboard = {
     }
   },
 
-  promptExtend(sessionId) {
-    const mins = prompt('Extend this student by how many minutes?', '15');
+  async promptExtend(sessionId) {
+    const mins = await UI.prompt('Extend this student by how many minutes?', '15', 'Extend');
     if (!mins) return;
-    Exam.extendSession(sessionId, Number(mins)).then(() => alert('Extended by ' + mins + ' minutes.')).catch(e => alert(e.message));
+    try {
+      await Exam.extendSession(sessionId, Number(mins));
+      await UI.alert('Extended by ' + mins + ' minutes.', 'Extended');
+    } catch (e) {
+      await UI.alert(e.message || String(e), 'Error');
+    }
   },
 
   _renderSessions(sessions, exam) {
     const grid = document.getElementById('live-sessions-grid');
     if (!grid) return;
-    if (!sessions.length) {
+    let list = sessions || [];
+    const q = (this._sessionScreenFilter || '').toLowerCase();
+    if (q) {
+      list = list.filter(s =>
+        (s.studentName || '').toLowerCase().includes(q) ||
+        (s.studentEmail || '').toLowerCase().includes(q)
+      );
+    }
+    if (!list.length) {
       grid.innerHTML = '<div class="empty-state">Waiting for students...</div>';
       return;
     }
-    sessions.sort((a, b) => (a.status === 'active' ? -1 : 1));
+    list.sort((a, b) => (a.status === 'active' ? -1 : 1));
     const isRegular = exam?.examType === 'regular';
 
-    grid.innerHTML = sessions.map(s => {
+    grid.innerHTML = list.map(s => {
       const last = s.lastUpdate?.toDate ? s.lastUpdate.toDate().toLocaleTimeString() : '—';
       const remain = s.endsAt ? Math.max(0, s.endsAt - Date.now()) : null;
       const timer = remain != null ? formatMs(remain) : '';

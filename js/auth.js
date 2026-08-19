@@ -43,8 +43,8 @@ const Auth = {
   showAccessDenied(message) {
     if (typeof App !== 'undefined' && App.showAccessDeniedScreen) {
       App.showAccessDeniedScreen(message);
-    } else {
-      alert(message);
+    } else if (typeof UI !== 'undefined') {
+      UI.alert(message, 'Access Denied');
     }
   },
 
@@ -264,14 +264,24 @@ const Auth = {
   async addTeacher(email) {
     if (!this.isSuperAdmin()) throw new Error('Only superadmin can add teachers');
     email = email.trim().toLowerCase();
+    if (!email || !email.includes('@')) throw new Error('Enter a valid email address.');
     const q = await window.db.collection('users').where('email', '==', email).limit(1).get();
     if (!q.empty) {
       const doc = q.docs[0];
+      const data = doc.data();
+      if (data.role === 'teacher' || data.role === 'superadmin') {
+        throw new Error(email + ' is already assigned as ' + data.role + '.');
+      }
       await doc.ref.update({
         role: 'teacher',
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       return { success: true, message: 'Updated ' + email + ' to teacher role.' };
+    }
+    // also check pending
+    const pend = await window.db.collection('pendingTeachers').doc(email).get();
+    if (pend.exists) {
+      throw new Error(email + ' is already pending as a teacher.');
     }
     await window.db.collection('pendingTeachers').doc(email).set({
       email,

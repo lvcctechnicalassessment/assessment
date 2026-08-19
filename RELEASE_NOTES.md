@@ -51,3 +51,14 @@
 
 ### Note
 Full Google-Docs-style passage multi-tab editor and complete visual editors for every advanced item type continue to use structured data models; passage sets and rich cell editing can be expanded further in a follow-up.
+
+## v1.4.1 — 2026-08-19
+
+### Added
+- **Light / Dark theme** toggle on all screens (header + mobile menu + login)
+- Preference saved in **localStorage** and **Firestore user profile** (survives re-login)
+- Default theme: **Dark**
+- Build stamp **v1.4.1** in header to verify deploy
+
+### Deploy note
+If features seem missing, replace **all** app files from the zip (not only one JS file), then hard-refresh or clear cache. Confirm **v1.4.1** appears next to the logo.

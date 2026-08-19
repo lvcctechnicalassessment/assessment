@@ -16,6 +16,7 @@ const Exam = {
       maxScore = 100,
       answerKey = '',
       questions = [],
+      sections = [],
       subject = 'General',
       status = 'published',
       active = true
@@ -42,6 +43,7 @@ const Exam = {
       maxScore: Number(maxScore) || 100,
       answerKey: answerKey || '',
       questions: questions || [],
+      sections: sections || [],
       proctors: [], // [{ email, studentIds: [] }]
       teacherId: Auth.currentUser.uid,
       teacherEmail: Auth.userProfile.email,
