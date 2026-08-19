@@ -194,11 +194,12 @@ const Dashboard = {
     };
 
     this._seenStudentMsgs = this._seenStudentMsgs || {};
+    this._liveThumbs = this._liveThumbs || {};
     const unsub = Exam.listenToSessions(examId, (sessions) => {
       let list = sessions;
       if (proctorFilterIds) list = sessions.filter(s => proctorFilterIds.includes(s.studentId));
-      // popup new student messages
       list.forEach(s => {
+        if (this._liveThumbs[s.id] && !s.screenThumb) s.screenThumb = this._liveThumbs[s.id];
         if (s.lastStudentMessage && s.chatPing && this._seenStudentMsgs[s.id] !== s.chatPing) {
           this._seenStudentMsgs[s.id] = s.chatPing;
           this.showIncomingStudentMessage(s);
@@ -208,6 +209,24 @@ const Dashboard = {
       this._renderSessions(list, exam);
     });
     this.unsubscribers.push(unsub);
+    // Live screen thumbs collection (optional)
+    try {
+      const unsubLS = window.db.collection('liveScreens').onSnapshot(snap => {
+        snap.docChanges().forEach(ch => {
+          const id = ch.doc.id;
+          const data = ch.doc.data() || {};
+          if (data.thumb) this._liveThumbs[id] = data.thumb;
+        });
+        if (this.sessionsCache && this.sessionsCache.length) {
+          const list = this.sessionsCache.map(s => ({
+            ...s,
+            screenThumb: s.screenThumb || this._liveThumbs[s.id]
+          }));
+          this._renderSessions(list, this.currentExam);
+        }
+      }, () => {});
+      this.unsubscribers.push(unsubLS);
+    } catch (_) {}
 
     // Live integrity from notifications
     const unsubN = Exam.listenToNotifications([examId], (notifs) => {
@@ -293,7 +312,8 @@ const Dashboard = {
 
   _lastPasteAlert: null,
   _handlePasteNotifications(notifs) {
-    const critical = notifs.find(n => n.type === 'paste-critical' && n.id !== this._lastPasteAlert);
+    this._endedSessions = this._endedSessions || {};
+    const critical = notifs.find(n => n.type === 'paste-critical' && n.id !== this._lastPasteAlert && !this._endedSessions[n.sessionId]);
     if (critical) {
       this._lastPasteAlert = critical.id;
       this.showCriticalPaste(critical);
@@ -375,18 +395,25 @@ const Dashboard = {
       document.getElementById('critical-paste-modal')?.remove();
     };
     document.getElementById('cp-end').onclick = async () => {
+      const btn = document.getElementById('cp-end');
+      if (btn) btn.disabled = true;
+      this._lastPasteAlert = n.id; // prevent re-popup loop
+      this._endedSessions = this._endedSessions || {};
+      this._endedSessions[n.sessionId] = true;
       try {
         await window.db.collection('sessions').doc(n.sessionId).update({
           status: 'submitted',
           submitReason: 'teacher-ended',
           submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          codeLocked: true
+          codeLocked: true,
+          chatPing: Date.now()
         });
       } catch (e) {
-        await Exam.submitSession(n.sessionId, 'teacher-ended');
+        try { await Exam.submitSession(n.sessionId, 'teacher-ended'); } catch (e2) { console.error(e2); }
       }
       document.getElementById('critical-paste-modal')?.remove();
-      await UI.alert('Assessment ended for this student.', 'Ended');
+      // one-shot alert, not re-triggered
+      UI.alert('Assessment ended for this student.', 'Ended');
     };
     document.getElementById('cp-deduct').onclick = async () => {
       const pts = await UI.prompt('How many points to deduct?', '5', 'Deduct points');
@@ -466,6 +493,33 @@ const Dashboard = {
     }
   },
 
+
+  async messageStudent(sessionId) {
+    if (!sessionId) {
+      await UI.alert('No session selected.', 'Error');
+      return;
+    }
+    const msg = await UI.prompt('Message this student:', '', 'Message student', 'Type your message…');
+    if (msg == null) return;
+    const text = String(msg).trim();
+    if (!text) {
+      await UI.alert('Please type a message.', 'Empty');
+      return;
+    }
+    try {
+      await window.db.collection('sessions').doc(sessionId).update({
+        lastInstructorMessage: text,
+        instructorReply: text,
+        lastInstructorMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+        instructorReplyAt: firebase.firestore.FieldValue.serverTimestamp(),
+        chatPing: Date.now()
+      });
+      await UI.alert('Message sent to student.', 'Sent');
+    } catch (e) {
+      console.error(e);
+      await UI.alert(e.message || String(e), 'Error');
+    }
+  },
   async promptExtend(sessionId) {
     const mins = await UI.prompt('Extend this student by how many minutes?', '15', 'Extend');
     if (!mins) return;
@@ -527,10 +581,10 @@ const Dashboard = {
             </div>
           </div>
           <div class="screen-share-wrap">
-            ${s.screenThumb
-              ? `<img class="screen-share-img" src="${s.screenThumb}" alt="Student screen" onclick="UI.showImage(this.src,'Live student screen')" />`
+            ${ (s.screenThumb || this._liveThumbs?.[s.id])
+              ? `<img class="screen-share-img" src="${s.screenThumb || this._liveThumbs[s.id]}" alt="Student screen" onclick="UI.showImage(this.src,'Live student screen')" />`
               : `<div class="screen-share-placeholder">Waiting for screen share…</div>`}
-            <span class="screen-share-label">${s.screenThumb ? 'Live screen' : 'No feed yet'}</span>
+            <span class="screen-share-label">${(s.screenThumb || this._liveThumbs?.[s.id]) ? 'Live screen' : 'No feed yet'}</span>
           </div>
           <details class="screen-code-details"><summary>Text snapshot</summary><pre class="student-code-preview">${preview}</pre></details>
           <div class="student-events">${eventsHtml}</div>

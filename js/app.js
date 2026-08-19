@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.4.6</div>
+          <div class="app-version">Build v1.4.7</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -167,7 +167,7 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.6</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.7</span>
           </div>
         </div>
         <div class="header-right">
@@ -562,7 +562,7 @@ const App = {
         })();
         root.innerHTML = `<div class="modal-overlay ui-modal-overlay"><div class="modal ui-modal modal-wide">
           <h2>Select question type</h2>
-          <div class="type-picker type-picker-modal type-cards">${QUESTION_TYPES.map(x =>
+          <div class="type-picker type-picker-modal type-cards type-grid-4x4">${QUESTION_TYPES.map(x =>
             `<button type="button" class="type-card" data-type="${x.id}"><span class="type-card-label">${escapeHtml(x.label)}</span></button>`
           ).join('')}</div>
           <div class="modal-actions"><button class="btn btn-ghost" id="type-cancel">Cancel</button></div>
@@ -1153,57 +1153,55 @@ const App = {
   },
 
   formatAnswerDisplay(q, value, isCorrectKey = false) {
-    if (q.type === 'essay') {
-      if (isCorrectKey) return '(Evaluated by instructor)';
-      return (value == null || value === '') ? '—' : String(value);
-    }
-    if (value === undefined || value === null || value === '') {
-      if (!isCorrectKey) return '—';
-    }
-    if (q.type === 'multiple' || q.type === 'dropdown') {
-      const opts = q.options || [];
-      if (isCorrectKey) {
-        const c = q.correct;
-        if (Array.isArray(c)) return c.map(i => (opts[i] != null ? opts[i] : i)).join(', ') || '—';
-        if (c != null && opts[c] != null) return String(opts[c]);
-        return c != null ? String(c) : '—';
+    if (!q) return '—';
+    const opts = q.options || [];
+    if (isCorrectKey) {
+      if (q.type === 'essay') return '(Evaluated by instructor)';
+      if (q.type === 'multiple' || q.type === 'dropdown') {
+        if (q.multiCorrect && Array.isArray(q.correct)) {
+          return q.correct.map(i => (opts[i] != null ? String(opts[i]) : String(i))).filter(Boolean).join(', ') || '—';
+        }
+        if (q.correct != null && opts[q.correct] != null) return String(opts[q.correct]);
+        if (q.correct != null && q.correct !== '') return String(q.correct);
+        return '—';
       }
-      // response
-      if (Array.isArray(value)) return value.map(i => (opts[i] != null ? opts[i] : i)).join(', ');
+      if (q.type === 'truefalse' || q.type === 'modified_tf') {
+        let s = (Number(q.correct) === 0 || q.correct === true || q.correct === 'true') ? 'True' : 'False';
+        if (q.modifiedAnswer) s += ' · ' + q.modifiedAnswer;
+        return s;
+      }
+      if (q.type === 'fill') {
+        if (Array.isArray(q.blanks) && q.blanks.length) {
+          return q.blanks.map((b, i) => {
+            const c = Array.isArray(b.correct) ? b.correct.join('/') : (b.correct || '');
+            return `Blank ${i + 1}: ${c || '—'}`;
+          }).join(' · ');
+        }
+        return q.correct != null && q.correct !== '' ? String(q.correct) : '—';
+      }
+      if (q.correct != null && q.correct !== '') {
+        return typeof q.correct === 'object' ? JSON.stringify(q.correct) : String(q.correct);
+      }
+      return '—';
+    }
+    // student response
+    if (value === undefined || value === null || value === '') return '—';
+    if (q.type === 'essay') return String(value);
+    if (q.type === 'multiple' || q.type === 'dropdown') {
+      if (Array.isArray(value)) return value.map(i => (opts[i] != null ? String(opts[i]) : String(i))).join(', ');
       if (opts[value] != null) return String(opts[value]);
       return String(value);
     }
     if (q.type === 'truefalse' || q.type === 'modified_tf') {
-      if (isCorrectKey) {
-        let s = (Number(q.correct) === 0 || q.correct === true || q.correct === 'true') ? 'True' : 'False';
-        if (q.modifiedAnswer) s += ' · correction: ' + q.modifiedAnswer;
-        return s;
-      }
-      if (typeof value === 'object' && value) {
-        let s = (Number(value.choice) === 0 || value.choice === true) ? 'True' : 'False';
+      if (typeof value === 'object') {
+        let s = (Number(value.choice) === 0 || value.choice === true || value.choice === 'true') ? 'True' : 'False';
         if (value.modified) s += ' · ' + value.modified;
         return s;
       }
-      return (value == 0 || value === true || value === 'true') ? 'True' : (value == 1 || value === false ? 'False' : String(value));
+      return (value == 0 || value === true || value === 'true') ? 'True' : (value == 1 || value === false || value === 'false' ? 'False' : String(value));
     }
-    if (q.type === 'fill') {
-      if (isCorrectKey) {
-        if (q.blanks && q.blanks.length) {
-          return q.blanks.map((b, i) => {
-            const primary = Array.isArray(b.correct) ? b.correct.join('/') : (b.correct || '');
-            return `Blank ${i+1}: ${primary}`;
-          }).join(' · ');
-        }
-        return q.correct != null ? String(q.correct) : '—';
-      }
-      if (typeof value === 'object') return JSON.stringify(value);
-      return String(value ?? '—');
-    }
-    if (isCorrectKey) {
-      if (q.correct != null && q.correct !== '') return typeof q.correct === 'object' ? JSON.stringify(q.correct) : String(q.correct);
-      return '—';
-    }
-    return typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—');
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
   },
 
   async showStudentAttempt(sessionId) {
@@ -1211,21 +1209,35 @@ const App = {
     if (!snap.exists) { await UI.alert('Not found.', 'Error'); return; }
     const session = { id: snap.id, ...snap.data() };
     const exam = await Exam.getExam(session.examId);
-    let questions = exam ? Regular.flattenQuestions(exam) : [];
-    // also merge top-level questions if sections empty but questions exist
-    if (!questions.length && exam?.questions) questions = exam.questions;
+    let questions = [];
+    if (exam) {
+      questions = Regular.flattenQuestions(exam);
+      if (!questions.length && Array.isArray(exam.questions)) questions = exam.questions;
+    }
     const answers = session.answers || {};
-    const rowsHtml = questions.length ? questions.map((q, i) => {
-      const resp = answers[q.id];
-      const respDisp = this.formatAnswerDisplay(q, resp, false);
-      const correctDisp = this.formatAnswerDisplay(q, null, true);
-      return `<tr>
-        <td data-label="Question"><strong>Q${i+1}.</strong> ${escapeHtml(q.prompt || q.statement || '')}</td>
-        <td data-label="Response">${escapeHtml(respDisp)}</td>
-        <td data-label="Correct">${escapeHtml(correctDisp)}</td>
-      </tr>`;
-    }).join('') : `<tr><td colspan="3"><pre class="student-code-preview">${escapeHtml(session.code || 'No response recorded')}</pre>
-      ${exam?.answerKey ? `<p><strong>Answer key:</strong></p><pre>${escapeHtml(exam.answerKey)}</pre>` : ''}</td></tr>`;
+    // map by id and by index fallback
+    const rows = questions.map((q, i) => {
+      let resp = answers[q.id];
+      if (resp === undefined) {
+        // try alternate keys
+        const keys = Object.keys(answers);
+        if (keys[i] != null) resp = answers[keys[i]];
+      }
+      return {
+        prompt: q.prompt || q.statement || ('Question ' + (i + 1)),
+        response: this.formatAnswerDisplay(q, resp, false),
+        correct: this.formatAnswerDisplay(q, null, true)
+      };
+    });
+
+    // code assessment fallback
+    if (!rows.length) {
+      rows.push({
+        prompt: 'Code submission',
+        response: session.code || '—',
+        correct: exam?.answerKey || '—'
+      });
+    }
 
     this.renderShell(`
       <div class="card-header page-header-responsive">
@@ -1238,34 +1250,74 @@ const App = {
       <div class="table-wrap">
         <table class="table" id="attempt-detail-table">
           <thead><tr><th>Question</th><th>Your response</th><th>Correct answer</th></tr></thead>
-          <tbody>${rowsHtml}</tbody>
+          <tbody>
+            ${rows.map((r, i) => `<tr>
+              <td data-label="Question"><strong>Q${i + 1}.</strong> ${escapeHtml(r.prompt)}</td>
+              <td data-label="Response">${escapeHtml(r.response)}</td>
+              <td data-label="Correct">${escapeHtml(r.correct)}</td>
+            </tr>`).join('')}
+          </tbody>
         </table>
       </div>
     `, 'history');
 
     document.getElementById('export-attempt-pdf').onclick = () => {
-      const tableRows = questions.length ? questions.map((q, i) => {
-        const respDisp = this.formatAnswerDisplay(q, answers[q.id], false);
-        const correctDisp = this.formatAnswerDisplay(q, null, true);
-        return `<tr><td><strong>Q${i+1}.</strong> ${escapeHtml(q.prompt || '')}</td>
-          <td>${escapeHtml(respDisp)}</td><td>${escapeHtml(correctDisp)}</td></tr>`;
-      }).join('') : `<tr><td colspan="3">${escapeHtml(session.code || 'No response')}</td></tr>`;
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Attempt</title>
-        <style>body{font-family:system-ui;padding:24px;color:#111}table{border-collapse:collapse;width:100%}
-        th,td{border:1px solid #ccc;padding:8px;font-size:12px;vertical-align:top;white-space:pre-wrap}th{background:#eee}</style></head>
-        <body><h1>${escapeHtml(session.examTitle || exam?.title || '')}</h1>
-        <p>${escapeHtml(session.studentName || '')} · ${escapeHtml(session.studentEmail || '')}</p>
-        <table><thead><tr><th>Question</th><th>Response</th><th>Correct answer</th></tr></thead>
-        <tbody>${tableRows}</tbody></table></body></html>`;
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'attempt-' + sessionId + '.html';
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-      UI.alert('Downloaded. Open the file → Print → Save as PDF.', 'Export');
+      this.downloadAttemptPdf(session, exam, rows);
     };
   },
+
+  downloadAttemptPdf(session, exam, rows) {
+    const title = session.examTitle || exam?.title || 'Attempt';
+    // Prefer jsPDF if loaded
+    if (window.jspdf && window.jspdf.jsPDF) {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const margin = 40;
+      let y = margin;
+      const pageW = doc.internal.pageSize.getWidth();
+      const maxW = pageW - margin * 2;
+      doc.setFontSize(14);
+      doc.text(title, margin, y); y += 20;
+      doc.setFontSize(10);
+      doc.text(`${session.studentName || ''}  ${session.studentEmail || ''}`, margin, y); y += 18;
+      rows.forEach((r, i) => {
+        const block = `Q${i + 1}. ${r.prompt}\nYour response: ${r.response}\nCorrect answer: ${r.correct}\n`;
+        const lines = doc.splitTextToSize(block, maxW);
+        if (y + lines.length * 12 > doc.internal.pageSize.getHeight() - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(lines, margin, y);
+        y += lines.length * 12 + 10;
+      });
+      doc.save(`attempt-${session.id || 'export'}.pdf`);
+      UI.alert('PDF downloaded.', 'Export');
+      return;
+    }
+    // Fallback: print-to-pdf via hidden iframe
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${escapeHtml(title)}</title>
+      <style>body{font-family:system-ui;padding:24px}h1{font-size:18px}
+      .q{margin:12px 0;padding:10px;border:1px solid #ddd;border-radius:8px}
+      .label{font-weight:600;font-size:12px;color:#555}</style></head><body>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(session.studentName || '')} · ${escapeHtml(session.studentEmail || '')}</p>
+      ${rows.map((r, i) => `<div class="q"><div><strong>Q${i + 1}.</strong> ${escapeHtml(r.prompt)}</div>
+        <div class="label">Your response</div><div>${escapeHtml(r.response)}</div>
+        <div class="label">Correct answer</div><div>${escapeHtml(r.correct)}</div></div>`).join('')}
+      </body></html>`;
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      setTimeout(() => iframe.remove(), 1000);
+    }, 300);
+    UI.alert('Use the print dialog → Save as PDF.', 'Export');
+  },
+
 
 
   async startMockFromSelection(type, subject) {
@@ -1492,6 +1544,7 @@ const App = {
     document.getElementById('exam-instructions-text').textContent = exam.instructions || '';
     await CodeEditor.init('monaco-container', session.code || exam.starterCode || '', session.id, exam.id, lang);
     CodeEditor.startScreenShare(2500);
+    this._endedHandled = false;
     this._watchTeacherEnd(session.id);
     this.injectStudentChatFab(session.id);
     document.getElementById('check-code-btn').onclick = () => CodeEditor.checkCode();
@@ -1518,8 +1571,12 @@ const App = {
       if (!s) return;
       // Instructor ended
       if (s.status === 'submitted' && (s.submitReason === 'teacher-ended' || s.submitReason === 'ended')) {
+        if (this._endedHandled) return;
+        this._endedHandled = true;
+        if (this._sessionWatchUnsub) { try { this._sessionWatchUnsub(); } catch (_) {} this._sessionWatchUnsub = null; }
         CodeEditor.beginSubmit();
         try { CodeEditor.dispose(); } catch (_) {}
+        document.getElementById('student-chat-fab')?.remove();
         this.clearExamQuery();
         this._showEndedOverlay();
         return;
@@ -1642,6 +1699,7 @@ const App = {
     CodeEditor.examId = exam.id;
     CodeEditor._setupAntiCheat();
     CodeEditor.startScreenShare(2500);
+    this._endedHandled = false;
     this._watchTeacherEnd(session.id);
     this.injectStudentChatFab(session.id);
 

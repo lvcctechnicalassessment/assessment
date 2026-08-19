@@ -361,46 +361,57 @@ const CodeEditor = {
     }
   },
 
-  startScreenShare(intervalMs = 2500) {
+  startScreenShare(intervalMs = 2000) {
     this.stopScreenShare();
     if (!this.sessionId || String(this.sessionId).startsWith('test_')) return;
+    let pushing = false;
     const pushThumb = async () => {
-      if (this.isLocked || this.isSubmitting || !this.sessionId) return;
-      let thumb = null;
-      if (this._displayVideo && this._displayVideo.readyState >= 2 && this._displayVideo.videoWidth > 4) {
-        try {
-          const c = document.createElement('canvas');
-          const w = Math.min(480, this._displayVideo.videoWidth);
-          const h = Math.max(1, Math.round(w * (this._displayVideo.videoHeight / this._displayVideo.videoWidth)));
-          c.width = w; c.height = h;
-          c.getContext('2d').drawImage(this._displayVideo, 0, 0, w, h);
-          const sample = c.getContext('2d').getImageData(0, 0, Math.min(32, w), Math.min(32, h)).data;
-          let sum = 0, n = 0;
-          for (let i = 0; i < sample.length; i += 4) { sum += sample[i] + sample[i+1] + sample[i+2]; n++; }
-          if (n && sum / (n * 3) > 8) thumb = c.toDataURL('image/jpeg', 0.35);
-        } catch (e) { console.warn('display frame', e); }
-      }
-      if (!thumb) {
-        try { thumb = await this.captureScreen(); } catch (e) { console.warn('html2canvas', e); }
-      }
-      if (!thumb || thumb.length < 100) return;
-      // Firestore doc limit — keep thumb under ~200KB
-      if (thumb.length > 180000) {
-        try { thumb = await this.captureScreen(0.25); } catch (_) {}
-      }
-      if (!thumb) return;
+      if (pushing || this.isLocked || this.isSubmitting || !this.sessionId) return;
+      pushing = true;
       try {
-        await window.db.collection('sessions').doc(this.sessionId).update({
+        let thumb = null;
+        // Always capture assessment UI first (reliable "what student sees")
+        try { thumb = await this.captureScreen(0.35); } catch (e) { console.warn('capture', e); }
+        // Prefer display stream if it has real content
+        if (this._displayVideo && this._displayVideo.readyState >= 2 && this._displayVideo.videoWidth > 8) {
+          try {
+            const c = document.createElement('canvas');
+            const w = Math.min(400, this._displayVideo.videoWidth);
+            const h = Math.max(1, Math.round(w * (this._displayVideo.videoHeight / this._displayVideo.videoWidth)));
+            c.width = w; c.height = h;
+            c.getContext('2d').drawImage(this._displayVideo, 0, 0, w, h);
+            const sample = c.getContext('2d').getImageData(0, 0, Math.min(24, w), Math.min(24, h)).data;
+            let sum = 0, n = 0;
+            for (let i = 0; i < sample.length; i += 4) { sum += sample[i] + sample[i + 1] + sample[i + 2]; n++; }
+            if (n && sum / (n * 3) > 15) {
+              thumb = c.toDataURL('image/jpeg', 0.3);
+            }
+          } catch (e) { console.warn('display frame', e); }
+        }
+        if (!thumb || thumb.length < 50) return;
+        // Cap size ~100KB string
+        if (thumb.length > 120000) {
+          try { thumb = await this.captureScreen(0.22); } catch (_) {}
+        }
+        if (!thumb) return;
+        const payload = {
           screenThumb: thumb,
-          screenAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-      } catch (e) {
-        console.warn('screenThumb update failed', e);
-        // last resort: smaller
+          screenAt: firebase.firestore.FieldValue.serverTimestamp(),
+          lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await window.db.collection('sessions').doc(this.sessionId).update(payload);
+        // Mirror to liveScreens for lighter reads (best-effort)
         try {
-          const small = await this.captureScreen(0.2);
-          if (small) await window.db.collection('sessions').doc(this.sessionId).update({ screenThumb: small, screenAt: firebase.firestore.FieldValue.serverTimestamp() });
-        } catch (e2) { console.warn(e2); }
+          await window.db.collection('liveScreens').doc(this.sessionId).set({
+            examId: this.examId || null,
+            thumb,
+            at: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+        } catch (_) {}
+      } catch (e) {
+        console.warn('screenThumb push failed', e);
+      } finally {
+        pushing = false;
       }
     };
     pushThumb();

@@ -1462,3 +1462,24 @@ textarea.form-control {
     min-height: 0;
   }
 }
+
+/* v1.4.7 */
+.type-grid-4x4 {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  grid-template-rows: repeat(4, minmax(64px, auto));
+  gap: 0.5rem;
+  overflow: visible !important;
+  flex-wrap: unset !important;
+}
+.type-grid-4x4 .type-card {
+  min-width: 0 !important;
+  flex: unset !important;
+  min-height: 64px;
+}
+@media (max-width: 700px) {
+  .type-grid-4x4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-rows: auto;
+  }
+}
