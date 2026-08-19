@@ -58,13 +58,14 @@ const Dashboard = {
               <div class="action-group">
                 <span class="action-label">Monitor</span>
                 <button class="btn btn-sm btn-primary" onclick="App.openLiveDashboard('${ex.id}')">Live</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity issues</button>
                 <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
               </div>
               <div class="action-group">
                 <span class="action-label">Share</span>
                 <button class="btn btn-sm btn-ghost" onclick="App.showSharePanel('${ex.id}')">Link / QR</button>
                 <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.shareToCoTeacher('${ex.id}')">Co-teacher</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.shareToCoTeacher('${ex.id}')">Share to Co-teacher</button>
                 <button class="btn btn-sm btn-ghost" onclick="App.showProctors('${ex.id}')">Proctors</button>
               </div>
               <div class="action-group">
@@ -120,10 +121,18 @@ const Dashboard = {
         </div>
       </div>
       <div id="integrity-modal-root"></div>
-      <div id="live-sessions-grid" class="live-grid">
-        <div class="empty-state">Waiting for students...</div>
+      <div class="live-layout">
+        <div id="live-sessions-grid" class="live-grid">
+          <div class="empty-state">Waiting for students...</div>
+        </div>
+        <aside class="integrity-panel" id="integrity-panel">
+          <div class="integrity-panel-head">
+            <strong>Integrity issues</strong>
+            <input type="search" id="integrity-filter" class="form-control" placeholder="Filter name, email..." />
+          </div>
+          <div id="integrity-list" class="integrity-list"><p class="text-muted">No events yet.</p></div>
+        </aside>
       </div>
-      <div id="teacher-notifications"></div>
     `;
 
     const extBtn = document.getElementById('btn-extend-all');
@@ -145,10 +154,48 @@ const Dashboard = {
           return s && proctorFilterIds.includes(s.studentId);
         });
       }
+      this._allIntegrity = filtered;
       this._handlePasteNotifications(filtered);
-      Notifications.renderPanel(document.getElementById('teacher-notifications'), filtered);
+      this.renderIntegrityPanel(filtered);
     });
     this.unsubscribers.push(unsubN);
+
+    const filterInput = document.getElementById('integrity-filter');
+    if (filterInput) {
+      filterInput.oninput = () => this.renderIntegrityPanel(this._allIntegrity || []);
+    }
+  },
+
+  renderIntegrityPanel(notifs) {
+    const list = document.getElementById('integrity-list');
+    if (!list) return;
+    const q = (document.getElementById('integrity-filter')?.value || '').trim().toLowerCase();
+    let items = notifs || [];
+    if (q) {
+      items = items.filter(n =>
+        (n.studentName || '').toLowerCase().includes(q) ||
+        (n.studentEmail || '').toLowerCase().includes(q) ||
+        (n.details || '').toLowerCase().includes(q) ||
+        (n.type || '').toLowerCase().includes(q)
+      );
+    }
+    if (!items.length) {
+      list.innerHTML = '<p class="text-muted">No matching integrity events.</p>';
+      return;
+    }
+    list.innerHTML = items.map(n => {
+      const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '';
+      const thumb = n.screenshot || (n.extra && n.extra.screenshot);
+      return `<div class="integrity-item">
+        <div class="integrity-item-main">
+          <strong>${escapeHtml(n.studentName || n.studentEmail || '')}</strong>
+          <div class="text-muted" style="font-size:0.75rem">${escapeHtml(n.studentEmail || '')}</div>
+          <div><span class="chip">${escapeHtml(n.type || '')}</span> ${escapeHtml(n.details || '')}</div>
+          <div class="text-muted" style="font-size:0.7rem">${time}</div>
+        </div>
+        ${thumb ? `<img class="integrity-thumb" src="${thumb}" alt="screen" onclick="UI.showImage(this.src,'Student screen')" />` : ''}
+      </div>`;
+    }).join('');
   },
 
   promptExtendAll(examId) {

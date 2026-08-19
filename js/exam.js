@@ -16,7 +16,9 @@ const Exam = {
       maxScore = 100,
       answerKey = '',
       questions = [],
-      subject = 'General'
+      subject = 'General',
+      status = 'published',
+      active = true
     } = opts;
 
     const startMs = startAt ? new Date(startAt).getTime() : Date.now();
@@ -44,7 +46,8 @@ const Exam = {
       teacherId: Auth.currentUser.uid,
       teacherEmail: Auth.userProfile.email,
       teacherName: Auth.userProfile.name,
-      active: true,
+      status: status || 'published',
+      active: active !== false && status !== 'draft',
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
@@ -270,7 +273,7 @@ const Exam = {
     const sessionSnap = await ref.get();
     if (sessionSnap.exists) {
       const s = sessionSnap.data();
-      await window.db.collection('notifications').add({
+      const payload = {
         examId: s.examId,
         sessionId,
         studentId: s.studentId,
@@ -279,9 +282,13 @@ const Exam = {
         type,
         details,
         extra,
+        screenshot: extra.screenshot || null,
         read: false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
+      };
+      await window.db.collection('notifications').add(payload);
+      // Permanent integrity archive (never auto-deleted)
+      await window.db.collection('integrityHistory').add(payload);
     }
   },
 

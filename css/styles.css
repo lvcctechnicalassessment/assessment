@@ -900,3 +900,100 @@ textarea.form-control {
 @media (max-width: 480px) {
   .gq-options-row { grid-template-columns: 1fr; }
 }
+
+/* v1.4 live integrity + screen thumbs */
+.live-layout {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 340px);
+  gap: 1rem;
+  align-items: start;
+}
+.integrity-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  position: sticky;
+  top: 72px;
+  max-height: calc(100vh - 90px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.integrity-panel-head {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.integrity-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0.5rem;
+}
+.integrity-item {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--border);
+  align-items: flex-start;
+}
+.integrity-item-main { flex: 1; min-width: 0; font-size: 0.85rem; }
+.integrity-thumb {
+  width: 72px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ui-modal-overlay {
+  z-index: 400;
+  backdrop-filter: blur(2px);
+}
+.ui-modal {
+  max-width: 420px;
+  width: calc(100% - 2rem);
+}
+.ui-modal-body {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  margin: 0.5rem 0 0;
+  color: var(--text-muted);
+}
+.fill-blank {
+  display: inline-block;
+  min-width: 100px;
+  margin: 0 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-bottom: 2px solid var(--primary);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.fill-template { line-height: 2; }
+.assess-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.assess-table th, .assess-table td {
+  border: 1px solid var(--border);
+  padding: 0.45rem 0.5rem;
+}
+.assess-table th { background: var(--surface-2); }
+.points-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+
+@media (min-width: 901px) {
+  .sidebar-user { display: none !important; }
+}
+@media (max-width: 900px) {
+  .live-layout { grid-template-columns: 1fr; }
+  .integrity-panel {
+    position: relative;
+    top: 0;
+    max-height: 320px;
+  }
+}

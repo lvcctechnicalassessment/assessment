@@ -277,8 +277,8 @@ const App = {
         <div class="form-group">
           <label>Exam type</label>
           <select id="exam-type" class="form-control">
+            <option value="regular" selected>Regular Assessment</option>
             <option value="code">Code Assessment</option>
-            <option value="regular">Regular Assessment</option>
           </select>
         </div>
         <div class="form-group" id="lang-group">
@@ -323,7 +323,8 @@ const App = {
         </div>
         <div class="modal-actions action-btns">
           <button class="btn btn-ghost" onclick="App.showTeacherHome()">Cancel</button>
-          <button class="btn btn-primary" id="create-exam-btn">Create</button>
+          <button class="btn btn-ghost" id="draft-exam-btn">Save draft</button>
+          <button class="btn btn-primary" id="create-exam-btn">Publish…</button>
         </div>
       </div>
     `, 'exams');
@@ -431,6 +432,37 @@ const App = {
       renderBuilder();
     };
 
+    const buildPayload = (status) => {
+      const title = document.getElementById('exam-title').value.trim();
+      const instructions = document.getElementById('exam-instructions').value.trim();
+      const examType = document.getElementById('exam-type').value;
+      const language = document.getElementById('exam-language').value;
+      const subject = document.getElementById('exam-subject').value.trim() || 'General';
+      const startAt = document.getElementById('exam-start').value;
+      const endAt = document.getElementById('exam-end').value;
+      const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore').value) || 100);
+      return { title, instructions, examType, language, subject, startAt, endAt, maxScore, status };
+    };
+
+    document.getElementById('draft-exam-btn').onclick = async () => {
+      const p = buildPayload('draft');
+      if (!p.title) { await UI.alert('Title is required'); return; }
+      try {
+        await Exam.createExam({
+          ...p,
+          startAt: p.startAt || new Date().toISOString(),
+          endAt: p.endAt || new Date(Date.now()+3600000).toISOString(),
+          starterCode: document.getElementById('exam-starter').value,
+          answerKey: document.getElementById('exam-answer').value,
+          questions: p.examType === 'regular' ? window._builderQuestions : [],
+          status: 'draft',
+          active: false
+        });
+        await UI.alert('Draft saved. You can edit and publish later.', 'Draft');
+        this.showTeacherHome();
+      } catch (err) { await UI.alert(err.message); }
+    };
+
     document.getElementById('create-exam-btn').onclick = async () => {
       const title = document.getElementById('exam-title').value.trim();
       const instructions = document.getElementById('exam-instructions').value.trim();
@@ -453,11 +485,12 @@ const App = {
           title, instructions, examType, language, subject, startAt, endAt, maxScore,
           starterCode: document.getElementById('exam-starter').value,
           answerKey: document.getElementById('exam-answer').value,
-          questions: examType === 'regular' ? window._builderQuestions : []
+          questions: examType === 'regular' ? window._builderQuestions : [],
+          status: 'published',
+          active: true
         });
-        alert('Exam created!');
-        this.showTeacherHome();
-        this.copyExamLink(exam.id);
+        await UI.alert('Assessment published. Share the link or QR with students.', 'Published');
+        this.showSharePanel(exam.id);
       } catch (err) {
         alert('Error: ' + err.message);
       }
@@ -1013,10 +1046,12 @@ const App = {
     CodeEditor._setupAntiCheat();
 
     document.getElementById('submit-exam-btn').onclick = async () => {
-      if (!confirm('Submit assessment?')) return;
+      const ok = await UI.confirm('Submit this assessment? You will not be able to edit further.', 'Submit');
+      if (!ok) return;
+      CodeEditor.beginSubmit();
       await Exam.updateSessionAnswers(session.id, Regular.collectAnswers(box));
       await Exam.submitSession(session.id, 'manual');
-      alert('Submitted.');
+      await UI.alert('Submitted successfully.', 'Done');
       this.showStudentHome();
     };
     this._runTimer(session, async () => {
@@ -1050,6 +1085,56 @@ const App = {
   },
 
   // ---- Grading / export (retained) ----
+  async showIntegrityHistory(examId) {
+    const exam = await Exam.getExam(examId);
+    this.renderShell(`
+      <div class="card-header page-header-responsive">
+        <h2 class="page-title">Integrity issues — ${escapeHtml(exam?.title || '')}</h2>
+        <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+      </div>
+      <div class="card">
+        <input type="search" id="integrity-filter-page" class="form-control" placeholder="Filter by name, email, type..." />
+      </div>
+      <div id="integrity-hist-list" class="mt-2">Loading...</div>
+    `, 'exams');
+    let all = [];
+    try {
+      const snap = await window.db.collection('integrityHistory')
+        .where('examId', '==', examId)
+        .get();
+      all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      all.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    } catch (e) {
+      // fallback notifications
+      const snap = await window.db.collection('notifications').where('examId', '==', examId).get();
+      all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    const render = () => {
+      const q = (document.getElementById('integrity-filter-page')?.value || '').toLowerCase();
+      const items = q ? all.filter(n =>
+        (n.studentName || '').toLowerCase().includes(q) ||
+        (n.studentEmail || '').toLowerCase().includes(q) ||
+        (n.type || '').toLowerCase().includes(q) ||
+        (n.details || '').toLowerCase().includes(q)
+      ) : all;
+      const el = document.getElementById('integrity-hist-list');
+      el.innerHTML = items.length ? items.map(n => {
+        const thumb = n.screenshot || n.extra?.screenshot;
+        const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '';
+        return `<div class="integrity-item card">
+          <div class="integrity-item-main">
+            <strong>${escapeHtml(n.studentName || '')}</strong> · ${escapeHtml(n.studentEmail || '')}
+            <div><span class="chip">${escapeHtml(n.type || '')}</span> ${escapeHtml(n.details || '')}</div>
+            <div class="text-muted" style="font-size:0.75rem">${time}</div>
+          </div>
+          ${thumb ? `<img class="integrity-thumb" src="${thumb}" onclick="UI.showImage(this.src,'Student screen')" />` : ''}
+        </div>`;
+      }).join('') : '<p class="text-muted">No integrity events recorded.</p>';
+    };
+    document.getElementById('integrity-filter-page').oninput = render;
+    render();
+  },
+
   async gradeSession(sessionId, examId) {
     const exam = await Exam.getExam(examId);
     const snap = await window.db.collection('sessions').doc(sessionId).get();
@@ -1141,7 +1226,7 @@ const App = {
   },
 
   async logout() {
-    if (!confirm('Log out?')) return;
+    if (!(await UI.confirm('Are you sure you want to log out?', 'Log out'))) return;
     clearInterval(this._examTimerInterval);
     Dashboard.clearListeners();
     CodeEditor.dispose();

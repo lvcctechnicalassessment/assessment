@@ -10,6 +10,7 @@ const CodeEditor = {
   updateTimer: null,
   lastCode: '',
   isLocked: false,
+  isSubmitting: false,
   _handlers: [],
 
   async init(containerId, initialCode = '', sessionId, examId, language = 'python') {
@@ -214,6 +215,7 @@ const CodeEditor = {
     this._on(window, 'blur', () => this._flag('blur', 'Window lost focus'));
 
     this._on(window, 'beforeunload', (e) => {
+      if (this.isSubmitting || this.isLocked) return;
       this._flag('close', 'Attempted to close or leave the page');
       e.preventDefault();
       e.returnValue = '';
@@ -227,13 +229,17 @@ const CodeEditor = {
   },
 
   _flag(type, details, extra = {}) {
-    if (!this.sessionId || this.isLocked) return;
+    if (!this.sessionId || this.isLocked || this.isSubmitting) return;
     const key = type + details;
     if (this._lastFlag === key && Date.now() - (this._lastFlagTime || 0) < 2500) return;
     this._lastFlag = key;
     this._lastFlagTime = Date.now();
 
-    Exam.logEvent(this.sessionId, type, details, extra).catch(console.error);
+    // Capture student viewport thumbnail for teachers/proctors
+    this.captureScreen().then((thumb) => {
+      if (thumb) extra = { ...extra, screenshot: thumb };
+      return Exam.logEvent(this.sessionId, type, details, extra);
+    }).catch(() => Exam.logEvent(this.sessionId, type, details, extra));
 
     const banner = document.getElementById('lock-banner');
     if (banner) {
@@ -242,6 +248,36 @@ const CodeEditor = {
       setTimeout(() => banner.classList.add('hidden'), 4000);
     }
   },
+
+  async captureScreen() {
+    try {
+      if (typeof html2canvas !== 'function') return null;
+      const target = document.getElementById('app') || document.body;
+      const canvas = await html2canvas(target, {
+        scale: 0.35,
+        logging: false,
+        useCORS: true,
+        backgroundColor: '#0f172a',
+        windowWidth: Math.min(window.innerWidth, 1280)
+      });
+      // Compress
+      let q = 0.45;
+      let data = canvas.toDataURL('image/jpeg', q);
+      while (data.length > 90000 && q > 0.15) {
+        q -= 0.1;
+        data = canvas.toDataURL('image/jpeg', q);
+      }
+      return data.length < 120000 ? data : null;
+    } catch (e) {
+      console.warn('screenshot failed', e);
+      return null;
+    }
+  },
+
+  beginSubmit() {
+    this.isSubmitting = true;
+  },
+
 
   _highlightPaste(startLine, endLine) {
     if (!this.editor || !window.monaco) return;

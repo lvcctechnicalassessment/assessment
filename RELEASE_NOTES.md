@@ -36,3 +36,18 @@
   - **Teacher**: create / edit / delete **their own** assessments; invites, proctors, grades
   - **Student**: take assessments via teacher link; write own sessions; create **mock history** only (cannot create real assessments)
 - App UI blocks students from Create Assessment.
+
+## v1.4.0 — 2026-08-19
+
+### Added / changed
+- Themed center modals (UI.alert / confirm / prompt) — no browser "says" dialogs for main flows
+- Live dashboard **right integrity panel** with as-you-type filter + screenshot thumbnails
+- **Integrity issues** under Monitor — full permanent history (`integrityHistory`)
+- Screen thumbnail captured on integrity events (html2canvas)
+- **Share to Co-teacher** label; Draft / Publish on create; Regular assessment default
+- Essay (renamed from Open ended, 1000 chars); TF categories; fill-in blanks; table fill foundations
+- Submit no longer fires false "leave page" integrity event
+- Desktop: name/logout only in header (not sidebar)
+
+### Note
+Full Google-Docs-style passage multi-tab editor and complete visual editors for every advanced item type continue to use structured data models; passage sets and rich cell editing can be expanded further in a follow-up.
