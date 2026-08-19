@@ -723,3 +723,180 @@ textarea.form-control {
   .brand-logo { width: 88px; height: 88px; }
   .notifications-panel { width: calc(100vw - 1.5rem); right: 0.75rem; left: 0.75rem; }
 }
+
+/* v1.3.1 header left + gamified questions + assess cards */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+}
+.app-header .logo {
+  justify-content: flex-start;
+}
+.sidebar-user {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.assess-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.assess-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+}
+.assess-title { font-size: 1.05rem; font-weight: 700; }
+.assess-meta { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
+.chip {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.chip-ok { background: rgba(22,163,74,0.2); color: #4ade80; }
+.assess-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.action-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  width: 100%;
+  margin-bottom: 0.15rem;
+}
+
+/* Gamified MC (Kahoot-style cards, app colors) */
+.gq-block { margin-bottom: 1rem; }
+.gq-question-box {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  min-height: 88px;
+}
+.gq-question-input, .gq-option-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 1rem;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+}
+.gq-question-input::placeholder, .gq-option-input::placeholder { color: rgba(255,255,255,0.55); }
+.gq-question-text { font-size: 1.05rem; font-weight: 600; text-align: center; }
+.gq-options-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem;
+  align-items: stretch;
+}
+.gq-option {
+  border-radius: 12px;
+  padding: 0.75rem;
+  min-height: 100px;
+  position: relative;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.gq-option-tools {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+.gq-icon-btn, .gq-correct-btn {
+  background: rgba(0,0,0,0.2);
+  border: none;
+  color: #fff;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.gq-correct-btn.is-correct {
+  background: #16a34a;
+  box-shadow: 0 0 0 2px #fff;
+}
+.gq-add-opt {
+  border-radius: 12px;
+  border: 2px dashed var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  min-height: 100px;
+  cursor: pointer;
+}
+.gq-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  align-items: center;
+}
+.gq-toggle { font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; }
+.gq-student.selected { outline: 3px solid #fff; box-shadow: 0 0 0 2px rgba(0,0,0,0.3); }
+.gq-student-check {
+  position: absolute;
+  top: 8px; right: 10px;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.qr-wrap { text-align: center; }
+.qr-wrap img { background: #fff; padding: 8px; border-radius: 8px; }
+.hist-cat { margin-top: 0.75rem; }
+.hist-cat-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.hist-check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .header-user-desktop { display: none !important; }
+  .header-left { flex: 1; }
+  .logo-text { max-width: 70vw; }
+  .assess-card { flex-direction: column; }
+  .action-group { width: 100%; }
+  .gq-options-row { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 480px) {
+  .gq-options-row { grid-template-columns: 1fr; }
+}

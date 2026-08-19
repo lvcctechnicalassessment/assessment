@@ -129,10 +129,10 @@ const App = {
     if (role === 'superadmin') {
       navItems = `
         <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin();App.toggleMobileNav()">👥 Teachers</div>
-        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Exams</div>`;
+        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Assessments</div>`;
     } else if (role === 'teacher') {
       navItems = `
-        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Exams</div>`;
+        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Assessments</div>`;
     } else if (role === 'proctor') {
       navItems = `
         <div class="nav-item ${activeNav==='proctor'?'active':''}" onclick="App.showProctorHome();App.toggleMobileNav()">👁 Proctor</div>`;
@@ -140,17 +140,19 @@ const App = {
       navItems = `
         <div class="nav-item ${activeNav==='student'?'active':''}" onclick="App.showStudentHome();App.toggleMobileNav()">🏠 Home</div>
         <div class="nav-item ${activeNav==='history'?'active':''}" onclick="App.showStudentHistory();App.toggleMobileNav()">📚 History</div>
-        <div class="nav-item ${activeNav==='mock'?'active':''}" onclick="App.showMockExam();App.toggleMobileNav()">🎲 Mock Exam</div>`;
+        <div class="nav-item ${activeNav==='mock'?'active':''}" onclick="App.showMockExam();App.toggleMobileNav()">🎲 Mock History</div>`;
     }
 
     document.getElementById('app').innerHTML = `
       <header class="app-header">
-        <button class="btn btn-ghost btn-sm menu-toggle" onclick="App.toggleMobileNav()" aria-label="Menu">☰</button>
-        <div class="logo">
-          <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-          <span class="logo-text">LVCC Assessment Portal</span>
+        <div class="header-left">
+          <button class="btn btn-ghost btn-sm menu-toggle" onclick="App.toggleMobileNav()" aria-label="Menu">☰</button>
+          <div class="logo">
+            <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
+            <span class="logo-text">LVCC Assessment Portal</span>
+          </div>
         </div>
-        <div class="user-info">
+        <div class="user-info header-user-desktop">
           <span class="role-badge ${role}">${role}</span>
           <span class="user-name">${escapeHtml(name)}</span>
           <button class="btn btn-sm btn-ghost" onclick="App.logout()">Logout</button>
@@ -161,6 +163,12 @@ const App = {
         <aside class="sidebar" id="sidebar">
           <h3>Menu</h3>
           ${navItems}
+          <div class="sidebar-user">
+            <div class="text-muted" style="font-size:0.75rem;margin-bottom:0.35rem">Signed in</div>
+            <div style="font-weight:600;word-break:break-all">${escapeHtml(name)}</div>
+            <span class="role-badge ${role}" style="margin-top:0.35rem;display:inline-block">${role}</span>
+            <button class="btn btn-sm btn-ghost w-full mt-1" onclick="App.logout()">Logout</button>
+          </div>
         </aside>
         <main class="main-content" id="main-content">${contentHtml}</main>
       </div>`;
@@ -243,6 +251,11 @@ const App = {
   },
 
   showCreateExam() {
+    if (!Auth.isTeacher()) {
+      alert('Only teachers can create assessments. Students can generate mock assessments from History.');
+      this.showStudentHome();
+      return;
+    }
     const now = new Date();
     const later = new Date(now.getTime() + 60 * 60000);
     const toLocal = (d) => {
@@ -290,8 +303,8 @@ const App = {
           </div>
         </div>
         <div class="form-group">
-          <label>Max score (default 50)</label>
-          <input type="number" id="exam-maxscore" class="form-control" value="50" min="1" />
+          <label id="maxscore-label">Max score (default 100 for code)</label>
+          <input type="number" id="exam-maxscore" class="form-control" value="100" min="1" />
         </div>
         <div id="code-fields">
           <div class="form-group">
@@ -321,6 +334,8 @@ const App = {
       document.getElementById('lang-group').classList.toggle('hidden', reg);
       document.getElementById('code-fields').classList.toggle('hidden', reg);
       document.getElementById('regular-fields').classList.toggle('hidden', !reg);
+      const maxG = document.getElementById('exam-maxscore')?.closest('.form-group');
+      if (maxG) maxG.classList.toggle('hidden', reg);
     };
     typeEl.onchange = syncType;
     syncType();
@@ -328,31 +343,26 @@ const App = {
     window._builderQuestions = [];
     const renderBuilder = () => {
       const box = document.getElementById('questions-builder');
-      box.innerHTML = window._builderQuestions.map((q, i) => `
-        <div class="q-edit card">
-          <div class="form-row">
-            <select data-i="${i}" class="form-control q-type">
-              ${QUESTION_TYPES.map(t => `<option value="${t.id}" ${q.type===t.id?'selected':''}>${t.label}</option>`).join('')}
-            </select>
-            <button class="btn btn-sm btn-danger" data-del="${i}">Remove</button>
-          </div>
-          <input class="form-control mt-1 q-prompt" data-i="${i}" value="${escapeHtml(q.prompt)}" placeholder="Question prompt" />
-          <input class="form-control mt-1 q-opts" data-i="${i}" value="${escapeHtml((q.options||[]).join(' | '))}" placeholder="Options separated by | (for MC/dropdown)" />
-        </div>`).join('') || '<p class="text-muted">No questions yet.</p>';
+      box.innerHTML = window._builderQuestions.map((q, i) => {
+        const typeSel = `<div class="form-row" style="margin-bottom:0.5rem">
+          <select data-i="${i}" class="form-control q-type">
+            ${QUESTION_TYPES.map(t => `<option value="${t.id}" ${q.type===t.id?'selected':''}>${t.label}</option>`).join('')}
+          </select>
+          <button class="btn btn-sm btn-danger" data-del="${i}">Remove</button>
+        </div>`;
+        if (q.type === 'multiple' || q.type === 'multiselect') {
+          return `<div class="card">${typeSel}${Regular.renderBuilderMC(q, i)}</div>`;
+        }
+        return `<div class="card q-edit">${typeSel}
+          <textarea class="form-control q-prompt" data-i="${i}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
+          <input class="form-control mt-1" data-correct-text="${i}" value="${escapeHtml(String(q.correct ?? ''))}" placeholder="Correct answer" />
+        </div>`;
+      }).join('') || '<p class="text-muted">No questions yet. Add one and mark the correct option with ✓.</p>';
+
       box.querySelectorAll('.q-type').forEach(el => {
         el.onchange = () => {
-          const i = Number(el.dataset.i);
-          window._builderQuestions[i] = Regular.newQuestion(el.value);
+          window._builderQuestions[Number(el.dataset.i)] = Regular.newQuestion(el.value);
           renderBuilder();
-        };
-      });
-      box.querySelectorAll('.q-prompt').forEach(el => {
-        el.oninput = () => { window._builderQuestions[Number(el.dataset.i)].prompt = el.value; };
-      });
-      box.querySelectorAll('.q-opts').forEach(el => {
-        el.oninput = () => {
-          const i = Number(el.dataset.i);
-          window._builderQuestions[i].options = el.value.split('|').map(s => s.trim()).filter(Boolean);
         };
       });
       box.querySelectorAll('[data-del]').forEach(el => {
@@ -360,6 +370,60 @@ const App = {
           window._builderQuestions.splice(Number(el.dataset.del), 1);
           renderBuilder();
         };
+      });
+      box.querySelectorAll('[data-prompt]').forEach(el => {
+        el.oninput = () => { window._builderQuestions[Number(el.dataset.prompt)].prompt = el.value; };
+      });
+      box.querySelectorAll('.q-prompt').forEach(el => {
+        if (el.dataset.i !== undefined) el.oninput = () => { window._builderQuestions[Number(el.dataset.i)].prompt = el.value; };
+      });
+      box.querySelectorAll('[data-opt-text]').forEach(el => {
+        el.oninput = () => {
+          const [qi, oi] = el.dataset.optText.split(':').map(Number);
+          window._builderQuestions[qi].options[oi] = el.value;
+        };
+      });
+      box.querySelectorAll('[data-correct]').forEach(el => {
+        el.onclick = () => {
+          const [qi, oi] = el.dataset.correct.split(':').map(Number);
+          const q = window._builderQuestions[qi];
+          if (q.type === 'multiselect' || q.multiCorrect) {
+            const arr = Array.isArray(q.correct) ? q.correct.map(Number) : [];
+            const idx = arr.indexOf(oi);
+            if (idx >= 0) arr.splice(idx, 1); else arr.push(oi);
+            q.correct = arr;
+          } else {
+            q.correct = oi;
+          }
+          renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-del-opt]').forEach(el => {
+        el.onclick = () => {
+          const [qi, oi] = el.dataset.delOpt.split(':').map(Number);
+          window._builderQuestions[qi].options.splice(oi, 1);
+          renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-add-opt]').forEach(el => {
+        el.onclick = () => {
+          const qi = Number(el.dataset.addOpt);
+          window._builderQuestions[qi].options.push('');
+          renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-multi]').forEach(el => {
+        el.onchange = () => {
+          const qi = Number(el.dataset.multi);
+          const q = window._builderQuestions[qi];
+          q.multiCorrect = el.checked;
+          q.type = el.checked ? 'multiselect' : 'multiple';
+          q.correct = el.checked ? (Array.isArray(q.correct) ? q.correct : [q.correct].filter(x => x !== undefined)) : (Array.isArray(q.correct) ? (q.correct[0] ?? 0) : q.correct);
+          renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-correct-text]').forEach(el => {
+        el.oninput = () => { window._builderQuestions[Number(el.dataset.correctText)].correct = el.value; };
       });
     };
     document.getElementById('add-q-btn').onclick = () => {
@@ -375,10 +439,15 @@ const App = {
       const subject = document.getElementById('exam-subject').value.trim() || 'General';
       const startAt = document.getElementById('exam-start').value;
       const endAt = document.getElementById('exam-end').value;
-      const maxScore = Number(document.getElementById('exam-maxscore').value) || 50;
+      const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore').value) || 100);
       if (!title || !instructions) { alert('Title and instructions required'); return; }
       if (!startAt || !endAt) { alert('Start and end time required'); return; }
       if (new Date(endAt) <= new Date(startAt)) { alert('End must be after start'); return; }
+      // Scheduled start cannot be in the past (allow 1 min skew)
+      if (new Date(startAt).getTime() < Date.now() - 60000) {
+        alert('Start time cannot be before the current date and time.');
+        return;
+      }
       try {
         const exam = await Exam.createExam({
           title, instructions, examType, language, subject, startAt, endAt, maxScore,
@@ -397,8 +466,156 @@ const App = {
 
   copyExamLink(examId) {
     const url = `${window.location.origin}${window.location.pathname}?exam=${examId}`;
-    navigator.clipboard.writeText(url).then(() => alert('Link copied:\n' + url)).catch(() => prompt('Copy link:', url));
+    navigator.clipboard.writeText(url).then(() => alert('Assessment link copied to clipboard.')).catch(() => {
+      // silent fallback without ugly prompt URL when possible
+      const ta = document.createElement('textarea');
+      ta.value = url; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); alert('Assessment link copied to clipboard.'); } catch (_) {}
+      ta.remove();
+    });
   },
+
+  showSharePanel(examId) {
+    const url = `${window.location.origin}${window.location.pathname}?exam=${examId}`;
+    const qr = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(url);
+    this.renderShell(`
+      <h2 class="page-title">Share assessment</h2>
+      <div class="card share-panel">
+        <p class="text-muted">Students open this link (or scan the QR) while signed in.</p>
+        <div class="form-group">
+          <label>Link</label>
+          <input class="form-control" id="share-url" readonly value="${url.replace(/"/g, '&quot;')}" />
+        </div>
+        <div class="action-btns">
+          <button class="btn btn-primary" id="copy-share">Copy link</button>
+          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+        </div>
+        <div class="qr-wrap mt-2">
+          <img src="${qr}" alt="QR code" width="220" height="220" />
+          <p class="text-muted" style="font-size:0.85rem">Scan to open assessment</p>
+        </div>
+      </div>
+    `, 'exams');
+    document.getElementById('copy-share').onclick = () => {
+      navigator.clipboard.writeText(url).then(() => alert('Link copied.')).catch(() => {});
+    };
+  },
+
+  async shareToCoTeacher(examId) {
+    const email = prompt('Co-teacher email (La Verdad account):');
+    if (!email) return;
+    try {
+      const exam = await Exam.getExam(examId);
+      if (!exam) throw new Error('Assessment not found');
+      const { id, createdAt, updatedAt, teacherId, teacherEmail, teacherName, proctors, ...rest } = exam;
+      // Store pending share — co-teacher claims on login / list
+      await window.db.collection('pendingShares').add({
+        sourceExamId: examId,
+        toEmail: email.trim().toLowerCase(),
+        fromTeacherId: Auth.currentUser.uid,
+        fromTeacherEmail: Auth.userProfile.email,
+        snapshot: rest,
+        title: (exam.title || 'Assessment') + ' (shared)',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      // If co-teacher already has user account, create their copy now
+      const q = await window.db.collection('users').where('email', '==', email.trim().toLowerCase()).limit(1).get();
+      if (!q.empty) {
+        const uid = q.docs[0].id;
+        const now = Date.now();
+        await Exam.createExam({
+          ...rest,
+          title: (exam.title || 'Assessment') + ' (Copy)',
+          startAt: now,
+          endAt: now + (Number(rest.durationMinutes) || 60) * 60000
+        });
+        // createExam uses current user as teacher — need direct write for co-teacher
+        // Fix: write exam under co-teacher id
+        const ref = window.db.collection('exams').doc();
+        await ref.set({
+          ...rest,
+          title: (exam.title || 'Assessment') + ' (Copy)',
+          teacherId: uid,
+          teacherEmail: email.trim().toLowerCase(),
+          teacherName: q.docs[0].data().name || email,
+          proctors: [],
+          startAt: now,
+          endAt: now + (Number(rest.durationMinutes) || 60) * 60000,
+          active: true,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+      alert('Shared with co-teacher. They will see a fresh copy to configure.');
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  },
+
+  async deleteExam(examId, title) {
+    const typed = prompt('Type the assessment name to confirm deletion:\n\n' + title);
+    if (typed === null) return;
+    if (typed.trim() !== title.trim()) {
+      alert('Name did not match. Deletion cancelled.');
+      return;
+    }
+    if (!confirm('Permanently delete this assessment?')) return;
+    try {
+      await Exam.deleteExam(examId);
+      alert('Assessment deleted.');
+      this.showTeacherHome();
+    } catch (e) {
+      alert(e.message);
+    }
+  },
+
+  async editExam(examId) {
+    const exam = await Exam.getExam(examId);
+    if (!exam) { alert('Not found'); return; }
+    const toLocal = (ms) => {
+      const d = new Date(ms);
+      const pad = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    };
+    this.renderShell(`
+      <h2 class="page-title">Edit assessment</h2>
+      <div class="card">
+        <div class="form-group"><label>Title</label>
+          <input id="edit-title" class="form-control" value="${escapeHtml(exam.title || '')}" /></div>
+        <div class="form-group"><label>Instructions</label>
+          <textarea id="edit-instructions" class="form-control" rows="4">${escapeHtml(exam.instructions || '')}</textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>Start</label>
+            <input type="datetime-local" id="edit-start" class="form-control" value="${toLocal(exam.startAt || Date.now())}" /></div>
+          <div class="form-group"><label>End</label>
+            <input type="datetime-local" id="edit-end" class="form-control" value="${toLocal(exam.endAt || Date.now())}" /></div>
+        </div>
+        ${exam.examType !== 'regular' ? `<div class="form-group"><label>Max score</label>
+          <input type="number" id="edit-max" class="form-control" value="${exam.maxScore || 100}" /></div>` : ''}
+        <div class="action-btns">
+          <button class="btn btn-primary" id="save-edit">Save</button>
+          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Cancel</button>
+        </div>
+      </div>
+    `, 'exams');
+    document.getElementById('save-edit').onclick = async () => {
+      const startAt = new Date(document.getElementById('edit-start').value).getTime();
+      const endAt = new Date(document.getElementById('edit-end').value).getTime();
+      if (endAt <= startAt) { alert('End must be after start'); return; }
+      const updates = {
+        title: document.getElementById('edit-title').value.trim(),
+        instructions: document.getElementById('edit-instructions').value.trim(),
+        startAt, endAt,
+        durationMinutes: Math.max(1, Math.round((endAt - startAt) / 60000))
+      };
+      const maxEl = document.getElementById('edit-max');
+      if (maxEl) updates.maxScore = Number(maxEl.value) || 100;
+      await Exam.updateExam(examId, updates);
+      alert('Saved.');
+      this.showTeacherHome();
+    };
+  },
+
 
   async toggleExamActive(examId, active) {
     if (!confirm(active ? 'Reopen this exam?' : 'Close this exam?')) return;
@@ -540,13 +757,17 @@ const App = {
   showStudentHome() {
     this.renderShell(`
       <h2 class="page-title">Student Portal</h2>
-      <p class="page-subtitle">Open the exam link from your teacher, or review your history and take mock exams.</p>
+      <p class="page-subtitle">Open the assessment link shared by your teacher. You cannot create new assessments — only mock practice from your history.</p>
       <div class="card">
-        <p>Exam links look like: <code>?exam=EXAM_ID</code></p>
-        <div class="action-btns mt-2">
-          <button class="btn btn-primary" onclick="App.showStudentHistory()">📚 History</button>
-          <button class="btn btn-ghost" onclick="App.showMockExam()">🎲 Mock Exam</button>
+        <div class="action-btns">
+          <button class="btn btn-primary" onclick="App.showStudentHistory()">📚 Assessment History</button>
+          <button class="btn btn-ghost" onclick="App.showMockExam()">🎲 Mock History</button>
         </div>
+      </div>
+      <div class="card mt-2">
+        <h3>Results overview</h3>
+        <p class="text-muted">Charts per subject will appear here as you complete assessments.</p>
+        <div id="student-results-dash" class="text-muted">Complete assessments to see your progress.</div>
       </div>
     `, 'student');
   },
@@ -559,50 +780,123 @@ const App = {
       el.innerHTML = '<p class="text-muted">No assessments yet.</p>';
       return;
     }
-    const code = sessions.filter(s => (s.examType || 'code') === 'code');
-    const reg = sessions.filter(s => s.examType === 'regular');
-    const block = (title, list) => `
-      <div class="card mt-2"><h3>${title}</h3>
-        ${list.map(s => `<div class="hist-item">
-          <strong>${escapeHtml(s.examTitle || s.examId)}</strong>
-          <span class="text-muted">${escapeHtml(s.subject || '')} · ${escapeHtml(s.status)}</span>
-        </div>`).join('') || '<p class="text-muted">None</p>'}
-      </div>`;
-    el.innerHTML = block('Code assessments', code) + block('Regular assessments', reg);
+    // Group by subject then type
+    const bySubject = {};
+    sessions.forEach(s => {
+      const sub = s.subject || 'General';
+      if (!bySubject[sub]) bySubject[sub] = { code: [], regular: [] };
+      if ((s.examType || 'code') === 'regular') bySubject[sub].regular.push(s);
+      else bySubject[sub].code.push(s);
+    });
+
+    let html = '';
+    Object.keys(bySubject).sort().forEach(sub => {
+      const g = bySubject[sub];
+      html += `<div class="card mt-2"><h3>${escapeHtml(sub)}</h3>`;
+      html += this._histBlock('Code assessments', g.code, 'code', sub);
+      html += this._histBlock('Regular assessments', g.regular, 'regular', sub);
+      html += `</div>`;
+    });
+    el.innerHTML = html;
   },
+
+  _histBlock(title, list, type, subject) {
+    const items = list.map(s => `
+      <label class="hist-check">
+        <input type="checkbox" class="mock-pick" data-type="${type}" data-subject="${escapeHtml(subject)}" data-examid="${s.examId}" />
+        <span><strong>${escapeHtml(s.examTitle || s.examId)}</strong>
+        <span class="text-muted"> · ${escapeHtml(s.status)}</span></span>
+      </label>`).join('') || '<p class="text-muted">None</p>';
+    return `
+      <div class="hist-cat">
+        <div class="hist-cat-head">
+          <strong>${title}</strong>
+          ${list.length ? `<button class="btn btn-sm btn-primary" onclick="App.startMockFromSelection('${type}','${escapeHtml(subject)}')">Generate mock assessment</button>` : ''}
+        </div>
+        ${items}
+      </div>`;
+  },
+
+  async startMockFromSelection(type, subject) {
+    const boxes = [...document.querySelectorAll(`.mock-pick[data-type="${type}"][data-subject="${CSS.escape(subject)}"]:checked`)];
+    if (!boxes.length) {
+      alert('Select at least one assessment under this category.');
+      return;
+    }
+    const examIds = [...new Set(boxes.map(b => b.dataset.examid))];
+    let questions = [];
+    for (const id of examIds) {
+      const ex = await Exam.getExam(id);
+      if (type === 'regular' && ex?.questions) questions = questions.concat(ex.questions);
+      if (type === 'code') {
+        // code mock: show starter prompts as open practice notes
+        questions.push({
+          id: 'code_' + id,
+          type: 'open',
+          prompt: (ex?.title || 'Code practice') + ':\n' + (ex?.instructions || 'Practice coding from this assessment.'),
+          points: 1
+        });
+      }
+    }
+    questions = questions.sort(() => Math.random() - 0.5).slice(0, 20);
+    if (!questions.length) {
+      alert('No questions available from the selection.');
+      return;
+    }
+    // Save mock history
+    try {
+      await window.db.collection('mockHistory').add({
+        studentId: Auth.currentUser.uid,
+        subject, type,
+        questionCount: questions.length,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (_) {}
+
+    this.renderShell(`
+      <h2 class="page-title">Mock assessment — ${escapeHtml(subject)}</h2>
+      <p class="page-subtitle">Practice only (not graded). ${questions.length} questions.</p>
+      <div id="mock-area"></div>
+      <button class="btn btn-primary mt-2" id="mock-done">Finish</button>
+    `, 'mock');
+    const area = document.getElementById('mock-area');
+    area.innerHTML = questions.map(q => Regular.renderStudentQuestion(q, null)).join('');
+    Regular.bindStudentMC(area, () => {});
+    document.getElementById('mock-done').onclick = () => {
+      alert('Mock finished (practice only).');
+      this.showMockExam();
+    };
+  },
+
 
   async showMockExam() {
     this.renderShell(`
-      <h2 class="page-title">Mock Exam</h2>
-      <p class="page-subtitle">Combine past regular-assessment questions into a practice test (randomized).</p>
-      <div class="card">
-        <button class="btn btn-primary" id="start-mock">Generate mock from my history</button>
-        <div id="mock-area" class="mt-2"></div>
-      </div>
+      <h2 class="page-title">Mock History</h2>
+      <p class="page-subtitle">Past mock assessments you generated. Create new mocks from Assessment History.</p>
+      <div id="mock-hist">Loading...</div>
     `, 'mock');
-    document.getElementById('start-mock').onclick = async () => {
-      const sessions = await Exam.listStudentSessions(Auth.currentUser.uid);
-      const examIds = [...new Set(sessions.filter(s => s.examType === 'regular').map(s => s.examId))];
-      let questions = [];
-      for (const id of examIds.slice(0, 10)) {
-        const ex = await Exam.getExam(id);
-        if (ex?.questions) questions = questions.concat(ex.questions);
-      }
-      // shuffle
-      questions = questions.sort(() => Math.random() - 0.5).slice(0, 15);
-      if (!questions.length) {
-        document.getElementById('mock-area').innerHTML = '<p class="text-muted">No regular assessment questions in your history yet.</p>';
+    const el = document.getElementById('mock-hist');
+    try {
+      const snap = await window.db.collection('mockHistory')
+        .where('studentId', '==', Auth.currentUser.uid)
+        .get();
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+      if (!list.length) {
+        el.innerHTML = '<p class="text-muted">No mock history yet. Go to Assessment History and click Generate mock assessment.</p>';
         return;
       }
-      const area = document.getElementById('mock-area');
-      area.innerHTML = questions.map(q => Regular.renderStudentQuestion(q, null)).join('') +
-        `<button class="btn btn-primary mt-2" id="mock-done">Finish mock</button>`;
-      document.getElementById('mock-done').onclick = () => {
-        alert('Mock finished (practice only — not graded).');
-        this.showStudentHome();
-      };
-    };
+      el.innerHTML = list.map(m => `
+        <div class="card">
+          <strong>${escapeHtml(m.subject || 'General')}</strong>
+          <div class="text-muted">${escapeHtml(m.type || '')} · ${m.questionCount || 0} questions
+          · ${m.createdAt?.toDate ? m.createdAt.toDate().toLocaleString() : ''}</div>
+        </div>`).join('');
+    } catch (e) {
+      el.innerHTML = '<p class="text-muted">No mock history yet. Use Assessment History to generate mocks.</p>';
+    }
   },
+
 
   async startStudentExam(examId) {
     try {
@@ -624,7 +918,14 @@ const App = {
     document.getElementById('app').innerHTML = `
       <div class="lock-banner hidden" id="lock-banner"></div>
       <div id="timesup-overlay" class="timesup-overlay hidden">
-        <div class="timesup-box"><h1>Time's up!</h1><p>Your code was submitted automatically.</p></div>
+        <div class="timesup-box">
+          <h1>Time's up!</h1>
+          <p>Your work was submitted automatically.</p>
+          <div class="action-btns" style="justify-content:center;margin-top:1rem">
+            <button class="btn btn-primary" onclick="App.showStudentHistory()">View results</button>
+            <button class="btn btn-ghost" onclick="App.showStudentHome()">Back to home</button>
+          </div>
+        </div>
       </div>
       <header class="app-header exam-header-bar">
         <div class="logo">
@@ -667,7 +968,14 @@ const App = {
     document.getElementById('app').innerHTML = `
       <div class="lock-banner hidden" id="lock-banner"></div>
       <div id="timesup-overlay" class="timesup-overlay hidden">
-        <div class="timesup-box"><h1>Time's up!</h1><p>Your answers were submitted automatically.</p></div>
+        <div class="timesup-box">
+          <h1>Time's up!</h1>
+          <p>Your answers were submitted automatically.</p>
+          <div class="action-btns" style="justify-content:center;margin-top:1rem">
+            <button class="btn btn-primary" onclick="App.showStudentHistory()">View results</button>
+            <button class="btn btn-ghost" onclick="App.showStudentHome()">Back to home</button>
+          </div>
+        </div>
       </div>
       <header class="app-header exam-header-bar">
         <div class="logo"><span class="logo-text">Regular Assessment</span></div>
@@ -687,11 +995,6 @@ const App = {
     box.innerHTML = questions.map(q => Regular.renderStudentQuestion(q, answers[q.id])).join('') ||
       '<p class="text-muted">No questions in this assessment.</p>';
 
-    // Integrity for regular (copy/paste etc.)
-    CodeEditor.sessionId = session.id;
-    CodeEditor.examId = exam.id;
-    CodeEditor._setupAntiCheat();
-
     let saveTimer;
     const save = () => {
       clearTimeout(saveTimer);
@@ -700,8 +1003,14 @@ const App = {
         Exam.updateSessionAnswers(session.id, a).catch(console.error);
       }, 600);
     };
+    Regular.bindStudentMC(box, save);
     box.addEventListener('change', save);
     box.addEventListener('input', save);
+
+    // Integrity for regular (copy/paste etc.)
+    CodeEditor.sessionId = session.id;
+    CodeEditor.examId = exam.id;
+    CodeEditor._setupAntiCheat();
 
     document.getElementById('submit-exam-btn').onclick = async () => {
       if (!confirm('Submit assessment?')) return;

@@ -13,7 +13,7 @@ const Exam = {
       startAt = null, // ms timestamp or ISO
       endAt = null,
       durationMinutes = 60,
-      maxScore = 50,
+      maxScore = 100,
       answerKey = '',
       questions = [],
       subject = 'General'
@@ -37,7 +37,7 @@ const Exam = {
       startAt: startMs,
       endAt: endMs,
       durationMinutes: Math.max(1, Math.round((endMs - startMs) / 60000)),
-      maxScore: Number(maxScore) || 50,
+      maxScore: Number(maxScore) || 100,
       answerKey: answerKey || '',
       questions: questions || [],
       proctors: [], // [{ email, studentIds: [] }]
@@ -317,7 +317,7 @@ const Exam = {
   },
 
   autoGrade(studentCode, answerKey, maxScore) {
-    maxScore = Number(maxScore) || 50;
+    maxScore = Number(maxScore) || 100;
     const a = this.normalizeCode(studentCode);
     const b = this.normalizeCode(answerKey);
     if (!b) return { score: null, percent: null, method: 'none', note: 'No answer key set' };

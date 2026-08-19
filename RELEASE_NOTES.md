@@ -1,27 +1,38 @@
 # LVCC Assessment Portal — Release Notes
 
-## v1.3.0 — 2026-08-19
+## v1.3.1 — 2026-08-19
 
 ### Fixed
-- **Mobile UI**: Responsive sidebar (hamburger), stacked exam layout, scrollable tables, flexible action buttons, auth card spacing.
-- **Extend button**: Primary **⏱ Extend** on each student card + **⏱ Extend all** on the live dashboard header.
-- **Copy/paste detection**: Ctrl+C / Ctrl+V / Cmd shortcuts, DOM paste, and Monaco `onDidPaste` with line-count + red line highlights for teachers.
-- **Exam window**: Start/End apply to **all students** (not per-join). Timer uses shared `exam.startAt` / `exam.endAt`.
+- **Personal Gmail access**: Domain/invite check runs on every sign-in; unauthorized accounts are signed out immediately (no bypass via existing user docs).
+- **Mobile header**: Only logo + “LVCC Assessment Portal” on the header; full name and Logout live in the hamburger menu.
+- **Prompts**: Removed long github.io URLs from alerts; copy uses a short confirmation.
+- **Student portal**: Removed sample exam-link section.
+- **Logo alignment**: Brand block left-aligned on all views.
 
 ### Added
-- **Exam type**: Code Assessment or Regular Assessment.
-- **Languages** (code): Python or Java — Monaco language, starter templates, basic checks.
-- **Proctors**: Assign emails per exam; equal student distribution; proctor live view = assigned students only; auto-deactivate when exam is closed/ended.
-- **Duplicate exam** with new schedule.
-- **Regular assessment** student screen + question builder (all listed types supported in model; interactive UI for multiple, multi-select, T/F, fill, open, dropdown, match, reorder, categorize, passage; other types use structured text response).
-- **Live integrity** for regular assessments (same copy/paste/tab events).
-- **Student history** by subject category (code vs regular).
-- **Mock exam** from past regular questions (randomized practice).
+- **QR code** sharing per assessment (Link / QR panel).
+- **Share to co-teacher**: creates a fresh copy for them to configure.
+- **Edit / Delete** assessment (delete requires typing the assessment name).
+- **Categorized actions** on assessment cards: Monitor · Share · Manage.
+- **Gamified multiple-choice** builder and student UI (colored option cards; click ✓ for correct answer).
+- **Mock flow**: Generate mock from History (per subject, code/regular checkboxes); Mock tab shows history only.
+- **Time’s up**: View results / Back to home buttons.
+- Code assessment **default max score 100**; regular assessments use per-question points (no global max score field).
+- Start time cannot be before current date/time for new schedules.
+
+### Renamed
+- “Exam(s)” → **Assessment(s)** across teacher/student UI.
 
 ### Deploy
-1. Publish updated `firestore.rules` (includes `examProctors`).
-2. Restore Firebase keys in `js/firebase-config.js`.
-3. Push to GitHub Pages root; hard-refresh.
+1. Publish `firestore.rules` if not already.
+2. Restore Firebase config keys.
+3. Push to GitHub Pages; hard-refresh.
 
-### Notes on advanced item types
-Graphing, hotspot, full drag-drop canvas, and rich hot-text are available as question types with text/structured answers in v1.3. Richer visual editors can be added in a later release without changing the data model.
+## v1.3.2 — 2026-08-19
+
+### Security / roles
+- **Firestore rules** enforce roles:
+  - **Superadmin**: manage users/teachers; full access where needed
+  - **Teacher**: create / edit / delete **their own** assessments; invites, proctors, grades
+  - **Student**: take assessments via teacher link; write own sessions; create **mock history** only (cannot create real assessments)
+- App UI blocks students from Create Assessment.

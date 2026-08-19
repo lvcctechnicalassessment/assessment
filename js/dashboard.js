@@ -1,5 +1,5 @@
 /**
- * Teacher / Proctor Live Dashboard
+ * Teacher / Proctor Live Dashboard — Assessments
  */
 
 const Dashboard = {
@@ -7,7 +7,7 @@ const Dashboard = {
   currentExamId: null,
   currentExam: null,
   sessionsCache: [],
-  proctorFilterIds: null, // null = all (teacher); array = proctor subset
+  proctorFilterIds: null,
 
   clearListeners() {
     this.unsubscribers.forEach(u => u && u());
@@ -22,31 +22,19 @@ const Dashboard = {
         container.innerHTML = `
           <div class="empty-state">
             <div class="icon">📝</div>
-            <h3>No exams yet</h3>
+            <h3>No assessments yet</h3>
             <p>Create a Code or Regular assessment.</p>
-            <button class="btn btn-primary mt-2" onclick="App.showCreateExam()">+ Create Exam</button>
+            <button class="btn btn-primary mt-2" onclick="App.showCreateExam()">+ Create Assessment</button>
           </div>`;
         return;
       }
 
       let html = `
         <div class="card-header page-header-responsive">
-          <h2 class="page-title">My Exams</h2>
-          <button class="btn btn-primary" onclick="App.showCreateExam()">+ New Exam</button>
+          <h2 class="page-title">My Assessments</h2>
+          <button class="btn btn-primary" onclick="App.showCreateExam()">+ New Assessment</button>
         </div>
-        <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Type</th>
-              <th>Start</th>
-              <th>End</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>`;
+        <div class="assess-list">`;
 
       exams.forEach(ex => {
         const type = ex.examType === 'regular' ? 'Regular' : 'Code';
@@ -54,30 +42,47 @@ const Dashboard = {
         const start = ex.startAt ? new Date(ex.startAt).toLocaleString() : '—';
         const end = ex.endAt ? new Date(ex.endAt).toLocaleString() : '—';
         html += `
-          <tr>
-            <td data-label="Title"><strong>${escapeHtml(ex.title)}</strong>
-              ${lang ? `<div class="text-muted" style="font-size:0.75rem">${lang}</div>` : ''}</td>
-            <td data-label="Type">${type}</td>
-            <td data-label="Start">${start}</td>
-            <td data-label="End">${end}</td>
-            <td data-label="Status">${ex.active ? '<span style="color:var(--success)">Active</span>' : 'Closed'}</td>
-            <td data-label="Actions"><div class="action-btns">
-              <button class="btn btn-sm btn-primary" onclick="App.openLiveDashboard('${ex.id}')">Live</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.copyExamLink('${ex.id}')">Link</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.showProctors('${ex.id}')">Proctors</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>
-            </div></td>
-          </tr>`;
+          <div class="assess-card">
+            <div class="assess-card-main">
+              <div class="assess-title">${escapeHtml(ex.title)}</div>
+              <div class="assess-meta">
+                <span class="chip">${type}${lang ? ' · ' + lang : ''}</span>
+                <span class="chip">${escapeHtml(ex.subject || 'General')}</span>
+                <span class="chip ${ex.active ? 'chip-ok' : ''}">${ex.active ? 'Active' : 'Closed'}</span>
+              </div>
+              <div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">
+                ${start} → ${end}
+              </div>
+            </div>
+            <div class="assess-actions">
+              <div class="action-group">
+                <span class="action-label">Monitor</span>
+                <button class="btn btn-sm btn-primary" onclick="App.openLiveDashboard('${ex.id}')">Live</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
+              </div>
+              <div class="action-group">
+                <span class="action-label">Share</span>
+                <button class="btn btn-sm btn-ghost" onclick="App.showSharePanel('${ex.id}')">Link / QR</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.shareToCoTeacher('${ex.id}')">Co-teacher</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.showProctors('${ex.id}')">Proctors</button>
+              </div>
+              <div class="action-group">
+                <span class="action-label">Manage</span>
+                <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
+                <button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>
+                <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
+              </div>
+            </div>
+          </div>`;
       });
 
-      html += '</tbody></table></div>';
+      html += '</div>';
       container.innerHTML = html;
     } catch (err) {
       const msg = err.message || String(err);
-      let help = msg.includes('permission') || msg.includes('Permission')
+      let help = /permission/i.test(msg)
         ? `<p class="mt-2">Publish <code>firestore.rules</code> in Firebase → Firestore → Rules.</p>` : '';
       container.innerHTML = `<div class="card"><p style="color:var(--danger)">Error: ${escapeHtml(msg)}</p>${help}</div>`;
     }
@@ -92,7 +97,7 @@ const Dashboard = {
     const exam = await Exam.getExam(examId);
     this.currentExam = exam;
     if (!exam) {
-      container.innerHTML = '<div class="empty-state">Exam not found</div>';
+      container.innerHTML = '<div class="empty-state">Assessment not found</div>';
       return;
     }
 
@@ -106,8 +111,7 @@ const Dashboard = {
           <p class="page-subtitle">
             ${exam.examType === 'regular' ? 'Regular' : 'Code'} assessment
             · ${new Date(startAt).toLocaleString()} → ${new Date(endAt).toLocaleString()}
-            · Max ${exam.maxScore || 50}
-            ${isProctor ? ' · <strong>Proctor view (assigned students only)</strong>' : ''}
+            ${isProctor ? ' · <strong>Proctor view</strong>' : ''}
           </p>
         </div>
         <div class="action-btns">
@@ -123,15 +127,11 @@ const Dashboard = {
     `;
 
     const extBtn = document.getElementById('btn-extend-all');
-    if (extBtn) {
-      extBtn.onclick = () => this.promptExtendAll(examId);
-    }
+    if (extBtn) extBtn.onclick = () => this.promptExtendAll(examId);
 
     const unsub = Exam.listenToSessions(examId, (sessions) => {
       let list = sessions;
-      if (proctorFilterIds) {
-        list = sessions.filter(s => proctorFilterIds.includes(s.studentId));
-      }
+      if (proctorFilterIds) list = sessions.filter(s => proctorFilterIds.includes(s.studentId));
       this.sessionsCache = list;
       this._renderSessions(list, exam);
     });
@@ -152,11 +152,12 @@ const Dashboard = {
   },
 
   promptExtendAll(examId) {
-    const mins = prompt('Extend this exam for ALL students by how many minutes?', '15');
+    const mins = prompt('Extend this assessment for ALL students by how many minutes?', '15');
     if (!mins) return;
     Exam.extendExam(examId, Number(mins)).then(() => {
-      alert('Extended by ' + mins + ' minutes for everyone.');
-      this.renderLiveDashboard(document.getElementById('live-container') || document.getElementById('main-content'), examId, this.proctorFilterIds);
+      alert('Extended by ' + mins + ' minutes.');
+      const el = document.getElementById('live-container') || document.getElementById('main-content');
+      this.renderLiveDashboard(el, examId, this.proctorFilterIds);
     }).catch(e => alert(e.message));
   },
 
@@ -200,26 +201,23 @@ const Dashboard = {
     const ranges = session.pasteRanges || [];
     const exam = this.currentExam;
     const isRegular = (session.examType || exam?.examType) === 'regular';
-    let body;
-    if (isRegular) {
-      body = `<pre class="student-code-preview" style="height:280px;white-space:pre-wrap">${escapeHtml(Regular.answersPreview(session.answers, exam?.questions))}</pre>`;
-    } else {
-      body = `<pre class="student-code-preview" style="height:280px;white-space:pre-wrap" id="detail-code"></pre>`;
-    }
+    let body = isRegular
+      ? `<pre class="student-code-preview" style="height:280px;white-space:pre-wrap">${escapeHtml(Regular.answersPreview(session.answers, exam?.questions))}</pre>`
+      : `<pre class="student-code-preview" style="height:280px;white-space:pre-wrap" id="detail-code"></pre>`;
 
     const root = document.getElementById('integrity-modal-root');
     root.innerHTML = `
       <div class="modal-overlay" id="detail-modal">
         <div class="modal modal-wide">
           <h2>${escapeHtml(session.studentName || session.studentEmail)}</h2>
-          <p class="text-muted">Status: ${escapeHtml(session.status)} · Ends: ${session.endsAt ? new Date(session.endsAt).toLocaleString() : '—'}</p>
+          <p class="text-muted">Status: ${escapeHtml(session.status)}</p>
           ${body}
           <div class="mt-1 text-muted" style="font-size:0.85rem">
-            ${ranges.length ? ranges.map(r => `Paste lines ${r.startLine}–${r.endLine} (${r.lines} lines)`).join(' · ') : 'No paste ranges'}
+            ${ranges.length ? ranges.map(r => `Paste lines ${r.startLine}–${r.endLine}`).join(' · ') : 'No paste ranges'}
           </div>
           <div class="modal-actions mt-2 action-btns">
             <button class="btn btn-ghost" onclick="document.getElementById('detail-modal').remove()">Close</button>
-            <button class="btn btn-primary" onclick="Dashboard.promptExtend('${sessionId}')">⏱ Extend this student</button>
+            <button class="btn btn-primary" onclick="Dashboard.promptExtend('${sessionId}')">⏱ Extend</button>
             <button class="btn btn-primary" onclick="App.gradeSession('${sessionId}', '${session.examId}')">Grade</button>
           </div>
         </div>
@@ -227,8 +225,7 @@ const Dashboard = {
 
     if (!isRegular) {
       const pre = document.getElementById('detail-code');
-      const code = session.code || '';
-      const lines = code.split('\n');
+      const lines = (session.code || '').split('\n');
       pre.innerHTML = lines.map((line, i) => {
         const ln = i + 1;
         const hit = ranges.some(r => ln >= r.startLine && ln <= r.endLine);
@@ -240,20 +237,18 @@ const Dashboard = {
   promptExtend(sessionId) {
     const mins = prompt('Extend this student by how many minutes?', '15');
     if (!mins) return;
-    Exam.extendSession(sessionId, Number(mins)).then(() => {
-      alert('Extended by ' + mins + ' minutes.');
-    }).catch(e => alert(e.message));
+    Exam.extendSession(sessionId, Number(mins)).then(() => alert('Extended by ' + mins + ' minutes.')).catch(e => alert(e.message));
   },
 
   _renderSessions(sessions, exam) {
     const grid = document.getElementById('live-sessions-grid');
     if (!grid) return;
-    if (sessions.length === 0) {
+    if (!sessions.length) {
       grid.innerHTML = '<div class="empty-state">Waiting for students...</div>';
       return;
     }
     sessions.sort((a, b) => (a.status === 'active' ? -1 : 1));
-    const isRegular = (exam?.examType === 'regular');
+    const isRegular = exam?.examType === 'regular';
 
     grid.innerHTML = sessions.map(s => {
       const last = s.lastUpdate?.toDate ? s.lastUpdate.toDate().toLocaleTimeString() : '—';
@@ -263,7 +258,6 @@ const Dashboard = {
         const cls = ['copy','paste','paste-key','tabswitch','blur','close','rightclick','drop','cut'].includes(e.type) ? 'danger' : '';
         return `<div class="event-item ${cls}">⚠ ${e.type}: ${escapeHtml(e.details || '')}</div>`;
       }).join('') || '<span class="text-muted">No events</span>';
-
       const preview = isRegular
         ? escapeHtml(Regular.answersPreview(s.answers, exam?.questions))
         : escapeHtml(s.code || '');
@@ -294,11 +288,8 @@ const Dashboard = {
 };
 
 function formatMs(ms) {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const h = Math.floor(m / 60);
-  const mm = String(m % 60).padStart(2, '0');
-  const ss = String(s % 60).padStart(2, '0');
+  const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
+  const mm = String(m % 60).padStart(2, '0'), ss = String(s % 60).padStart(2, '0');
   return h > 0 ? h + ':' + mm + ':' + ss : mm + ':' + ss;
 }
 

@@ -1,7 +1,5 @@
 /**
- * Regular Assessment — question types + student/teacher UI helpers
- * Fully interactive: multiple, multi-select, truefalse, fill, open, dropdown, match, reorder, categorize
- * Structured support for: table, passage, graphing, math, dragdrop, hottext, matchtable, labeling, hotspot, wordcloud
+ * Regular Assessment — question types + gamified MC UI
  */
 
 const QUESTION_TYPES = [
@@ -26,17 +24,22 @@ const QUESTION_TYPES = [
   { id: 'wordcloud', label: 'Word cloud' }
 ];
 
+const OPTION_COLORS = ['#3b82f6', '#14b8a6', '#eab308', '#f43f5e', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16'];
+
 const Regular = {
   types: QUESTION_TYPES,
+  optionColors: OPTION_COLORS,
 
   newQuestion(type = 'multiple') {
     const id = 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     const base = { id, type, prompt: '', points: 1 };
     switch (type) {
       case 'multiple':
+        return { ...base, options: ['', '', '', ''], correct: 0, multiCorrect: false };
       case 'multiselect':
+        return { ...base, options: ['', '', '', ''], correct: [], multiCorrect: true };
       case 'dropdown':
-        return { ...base, options: ['Option A', 'Option B', 'Option C'], correct: type === 'multiselect' ? [] : 0 };
+        return { ...base, options: ['Option A', 'Option B'], correct: 0 };
       case 'truefalse':
         return { ...base, correct: true };
       case 'fill':
@@ -49,38 +52,75 @@ const Regular = {
       case 'reorder':
         return { ...base, items: ['First', 'Second', 'Third'], correct: [0, 1, 2] };
       case 'categorize':
-        return { ...base, categories: ['Cat A', 'Cat B'], items: ['Item 1', 'Item 2'], correct: { 'Item 1': 'Cat A', 'Item 2': 'Cat B' } };
-      case 'table':
-        return { ...base, rows: 2, cols: 2, headers: ['Col1', 'Col2'], correct: {} };
+        return { ...base, categories: ['Cat A', 'Cat B'], items: ['Item 1', 'Item 2'], correct: {} };
       case 'passage':
-        return { ...base, passage: 'Paste passage text here.', subQuestions: [] };
-      case 'dragdrop':
-      case 'labeling':
-        return { ...base, items: ['A', 'B'], targets: ['1', '2'], correct: {} };
-      case 'hottext':
-      case 'hotspot':
-        return { ...base, content: 'Selectable content', correct: [] };
-      case 'matchtable':
-        return { ...base, rows: ['R1'], cols: ['C1'], correct: {} };
-      case 'graphing':
-        return { ...base, correct: { x: 0, y: 0 } };
+        return { ...base, passage: '', correct: '' };
       default:
-        return base;
+        return { ...base, correct: '' };
     }
   },
 
-  renderStudentQuestion(q, answer, onChange) {
+  /** Teacher builder card for multiple / multiselect — gamified layout */
+  renderBuilderMC(q, index) {
+    const multi = q.type === 'multiselect' || q.multiCorrect;
+    const opts = q.options || ['', '', '', ''];
+    const cards = opts.map((o, i) => {
+      const color = OPTION_COLORS[i % OPTION_COLORS.length];
+      const isCorrect = multi
+        ? (Array.isArray(q.correct) && q.correct.includes(i))
+        : q.correct === i;
+      return `
+        <div class="gq-option" style="background:${color}" data-q="${index}" data-opt="${i}">
+          <div class="gq-option-tools">
+            <button type="button" class="gq-icon-btn" data-del-opt="${index}:${i}" title="Delete">🗑</button>
+            <button type="button" class="gq-correct-btn ${isCorrect ? 'is-correct' : ''}" data-correct="${index}:${i}" title="Mark correct">✓</button>
+          </div>
+          <textarea class="gq-option-input" data-opt-text="${index}:${i}" placeholder="Type answer option here" rows="3">${escapeHtml(o)}</textarea>
+        </div>`;
+    }).join('');
+    return `
+      <div class="gq-block" data-qi="${index}">
+        <div class="gq-question-box">
+          <textarea class="gq-question-input" data-prompt="${index}" placeholder="Type question here" rows="3">${escapeHtml(q.prompt || '')}</textarea>
+        </div>
+        <div class="gq-options-row">${cards}
+          <button type="button" class="gq-add-opt" data-add-opt="${index}">+</button>
+        </div>
+        <div class="gq-footer">
+          <label class="gq-toggle">
+            <input type="checkbox" data-multi="${index}" ${multi ? 'checked' : ''}/> Multiple correct answers
+          </label>
+          <span class="text-muted" style="font-size:0.8rem">Click ✓ on the correct option(s)</span>
+        </div>
+      </div>`;
+  },
+
+  renderStudentQuestion(q, answer) {
     const val = answer !== undefined ? answer : null;
+    if (q.type === 'multiple' || q.type === 'multiselect') {
+      const multi = q.type === 'multiselect' || q.multiCorrect;
+      const opts = q.options || [];
+      const cards = opts.map((o, i) => {
+        const color = OPTION_COLORS[i % OPTION_COLORS.length];
+        const selected = multi
+          ? (Array.isArray(val) && val.includes(i))
+          : val == i;
+        return `
+          <button type="button" class="gq-option gq-student ${selected ? 'selected' : ''}"
+            style="background:${color}" data-qid="${q.id}" data-opt="${i}" data-multi="${multi ? '1' : '0'}">
+            <span class="gq-student-check">${selected ? '✓' : ''}</span>
+            <span>${escapeHtml(o || 'Option ' + (i + 1))}</span>
+          </button>`;
+      }).join('');
+      return `
+        <div class="q-card gq-block" data-qid="${q.id}" data-type="${q.type}">
+          <div class="gq-question-box"><div class="gq-question-text">${escapeHtml(q.prompt || 'Question')}</div></div>
+          <div class="gq-options-row">${cards}</div>
+        </div>`;
+    }
+
     let body = '';
     switch (q.type) {
-      case 'multiple':
-        body = (q.options || []).map((o, i) => `
-          <label class="q-option"><input type="radio" name="${q.id}" value="${i}" ${val == i ? 'checked' : ''}/> ${escapeHtml(o)}</label>`).join('');
-        break;
-      case 'multiselect':
-        body = (q.options || []).map((o, i) => `
-          <label class="q-option"><input type="checkbox" name="${q.id}" value="${i}" ${(val || []).includes(i) ? 'checked' : ''}/> ${escapeHtml(o)}</label>`).join('');
-        break;
       case 'truefalse':
         body = `
           <label class="q-option"><input type="radio" name="${q.id}" value="true" ${val === true || val === 'true' ? 'checked' : ''}/> True</label>
@@ -92,7 +132,9 @@ const Regular = {
         break;
       case 'open':
       case 'wordcloud':
-        body = `<textarea class="form-control" rows="4" data-qid="${q.id}" placeholder="Your response">${escapeHtml(val || '')}</textarea>`;
+      case 'passage':
+        body = (q.passage ? `<div class="q-passage">${escapeHtml(q.passage)}</div>` : '') +
+          `<textarea class="form-control" rows="4" data-qid="${q.id}" placeholder="Your response">${escapeHtml(val || '')}</textarea>`;
         break;
       case 'dropdown':
         body = `<select class="form-control" data-qid="${q.id}">
@@ -100,50 +142,28 @@ const Regular = {
           ${(q.options || []).map((o, i) => `<option value="${i}" ${val == i ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}
         </select>`;
         break;
-      case 'match':
-        body = (q.left || []).map((L, i) => `
-          <div class="q-match-row">
-            <span>${escapeHtml(L)}</span>
-            <select data-qid="${q.id}" data-idx="${i}" class="form-control">
-              <option value="">Match...</option>
-              ${(q.right || []).map((R, j) => `<option value="${j}" ${val && val[i] == j ? 'selected' : ''}>${escapeHtml(R)}</option>`).join('')}
-            </select>
-          </div>`).join('');
-        break;
-      case 'reorder':
-        body = `<p class="text-muted">Enter order as comma-separated numbers (0 = first item index):</p>
-          <input class="form-control" data-qid="${q.id}" value="${escapeHtml((val || q.items || []).join(','))}" />
-          <div class="text-muted mt-1">${(q.items || []).map((it, i) => i + ': ' + escapeHtml(it)).join(' · ')}</div>`;
-        break;
-      case 'categorize':
-        body = (q.items || []).map(it => `
-          <div class="q-match-row">
-            <span>${escapeHtml(it)}</span>
-            <select data-qid="${q.id}" data-item="${escapeHtml(it)}" class="form-control">
-              <option value="">Category...</option>
-              ${(q.categories || []).map(c => `<option value="${escapeHtml(c)}" ${val && val[it] === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
-            </select>
-          </div>`).join('');
-        break;
-      case 'passage':
-        body = `<div class="q-passage">${escapeHtml(q.passage || '')}</div>
-          <textarea class="form-control mt-1" rows="3" data-qid="${q.id}" placeholder="Your answer based on the passage">${escapeHtml(val || '')}</textarea>`;
-        break;
       default:
-        body = `<textarea class="form-control" rows="3" data-qid="${q.id}" placeholder="Your answer (${q.type})">${escapeHtml(val || '')}</textarea>
-          <p class="text-muted" style="font-size:0.8rem">Question type: ${q.type}</p>`;
+        body = `<textarea class="form-control" rows="3" data-qid="${q.id}" placeholder="Your answer">${escapeHtml(typeof val === 'object' ? JSON.stringify(val) : (val || ''))}</textarea>`;
     }
     return `
-      <div class="q-card" data-qid="${q.id}">
-        <div class="q-prompt"><strong>${escapeHtml(q.prompt || 'Question')}</strong> <span class="text-muted">(${q.points || 1} pt)</span></div>
+      <div class="q-card" data-qid="${q.id}" data-type="${q.type}">
+        <div class="q-prompt"><strong>${escapeHtml(q.prompt || 'Question')}</strong></div>
         <div class="q-body">${body}</div>
       </div>`;
   },
 
   collectAnswers(container) {
     const answers = {};
-    container.querySelectorAll('.q-card').forEach(card => {
+    container.querySelectorAll('.q-card, .gq-block[data-qid]').forEach(card => {
       const qid = card.getAttribute('data-qid');
+      if (!qid) return;
+      // Gamified MC
+      const selected = [...card.querySelectorAll('.gq-student.selected')];
+      if (selected.length) {
+        const multi = selected[0].dataset.multi === '1';
+        answers[qid] = multi ? selected.map(s => Number(s.dataset.opt)) : Number(selected[0].dataset.opt);
+        return;
+      }
       const radios = card.querySelectorAll(`input[type=radio][name="${qid}"]`);
       if (radios.length) {
         const checked = card.querySelector(`input[type=radio][name="${qid}"]:checked`);
@@ -152,37 +172,61 @@ const Regular = {
         }
         return;
       }
-      const checks = card.querySelectorAll(`input[type=checkbox][name="${qid}"]`);
-      if (checks.length) {
-        answers[qid] = [...checks].filter(c => c.checked).map(c => Number(c.value));
-        return;
-      }
-      const selects = card.querySelectorAll(`select[data-qid="${qid}"]`);
-      if (selects.length > 1) {
-        const map = {};
-        selects.forEach(s => {
-          if (s.dataset.item) map[s.dataset.item] = s.value;
-          else if (s.dataset.idx !== undefined) {
-            if (!answers[qid]) answers[qid] = [];
-            answers[qid][Number(s.dataset.idx)] = s.value === '' ? null : Number(s.value);
-          }
-        });
-        if (Object.keys(map).length) answers[qid] = map;
-        return;
-      }
       const one = card.querySelector(`[data-qid="${qid}"]`);
-      if (one) answers[qid] = one.value;
+      if (one && one !== card) answers[qid] = one.value;
     });
     return answers;
   },
 
-  /** Snapshot text for live proctor view */
+  bindStudentMC(container, onChange) {
+    container.querySelectorAll('.gq-student').forEach(btn => {
+      btn.onclick = () => {
+        const multi = btn.dataset.multi === '1';
+        const card = btn.closest('[data-qid]');
+        if (!multi) {
+          card.querySelectorAll('.gq-student').forEach(b => {
+            b.classList.remove('selected');
+            const c = b.querySelector('.gq-student-check');
+            if (c) c.textContent = '';
+          });
+        }
+        btn.classList.toggle('selected');
+        const check = btn.querySelector('.gq-student-check');
+        if (check) check.textContent = btn.classList.contains('selected') ? '✓' : '';
+        if (onChange) onChange();
+      };
+    });
+  },
+
   answersPreview(answers, questions) {
     if (!answers) return '(no answers yet)';
-    return (questions || []).map((q, i) => {
-      const a = answers[q.id];
-      return `Q${i + 1}: ${JSON.stringify(a ?? '—')}`;
-    }).join('\n');
+    return (questions || []).map((q, i) => `Q${i + 1}: ${JSON.stringify(answers[q.id] ?? '—')}`).join('\n');
+  },
+
+  /** Auto-grade regular questions when correct answers set */
+  gradeAnswers(questions, answers) {
+    let earned = 0, total = 0;
+    (questions || []).forEach(q => {
+      const pts = Number(q.points) || 1;
+      total += pts;
+      const a = answers?.[q.id];
+      if (a === undefined || a === null || a === '') return;
+      let ok = false;
+      if (q.type === 'multiple' || q.type === 'dropdown') {
+        ok = Number(a) === Number(q.correct);
+      } else if (q.type === 'multiselect') {
+        const ca = Array.isArray(q.correct) ? [...q.correct].map(Number).sort() : [];
+        const aa = Array.isArray(a) ? [...a].map(Number).sort() : [];
+        ok = JSON.stringify(ca) === JSON.stringify(aa);
+      } else if (q.type === 'truefalse') {
+        ok = String(a) === String(q.correct);
+      } else if (typeof q.correct === 'string') {
+        ok = String(a).trim().toLowerCase() === String(q.correct).trim().toLowerCase();
+      }
+      if (ok) earned += pts;
+    });
+    const percent = total ? Math.round((earned / total) * 1000) / 10 : 0;
+    return { score: earned, maxScore: total, percent };
   }
 };
 

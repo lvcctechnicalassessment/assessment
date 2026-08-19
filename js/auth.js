@@ -132,9 +132,12 @@ const Auth = {
 
   async ensureUserProfile(user) {
     const email = (user.email || '').toLowerCase();
+    // ALWAYS re-check domain/invite on every sign-in (including existing accounts)
     const check = await this.isEmailAllowed(email);
 
     if (!check.allowed) {
+      // Prevent lingering session
+      try { await window.auth.signOut(); } catch (_) {}
       throw new Error(check.reason);
     }
 
@@ -142,7 +145,13 @@ const Auth = {
     const snap = await ref.get();
 
     if (snap.exists) {
-      return { uid: user.uid, ...snap.data() };
+      const data = snap.data();
+      // Personal email with invite: keep student role only
+      if (check.reason === 'invited' && data.role !== 'student') {
+        await ref.update({ role: 'student', invited: true });
+        return { uid: user.uid, ...data, role: 'student', invited: true };
+      }
+      return { uid: user.uid, ...data, invited: check.reason === 'invited' };
     }
 
     let role = 'student';
