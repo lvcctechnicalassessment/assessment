@@ -193,9 +193,17 @@ const Dashboard = {
       this._renderSessions(this.sessionsCache, exam);
     };
 
+    this._seenStudentMsgs = this._seenStudentMsgs || {};
     const unsub = Exam.listenToSessions(examId, (sessions) => {
       let list = sessions;
       if (proctorFilterIds) list = sessions.filter(s => proctorFilterIds.includes(s.studentId));
+      // popup new student messages
+      list.forEach(s => {
+        if (s.lastStudentMessage && s.chatPing && this._seenStudentMsgs[s.id] !== s.chatPing) {
+          this._seenStudentMsgs[s.id] = s.chatPing;
+          this.showIncomingStudentMessage(s);
+        }
+      });
       this.sessionsCache = list;
       this._renderSessions(list, exam);
     });
@@ -367,7 +375,16 @@ const Dashboard = {
       document.getElementById('critical-paste-modal')?.remove();
     };
     document.getElementById('cp-end').onclick = async () => {
-      await Exam.submitSession(n.sessionId, 'teacher-ended');
+      try {
+        await window.db.collection('sessions').doc(n.sessionId).update({
+          status: 'submitted',
+          submitReason: 'teacher-ended',
+          submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          codeLocked: true
+        });
+      } catch (e) {
+        await Exam.submitSession(n.sessionId, 'teacher-ended');
+      }
       document.getElementById('critical-paste-modal')?.remove();
       await UI.alert('Assessment ended for this student.', 'Ended');
     };
@@ -497,8 +514,11 @@ const Dashboard = {
         <div class="student-card">
           <div class="student-card-header">
             <div>
-              <div class="name">${escapeHtml(s.studentName || s.studentEmail)}</div>
+              <div class="name">${escapeHtml(s.studentName || s.studentEmail)}
+                ${s.lastStudentMessage ? '<span class="chip chip-ok" title="' + escapeHtml(s.lastStudentMessage) + '">💬</span>' : ''}
+              </div>
               <div class="text-muted" style="font-size:0.8rem">${escapeHtml(s.studentEmail)}</div>
+              ${s.lastStudentMessage ? `<div class="student-chat-preview">Student: ${escapeHtml(s.lastStudentMessage)}</div>` : ''}
             </div>
             <div class="text-right">
               <span class="status ${s.status !== 'active' ? 'idle' : ''}">${s.status}</span>
@@ -516,6 +536,7 @@ const Dashboard = {
           <div class="student-events">${eventsHtml}</div>
           <div class="action-btns" style="padding:0.5rem">
             <button class="btn btn-sm btn-ghost" onclick="Dashboard.openStudentDetail('${s.id}')">Details</button>
+            <button class="btn btn-sm btn-ghost" onclick="Dashboard.messageStudent('${s.id}')">Message student</button>
             <button class="btn btn-sm btn-primary" onclick="Dashboard.promptExtend('${s.id}')">⏱ Extend</button>
             <button class="btn btn-sm btn-primary" onclick="App.gradeSession('${s.id}', '${s.examId}')">Grade</button>
           </div>

@@ -51,14 +51,15 @@ const UI = {
     });
   },
 
-  prompt(message, defaultValue = '', title = 'Input') {
+  prompt(message, defaultValue = '', title = 'Input', placeholder = '') {
     return new Promise((resolve) => {
+      const ph = placeholder || (defaultValue ? '' : '');
       this._root().innerHTML = `
         <div class="modal-overlay ui-modal-overlay">
           <div class="modal ui-modal">
             <h2>${escapeHtml(title)}</h2>
             <p class="ui-modal-body">${escapeHtml(message)}</p>
-            <input class="form-control" id="ui-input" value="${escapeHtml(defaultValue)}" />
+            <input class="form-control" id="ui-input" value="${escapeHtml(defaultValue || '')}" placeholder="${escapeHtml(ph)}" />
             <div class="modal-actions">
               <button class="btn btn-ghost" id="ui-cancel">Cancel</button>
               <button class="btn btn-primary" id="ui-ok">OK</button>
@@ -67,7 +68,7 @@ const UI = {
         </div>`;
       const input = document.getElementById('ui-input');
       input.focus();
-      input.select();
+      if (defaultValue) input.select();
       document.getElementById('ui-cancel').onclick = () => { this.close(); resolve(null); };
       document.getElementById('ui-ok').onclick = () => { const v = input.value; this.close(); resolve(v); };
       input.onkeydown = (e) => {

@@ -251,19 +251,20 @@ const CodeEditor = {
     }
   },
 
-  async captureScreen() {
+  async captureScreen(scale = 0.4) {
     try {
       if (typeof html2canvas !== 'function') return null;
-      const target = document.querySelector('.exam-layout, .regular-exam-wrap, #app') || document.body;
+      const target = document.querySelector('.exam-layout, .regular-exam-wrap, .regular-body, #app') || document.body;
       const canvas = await html2canvas(target, {
-        scale: 0.5,
+        scale: scale,
         logging: false,
         useCORS: true,
+        allowTaint: true,
         backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
-        windowWidth: Math.min(window.innerWidth, 1400)
+        windowWidth: Math.min(window.innerWidth, 1200),
+        ignoreElements: (el) => el.classList && el.classList.contains('fab-msg')
       });
-      // Compress
-      let q = 0.45;
+      let q = 0.4;
       let data = canvas.toDataURL('image/jpeg', q);
       while (data.length > 90000 && q > 0.15) {
         q -= 0.1;
@@ -313,18 +314,26 @@ const CodeEditor = {
       if (window.UI) await UI.alert('You have been detected copy-pasting. This is your warning #1 of 3.', 'Integrity warning');
       return;
     }
-    // 2nd and 3rd: message the instructor
     const studentMsg = await UI.prompt(
-      `You have been detected copy-pasting. This is your warning #${n} of 3.\n\nMessage your instructor (required):`,
+      `You have been detected copy-pasting. This is your warning #${n} of 3.\n\nSend a message to your instructor:`,
       '',
-      'Message instructor'
+      'Message instructor',
+      'Talk to instructor'
     );
-    const text = (studentMsg || '').trim() || '(No message provided)';
-    if (this.sessionId) {
+    const text = (studentMsg == null || !String(studentMsg).trim()) ? '(No message)' : String(studentMsg).trim();
+    if (this.sessionId && !String(this.sessionId).startsWith('test_')) {
       await Exam.logEvent(this.sessionId, n >= 3 ? 'paste-critical' : 'paste-message',
         n >= 3 ? 'Student reached 3 paste warnings' : 'Student paste warning with message',
         { pasteWarnings: n, studentMessage: text }
       ).catch(() => {});
+      // also store last student chat
+      try {
+        await window.db.collection('sessions').doc(this.sessionId).update({
+          lastStudentMessage: text,
+          lastStudentMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+          chatPing: Date.now()
+        });
+      } catch (_) {}
     }
   },
 
@@ -352,39 +361,50 @@ const CodeEditor = {
     }
   },
 
-  startScreenShare(intervalMs = 3000) {
+  startScreenShare(intervalMs = 2500) {
     this.stopScreenShare();
-    this._screenTimer = setInterval(async () => {
+    if (!this.sessionId || String(this.sessionId).startsWith('test_')) return;
+    const pushThumb = async () => {
       if (this.isLocked || this.isSubmitting || !this.sessionId) return;
       let thumb = null;
-      // 1) OS screen/tab share if available
-      if (this._displayVideo && this._displayVideo.videoWidth > 2) {
+      if (this._displayVideo && this._displayVideo.readyState >= 2 && this._displayVideo.videoWidth > 4) {
         try {
           const c = document.createElement('canvas');
-          const w = Math.min(800, this._displayVideo.videoWidth);
-          const h = Math.round(w * (this._displayVideo.videoHeight / Math.max(1, this._displayVideo.videoWidth)));
+          const w = Math.min(480, this._displayVideo.videoWidth);
+          const h = Math.max(1, Math.round(w * (this._displayVideo.videoHeight / this._displayVideo.videoWidth)));
           c.width = w; c.height = h;
           c.getContext('2d').drawImage(this._displayVideo, 0, 0, w, h);
-          // reject near-black frames
-          const ctx = c.getContext('2d');
-          const sample = ctx.getImageData(0, 0, Math.min(40, w), Math.min(40, h)).data;
-          let sum = 0;
-          for (let i = 0; i < sample.length; i += 4) sum += sample[i] + sample[i+1] + sample[i+2];
-          if (sum / (sample.length / 4 * 3) > 12) {
-            thumb = c.toDataURL('image/jpeg', 0.5);
-          }
-        } catch (_) {}
+          const sample = c.getContext('2d').getImageData(0, 0, Math.min(32, w), Math.min(32, h)).data;
+          let sum = 0, n = 0;
+          for (let i = 0; i < sample.length; i += 4) { sum += sample[i] + sample[i+1] + sample[i+2]; n++; }
+          if (n && sum / (n * 3) > 8) thumb = c.toDataURL('image/jpeg', 0.35);
+        } catch (e) { console.warn('display frame', e); }
       }
-      // 2) Fallback / complement: exact assessment UI the student sees
-      if (!thumb) thumb = await this.captureScreen();
+      if (!thumb) {
+        try { thumb = await this.captureScreen(); } catch (e) { console.warn('html2canvas', e); }
+      }
+      if (!thumb || thumb.length < 100) return;
+      // Firestore doc limit — keep thumb under ~200KB
+      if (thumb.length > 180000) {
+        try { thumb = await this.captureScreen(0.25); } catch (_) {}
+      }
       if (!thumb) return;
       try {
         await window.db.collection('sessions').doc(this.sessionId).update({
           screenThumb: thumb,
           screenAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-      } catch (_) {}
-    }, intervalMs);
+      } catch (e) {
+        console.warn('screenThumb update failed', e);
+        // last resort: smaller
+        try {
+          const small = await this.captureScreen(0.2);
+          if (small) await window.db.collection('sessions').doc(this.sessionId).update({ screenThumb: small, screenAt: firebase.firestore.FieldValue.serverTimestamp() });
+        } catch (e2) { console.warn(e2); }
+      }
+    };
+    pushThumb();
+    this._screenTimer = setInterval(pushThumb, intervalMs);
   },
 
   stopScreenShare() {

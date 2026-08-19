@@ -84,11 +84,11 @@ const App = {
         </button>
         <p class="mt-2 text-muted" style="font-size:0.85rem;line-height:1.5">
           Use <strong>@student.laverdad.edu.ph</strong> or <strong>@laverdad.edu.ph</strong>.<br>
-          Personal email only if invited to a specific exam.
+          Personal email is allowed only if invited to a specific exam.
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.4.5</div>
+          <div class="app-version">Build v1.4.6</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -167,7 +167,7 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.5</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.6</span>
           </div>
         </div>
         <div class="header-right">
@@ -1038,6 +1038,8 @@ const App = {
 
   // ---- Student ----
   showStudentHome() {
+    document.getElementById('student-chat-fab')?.remove();
+    if (this._sessionWatchUnsub) { try { this._sessionWatchUnsub(); } catch(_){} this._sessionWatchUnsub = null; }
     this.renderShell(`
       <h2 class="page-title">Student Portal</h2>
       <p class="page-subtitle">Open the assessment link shared by your teacher. You cannot create new assessments — only mock practice from your history.</p>
@@ -1150,15 +1152,84 @@ const App = {
     document.getElementById('hist-filter-reg').oninput = () => renderTable(reg, 'hist-reg', 'hist-filter-reg');
   },
 
+  formatAnswerDisplay(q, value, isCorrectKey = false) {
+    if (q.type === 'essay') {
+      if (isCorrectKey) return '(Evaluated by instructor)';
+      return (value == null || value === '') ? '—' : String(value);
+    }
+    if (value === undefined || value === null || value === '') {
+      if (!isCorrectKey) return '—';
+    }
+    if (q.type === 'multiple' || q.type === 'dropdown') {
+      const opts = q.options || [];
+      if (isCorrectKey) {
+        const c = q.correct;
+        if (Array.isArray(c)) return c.map(i => (opts[i] != null ? opts[i] : i)).join(', ') || '—';
+        if (c != null && opts[c] != null) return String(opts[c]);
+        return c != null ? String(c) : '—';
+      }
+      // response
+      if (Array.isArray(value)) return value.map(i => (opts[i] != null ? opts[i] : i)).join(', ');
+      if (opts[value] != null) return String(opts[value]);
+      return String(value);
+    }
+    if (q.type === 'truefalse' || q.type === 'modified_tf') {
+      if (isCorrectKey) {
+        let s = (Number(q.correct) === 0 || q.correct === true || q.correct === 'true') ? 'True' : 'False';
+        if (q.modifiedAnswer) s += ' · correction: ' + q.modifiedAnswer;
+        return s;
+      }
+      if (typeof value === 'object' && value) {
+        let s = (Number(value.choice) === 0 || value.choice === true) ? 'True' : 'False';
+        if (value.modified) s += ' · ' + value.modified;
+        return s;
+      }
+      return (value == 0 || value === true || value === 'true') ? 'True' : (value == 1 || value === false ? 'False' : String(value));
+    }
+    if (q.type === 'fill') {
+      if (isCorrectKey) {
+        if (q.blanks && q.blanks.length) {
+          return q.blanks.map((b, i) => {
+            const primary = Array.isArray(b.correct) ? b.correct.join('/') : (b.correct || '');
+            return `Blank ${i+1}: ${primary}`;
+          }).join(' · ');
+        }
+        return q.correct != null ? String(q.correct) : '—';
+      }
+      if (typeof value === 'object') return JSON.stringify(value);
+      return String(value ?? '—');
+    }
+    if (isCorrectKey) {
+      if (q.correct != null && q.correct !== '') return typeof q.correct === 'object' ? JSON.stringify(q.correct) : String(q.correct);
+      return '—';
+    }
+    return typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—');
+  },
+
   async showStudentAttempt(sessionId) {
     const snap = await window.db.collection('sessions').doc(sessionId).get();
     if (!snap.exists) { await UI.alert('Not found.', 'Error'); return; }
     const session = { id: snap.id, ...snap.data() };
     const exam = await Exam.getExam(session.examId);
-    const questions = exam ? Regular.flattenQuestions(exam) : [];
+    let questions = exam ? Regular.flattenQuestions(exam) : [];
+    // also merge top-level questions if sections empty but questions exist
+    if (!questions.length && exam?.questions) questions = exam.questions;
+    const answers = session.answers || {};
+    const rowsHtml = questions.length ? questions.map((q, i) => {
+      const resp = answers[q.id];
+      const respDisp = this.formatAnswerDisplay(q, resp, false);
+      const correctDisp = this.formatAnswerDisplay(q, null, true);
+      return `<tr>
+        <td data-label="Question"><strong>Q${i+1}.</strong> ${escapeHtml(q.prompt || q.statement || '')}</td>
+        <td data-label="Response">${escapeHtml(respDisp)}</td>
+        <td data-label="Correct">${escapeHtml(correctDisp)}</td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="3"><pre class="student-code-preview">${escapeHtml(session.code || 'No response recorded')}</pre>
+      ${exam?.answerKey ? `<p><strong>Answer key:</strong></p><pre>${escapeHtml(exam.answerKey)}</pre>` : ''}</td></tr>`;
+
     this.renderShell(`
       <div class="card-header page-header-responsive">
-        <h2 class="page-title">${escapeHtml(session.examTitle || 'Attempt')}</h2>
+        <h2 class="page-title">${escapeHtml(session.examTitle || exam?.title || 'Attempt')}</h2>
         <div class="action-btns">
           <button class="btn btn-ghost" id="export-attempt-pdf">Export PDF</button>
           <button class="btn btn-ghost" onclick="App.showStudentHistory()">Back</button>
@@ -1167,85 +1238,35 @@ const App = {
       <div class="table-wrap">
         <table class="table" id="attempt-detail-table">
           <thead><tr><th>Question</th><th>Your response</th><th>Correct answer</th></tr></thead>
-          <tbody>
-            ${questions.length ? questions.map((q, i) => {
-              const resp = session.answers ? session.answers[q.id] : (session.code || '');
-              let correctDisp = '—';
-              if (q.type === 'essay') correctDisp = '(Evaluated by instructor)';
-              else if (q.type === 'fill' && q.blanks) {
-                correctDisp = q.blanks.map(b => {
-                  const primary = Array.isArray(b.correct) ? b.correct.join(' / ') : (b.correct || '');
-                  const alts = (b.alternatives || []).join(' / ');
-                  return primary + (alts ? ' (alts: ' + alts + ')' : '');
-                }).join('; ');
-              } else if (q.type === 'multiple' || q.type === 'dropdown') {
-                if (q.multiCorrect && Array.isArray(q.correct)) {
-                  correctDisp = q.correct.map(ix => (q.options && q.options[ix] != null) ? q.options[ix] : ix).join(', ');
-                } else if (q.options && q.correct != null && q.options[q.correct] != null) {
-                  correctDisp = q.options[q.correct];
-                } else if (q.correct != null) correctDisp = String(q.correct);
-              } else if (q.type === 'truefalse' || q.type === 'modified_tf') {
-                correctDisp = Number(q.correct) === 0 || q.correct === true || q.correct === 'true' ? 'True' : 'False';
-                if (q.type === 'modified_tf' && q.modifiedAnswer) correctDisp += ' / ' + q.modifiedAnswer;
-              } else if (q.correct != null && q.correct !== '') {
-                correctDisp = typeof q.correct === 'object' ? JSON.stringify(q.correct) : String(q.correct);
-              }
-              let respDisp = '—';
-              if (typeof resp === 'object' && resp !== null) {
-                if (resp.choice != null) {
-                  respDisp = Number(resp.choice) === 0 ? 'True' : (Number(resp.choice) === 1 ? 'False' : JSON.stringify(resp));
-                  if (resp.modified) respDisp += ' / ' + resp.modified;
-                } else if (Array.isArray(resp) && q.options) {
-                  respDisp = resp.map(ix => q.options[ix] ?? ix).join(', ');
-                } else respDisp = JSON.stringify(resp);
-              } else if (resp !== undefined && resp !== null && resp !== '') {
-                if ((q.type === 'multiple' || q.type === 'dropdown') && q.options && q.options[resp] != null) respDisp = q.options[resp];
-                else if (q.type === 'truefalse') respDisp = (resp == 0 || resp === true || resp === 'true') ? 'True' : 'False';
-                else respDisp = String(resp);
-              }
-              return `<tr>
-                <td data-label="Question"><strong>Q${i+1}.</strong> ${escapeHtml(q.prompt||'')}</td>
-                <td data-label="Response">${escapeHtml(respDisp)}</td>
-                <td data-label="Correct">${escapeHtml(correctDisp)}</td>
-              </tr>`;
-            }).join('') : `<tr><td colspan="3"><pre class="student-code-preview">${escapeHtml(session.code||'No response')}</pre></td></tr>`}
-          </tbody>
+          <tbody>${rowsHtml}</tbody>
         </table>
       </div>
     `, 'history');
+
     document.getElementById('export-attempt-pdf').onclick = () => {
-      const table = document.getElementById('attempt-detail-table');
+      const tableRows = questions.length ? questions.map((q, i) => {
+        const respDisp = this.formatAnswerDisplay(q, answers[q.id], false);
+        const correctDisp = this.formatAnswerDisplay(q, null, true);
+        return `<tr><td><strong>Q${i+1}.</strong> ${escapeHtml(q.prompt || '')}</td>
+          <td>${escapeHtml(respDisp)}</td><td>${escapeHtml(correctDisp)}</td></tr>`;
+      }).join('') : `<tr><td colspan="3">${escapeHtml(session.code || 'No response')}</td></tr>`;
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Attempt</title>
         <style>body{font-family:system-ui;padding:24px;color:#111}table{border-collapse:collapse;width:100%}
-        th,td{border:1px solid #ccc;padding:8px;font-size:12px;vertical-align:top}th{background:#eee}</style></head>
-        <body><h1>${escapeHtml(session.examTitle||'')}</h1>${table.outerHTML}</body></html>`;
+        th,td{border:1px solid #ccc;padding:8px;font-size:12px;vertical-align:top;white-space:pre-wrap}th{background:#eee}</style></head>
+        <body><h1>${escapeHtml(session.examTitle || exam?.title || '')}</h1>
+        <p>${escapeHtml(session.studentName || '')} · ${escapeHtml(session.studentEmail || '')}</p>
+        <table><thead><tr><th>Question</th><th>Response</th><th>Correct answer</th></tr></thead>
+        <tbody>${tableRows}</tbody></table></body></html>`;
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'attempt-' + sessionId + '.html';
-      a.click();
-      URL.revokeObjectURL(a.href);
-      UI.alert('Downloaded. Open the file and use Print → Save as PDF if needed.', 'Export');
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'attempt-' + sessionId + '.html';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      UI.alert('Downloaded. Open the file → Print → Save as PDF.', 'Export');
     };
   },
 
-
-  _histBlock(title, list, type, subject) {
-    const items = list.map(s => `
-      <label class="hist-check">
-        <input type="checkbox" class="mock-pick" data-type="${type}" data-subject="${escapeHtml(subject)}" data-examid="${s.examId}" />
-        <span><strong>${escapeHtml(s.examTitle || s.examId)}</strong>
-        <span class="text-muted"> · ${escapeHtml(s.status)}</span></span>
-      </label>`).join('') || '<p class="text-muted">None</p>';
-    return `
-      <div class="hist-cat">
-        <div class="hist-cat-head">
-          <strong>${title}</strong>
-          ${list.length ? `<button class="btn btn-sm btn-primary" onclick="App.startMockFromSelection('${type}','${escapeHtml(subject)}')">Generate mock assessment</button>` : ''}
-        </div>
-        ${items}
-      </div>`;
-  },
 
   async startMockFromSelection(type, subject) {
     const boxes = [...document.querySelectorAll(`.mock-pick[data-type="${type}"][data-subject="${CSS.escape(subject)}"]:checked`)];
@@ -1470,17 +1491,105 @@ const App = {
       </div>`;
     document.getElementById('exam-instructions-text').textContent = exam.instructions || '';
     await CodeEditor.init('monaco-container', session.code || exam.starterCode || '', session.id, exam.id, lang);
-    CodeEditor.startScreenShare(4000);
+    CodeEditor.startScreenShare(2500);
+    this._watchTeacherEnd(session.id);
+    this.injectStudentChatFab(session.id);
     document.getElementById('check-code-btn').onclick = () => CodeEditor.checkCode();
     document.getElementById('submit-exam-btn').onclick = async () => {
       if (!(await UI.confirm('Submit this assessment?', 'Submit'))) return;
+      CodeEditor.beginSubmit();
       await Exam.submitSession(session.id, 'manual');
       CodeEditor.dispose();
+      document.getElementById('student-chat-fab')?.remove();
+      this.clearExamQuery();
       await UI.alert('Submitted successfully.', 'Done');
       this.showStudentHome();
     };
     this._runTimer(session);
-    this._watchTeacherEnd(session.id);
+  },
+
+
+  _watchTeacherEnd(sessionId) {
+    if (!sessionId || String(sessionId).startsWith('test_')) return;
+    if (this._sessionWatchUnsub) try { this._sessionWatchUnsub(); } catch (_) {}
+    this._lastInstructorReply = null;
+    this._lastInstructorChat = null;
+    this._sessionWatchUnsub = Exam.listenToSession(sessionId, async (s) => {
+      if (!s) return;
+      // Instructor ended
+      if (s.status === 'submitted' && (s.submitReason === 'teacher-ended' || s.submitReason === 'ended')) {
+        CodeEditor.beginSubmit();
+        try { CodeEditor.dispose(); } catch (_) {}
+        this.clearExamQuery();
+        this._showEndedOverlay();
+        return;
+      }
+      // Reply from paste modal
+      if (s.instructorReply && s.instructorReply !== this._lastInstructorReply) {
+        this._lastInstructorReply = s.instructorReply;
+        await UI.alert('Instructor reply:\\n\\n' + s.instructorReply, 'Message from Instructor');
+      }
+      // Chat from instructor
+      if (s.lastInstructorMessage && s.lastInstructorMessage !== this._lastInstructorChat) {
+        this._lastInstructorChat = s.lastInstructorMessage;
+        await UI.alert('Instructor:\\n\\n' + s.lastInstructorMessage, 'Message from Instructor');
+      }
+    });
+  },
+
+  _showEndedOverlay() {
+    let ov = document.getElementById('timesup-overlay');
+    if (!ov) {
+      document.getElementById('app').innerHTML = `
+        <div id="timesup-overlay" class="timesup-overlay">
+          <div class="timesup-box">
+            <h1>Assessment Ended</h1>
+            <p>Your instructor ended this assessment.</p>
+            <div class="action-btns" style="justify-content:center;margin-top:1rem">
+              <button class="btn btn-primary" onclick="App.showStudentHistory()">View results</button>
+              <button class="btn btn-ghost" onclick="App.showStudentHome()">Back to home</button>
+            </div>
+          </div>
+        </div>`;
+      return;
+    }
+    ov.classList.remove('hidden');
+    const box = ov.querySelector('.timesup-box');
+    if (box) {
+      box.innerHTML = `<h1>Assessment Ended</h1>
+        <p>Your instructor ended this assessment.</p>
+        <div class="action-btns" style="justify-content:center;margin-top:1rem">
+          <button class="btn btn-primary" onclick="App.showStudentHistory()">View results</button>
+          <button class="btn btn-ghost" onclick="App.showStudentHome()">Back to home</button>
+        </div>`;
+    }
+  },
+
+  injectStudentChatFab(sessionId) {
+    if (!sessionId || String(sessionId).startsWith('test_')) return;
+    document.getElementById('student-chat-fab')?.remove();
+    const fab = document.createElement('button');
+    fab.id = 'student-chat-fab';
+    fab.className = 'fab-msg';
+    fab.title = 'Talk to instructor';
+    fab.innerHTML = '💬';
+    fab.onclick = async () => {
+      const msg = await UI.prompt('Message your instructor:', '', 'Talk to instructor', 'Talk to instructor');
+      if (msg == null) return;
+      const text = String(msg).trim();
+      if (!text) return;
+      try {
+        await window.db.collection('sessions').doc(sessionId).update({
+          lastStudentMessage: text,
+          lastStudentMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+          chatPing: Date.now()
+        });
+        await UI.alert('Message sent to instructor.', 'Sent');
+      } catch (e) {
+        await UI.alert(e.message || 'Could not send', 'Error');
+      }
+    };
+    document.body.appendChild(fab);
   },
 
   async startRegularExam(session) {
@@ -1532,7 +1641,9 @@ const App = {
     CodeEditor.sessionId = session.id;
     CodeEditor.examId = exam.id;
     CodeEditor._setupAntiCheat();
-    CodeEditor.startScreenShare(5000);
+    CodeEditor.startScreenShare(2500);
+    this._watchTeacherEnd(session.id);
+    this.injectStudentChatFab(session.id);
 
     document.getElementById('submit-exam-btn').onclick = async () => {
       const ok = await UI.confirm('Submit this assessment? You will not be able to edit further.', 'Submit');

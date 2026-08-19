@@ -118,7 +118,7 @@ const Auth = {
       allowed: false,
       reason:
         'Only La Verdad emails are allowed (@student.laverdad.edu.ph or @laverdad.edu.ph).\n\n' +
-        'Personal email is only allowed if a teacher invited you to a specific exam.'
+        'Personal email is allowed only if invited to a specific exam.'
     };
   },
 

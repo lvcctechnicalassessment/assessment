@@ -1381,3 +1381,84 @@ textarea.form-control {
   color: var(--text-muted);
 }
 .screen-code-details summary { cursor: pointer; padding: 0.25rem 0.5rem; }
+
+/* v1.4.6 */
+.fab-msg {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 9000;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 1.4rem;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+.fab-msg:hover { filter: brightness(1.1); }
+.student-chat-preview {
+  font-size: 0.75rem;
+  color: var(--warning);
+  margin-top: 0.25rem;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-actions-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.5rem !important;
+  width: 100%;
+}
+.cp-actions-row .btn {
+  flex: 1 1 auto;
+  min-width: 120px;
+  white-space: normal;
+}
+
+/* Desktop live: integrity fixed on right with fixed height */
+@media (min-width: 901px) {
+  .dashboard {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: calc(100vh - 56px);
+  }
+  .live-layout.live-layout-fixed,
+  .live-layout.live-3panel {
+    display: grid !important;
+    grid-template-columns: 1fr 300px !important;
+    height: calc(100vh - 140px) !important;
+    max-height: calc(100vh - 140px) !important;
+    overflow: hidden !important;
+  }
+  .live-layout .live-main {
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .live-layout .live-grid {
+    overflow-y: auto !important;
+    flex: 1;
+    min-height: 0;
+  }
+  .integrity-panel-fixed {
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    right: 0;
+  }
+  .integrity-panel-fixed .integrity-list {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+}
