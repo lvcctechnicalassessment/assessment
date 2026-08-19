@@ -252,9 +252,11 @@ const Regular = {
     if (q.type === 'essay') {
       const max = q.maxChars || 1000;
       const text = typeof val === 'string' ? val : '';
+      const caption = q.caption || 'Note: Essay scores may be adjusted by your teacher based on a personal assessment of your response, as essays may not be fully auto-graded on this portal.';
       return `
         <div class="q-card" data-qid="${q.id}" data-type="essay">
           <div class="q-prompt"><strong>${escapeHtml(q.prompt || 'Essay')}</strong> <span class="text-muted">(${q.points ?? 1} pt)</span></div>
+          <p class="essay-caption">${escapeHtml(caption)}</p>
           <textarea class="form-control" rows="6" maxlength="${max}" data-qid="${q.id}" data-essay="1"
             placeholder="Write your answer (max ${max} characters)">${escapeHtml(text)}</textarea>
           <div class="text-muted essay-count" style="font-size:0.8rem;text-align:right"><span data-count="${q.id}">${text.length}</span> / ${max}</div>

@@ -79,6 +79,7 @@ const CodeEditor = {
         };
         this._flag('paste', `Student pasted code (${lines} line${lines === 1 ? '' : 's'})`, { pasteRange });
         this._highlightPaste(startLine, endLine);
+        this._studentPasteWarn();
       } catch (err) {
         console.error('paste handler', err);
       }
@@ -206,6 +207,7 @@ const CodeEditor = {
       const pasteRange = { startLine, endLine, lines: lines || 1, chars: text.length, at: new Date().toISOString() };
       this._flag('paste', `Student pasted code (${pasteRange.lines} line${pasteRange.lines === 1 ? '' : 's'})`, { pasteRange });
       setTimeout(() => this._highlightPaste(startLine, endLine), 50);
+      this._studentPasteWarn();
     });
 
     this._on(document, 'visibilitychange', () => {
@@ -303,12 +305,51 @@ const CodeEditor = {
     }]);
   },
 
+  _pasteWarnCount: 0,
+  async _studentPasteWarn() {
+    this._pasteWarnCount = (this._pasteWarnCount || 0) + 1;
+    const n = this._pasteWarnCount;
+    const msg = n >= 3
+      ? 'You have been detected copy-pasting. This is your 3rd warning. Your teacher has been notified and may end your assessment or deduct points.'
+      : `You have been detected copy-pasting. This is your warning #${n} of 3. Further violations will be reported to your teacher.`;
+    try {
+      if (window.UI) await UI.alert(msg, 'Integrity warning');
+      else alert(msg);
+    } catch (_) {}
+    if (n >= 3 && this.sessionId) {
+      Exam.logEvent(this.sessionId, 'paste-critical', 'Student reached 3 paste warnings', {
+        pasteWarnings: n
+      }).catch(() => {});
+    }
+  },
+
+  startScreenShare(intervalMs = 4000) {
+    this.stopScreenShare();
+    this._screenTimer = setInterval(async () => {
+      if (this.isLocked || this.isSubmitting || !this.sessionId) return;
+      const thumb = await this.captureScreen();
+      if (!thumb) return;
+      try {
+        await window.db.collection('sessions').doc(this.sessionId).update({
+          screenThumb: thumb,
+          screenAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (_) {}
+    }, intervalMs);
+  },
+
+  stopScreenShare() {
+    if (this._screenTimer) clearInterval(this._screenTimer);
+    this._screenTimer = null;
+  },
+
   lockEditor() {
     if (this.editor) this.editor.updateOptions({ readOnly: true });
     this.isLocked = true;
   },
 
   dispose() {
+    this.stopScreenShare();
     this._handlers.forEach(({ target, event, fn }) => {
       try { target.removeEventListener(event, fn); } catch (_) {}
     });

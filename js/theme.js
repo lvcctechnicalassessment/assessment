@@ -3,7 +3,7 @@
  */
 const Theme = {
   KEY: 'lvcc_theme',
-  DEFAULT: 'dark',
+  DEFAULT: 'light',
 
   init() {
     const saved = localStorage.getItem(this.KEY) || this.DEFAULT;
@@ -70,6 +70,6 @@ const Theme = {
 window.Theme = Theme;
 // Apply ASAP before paint flicker
 try {
-  const t = localStorage.getItem('lvcc_theme') || 'dark';
+  const t = localStorage.getItem('lvcc_theme') || 'light';
   document.documentElement.setAttribute('data-theme', t);
 } catch (_) {}

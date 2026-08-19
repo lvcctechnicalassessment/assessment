@@ -263,6 +263,9 @@ const Exam = {
       events.push(event);
       if (events.length > 80) events.splice(0, events.length - 80);
       const updates = { events, lastEvent: event };
+      if (type === 'paste' || type === 'paste-key') {
+        updates.pasteWarnings = (data.pasteWarnings || 0) + 1;
+      }
       if (extra.pasteRange) {
         const ranges = data.pasteRanges || [];
         ranges.push(extra.pasteRange);
@@ -288,9 +291,19 @@ const Exam = {
         read: false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       };
-      await window.db.collection('notifications').add(payload);
-      // Permanent integrity archive (never auto-deleted)
-      await window.db.collection('integrityHistory').add(payload);
+      try {
+        await window.db.collection('notifications').add(payload);
+      } catch (e) { console.warn('notif write', e); }
+      try {
+        await window.db.collection('integrityHistory').add(payload);
+      } catch (e) {
+        console.warn('integrityHistory write', e);
+        // retry without screenshot if too large
+        try {
+          const slim = { ...payload, screenshot: null, extra: { ...(payload.extra || {}), screenshot: null } };
+          await window.db.collection('integrityHistory').add(slim);
+        } catch (e2) { console.warn('integrityHistory slim failed', e2); }
+      }
     }
   },
 

@@ -78,7 +78,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.4.2</div>
+          <div class="app-version">Build v1.4.3</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -156,7 +156,7 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.2</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.3</span>
           </div>
         </div>
         <div class="header-right">
@@ -301,16 +301,7 @@ const App = {
           </select>
         </div>
         <!-- Instructions are per-section when adding questions -->
-        <div class="form-row">
-          <div class="form-group">
-            <label>Time start (all students)</label>
-            <input type="datetime-local" id="exam-start" class="form-control" value="${toLocal(now)}" />
-          </div>
-          <div class="form-group">
-            <label>Time end (all students)</label>
-            <input type="datetime-local" id="exam-end" class="form-control" value="${toLocal(later)}" />
-          </div>
-        </div>
+        <!-- Start/end only on Publish -->
         <div class="form-group">
           <label id="maxscore-label">Max score (default 100 for code)</label>
           <input type="number" id="exam-maxscore" class="form-control" value="100" min="1" />
@@ -327,13 +318,12 @@ const App = {
         </div>
         <div id="regular-fields" class="hidden">
           <div class="card-title">Question sections</div>
-          <p class="text-muted" style="font-size:0.85rem">Pick a question type to create a section. Add more of the same type inside the section, or pick another type below for a new section.</p>
-          <div id="type-picker" class="type-picker"></div>
           <div id="questions-builder" class="mt-2"></div>
         </div>
-        <div class="modal-actions action-btns">
+        <div class="modal-actions action-btns form-footer-actions">
           <button class="btn btn-ghost" onclick="App.showTeacherHome()">Cancel</button>
           <button class="btn btn-ghost" id="draft-exam-btn">Save draft</button>
+          <button class="btn btn-primary" id="add-question-footer-btn" type="button">Add Question</button>
           <button class="btn btn-primary" id="create-exam-btn">Publish…</button>
         </div>
       </div>
@@ -506,27 +496,62 @@ const App = {
       });
     };
 
-    // Type picker buttons outside sections
-    const typeBar = document.getElementById('type-picker');
-    if (typeBar) {
-      typeBar.innerHTML = QUESTION_TYPES.map(t =>
-        `<button type="button" class="btn btn-sm btn-ghost type-pick" data-type="${t.id}">${escapeHtml(t.label)}</button>`
-      ).join('');
-      typeBar.querySelectorAll('.type-pick').forEach(btn => {
-        btn.onclick = () => {
-          const type = btn.dataset.type;
-          const label = (QUESTION_TYPES.find(x => x.id === type) || { label: type }).label;
-          const sec = Regular.newSection(label);
-          sec.instructions = '';
-          sec.questions.push(Regular.newQuestion(type));
-          window._builderSections.push(sec);
-          syncFlat();
-          renderBuilder();
-        };
-      });
-    }
+    const defaultSectionInstructions = (type) => ({
+      multiple: 'Choose the best answer. Select the correct option.',
+      truefalse: 'Select True or False for each statement.',
+      modified_tf: 'Select True or False. If False, write the correct answer in the text box.',
+      fill: 'Fill in each blank with the correct word or phrase.',
+      essay: 'Write a complete response in the text box (max 1000 characters).',
+      table: 'Fill in the blank cells in the table with the correct values.',
+      passage: 'Read the passage carefully, then answer the related questions.',
+      dropdown: 'Select the correct option from the dropdown.',
+      match: 'Match each item on the left with the correct option on the right.',
+      reorder: 'Put the items in the correct order.',
+      categorize: 'Place each item into the correct category.',
+      wordbox: 'Enter words related to the topic as instructed.',
+    }[type] || 'Read the instructions and answer carefully.');
 
-    document.getElementById('add-q-btn')?.remove();
+    const openTypePicker = async () => {
+      const labels = QUESTION_TYPES.map(x => x.label + ' (' + x.id + ')').join('\n');
+      // Themed modal with type buttons
+      return new Promise((resolve) => {
+        const root = document.getElementById('ui-modal-root') || (() => {
+          const el = document.createElement('div'); el.id = 'ui-modal-root'; document.body.appendChild(el); return el;
+        })();
+        root.innerHTML = `<div class="modal-overlay ui-modal-overlay"><div class="modal ui-modal modal-wide">
+          <h2>Select question type</h2>
+          <div class="type-picker type-picker-modal">${QUESTION_TYPES.map(x =>
+            `<button type="button" class="btn btn-sm btn-ghost type-pick" data-type="${x.id}">${escapeHtml(x.label)}</button>`
+          ).join('')}</div>
+          <div class="modal-actions"><button class="btn btn-ghost" id="type-cancel">Cancel</button></div>
+        </div></div>`;
+        root.querySelector('#type-cancel').onclick = () => { UI.close(); resolve(null); };
+        root.querySelectorAll('.type-pick').forEach(btn => {
+          btn.onclick = () => { const type = btn.dataset.type; UI.close(); resolve(type); };
+        });
+      });
+    };
+
+    const addSectionOfType = (type) => {
+      if (!type) return;
+      const label = (QUESTION_TYPES.find(x => x.id === type) || { label: type }).label;
+      const sec = Regular.newSection(label);
+      sec.instructions = defaultSectionInstructions(type);
+      const q = Regular.newQuestion(type);
+      if (type === 'essay') {
+        q.caption = q.caption || 'Note: Essay scores may be adjusted by your teacher based on a personal assessment of your response, as essays may not be fully auto-graded.';
+      }
+      sec.questions.push(q);
+      window._builderSections.push(sec);
+      syncFlat();
+      renderBuilder();
+    };
+
+    document.getElementById('add-question-footer-btn').onclick = async () => {
+      const type = await openTypePicker();
+      addSectionOfType(type);
+    };
+
 
     const buildPayload = (status) => {
       const title = document.getElementById('exam-title').value.trim();
@@ -534,8 +559,8 @@ const App = {
       const examType = document.getElementById('exam-type').value;
       const language = document.getElementById('exam-language').value;
       const subject = document.getElementById('exam-subject').value.trim() || 'General';
-      const startAt = document.getElementById('exam-start').value;
-      const endAt = document.getElementById('exam-end').value;
+      const startAt = document.getElementById('exam-start')?.value || '';
+      const endAt = document.getElementById('exam-end')?.value || '';
       const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore').value) || 100);
       return { title, instructions, examType, language, subject, startAt, endAt, maxScore, status };
     };
@@ -548,6 +573,8 @@ const App = {
           ...p,
           startAt: p.startAt || new Date().toISOString(),
           endAt: p.endAt || new Date(Date.now()+3600000).toISOString(),
+          // draft: schedule set on publish
+
           starterCode: document.getElementById('exam-starter').value,
           answerKey: document.getElementById('exam-answer').value,
           questions: p.examType === 'regular' ? window._builderQuestions : [],
@@ -566,20 +593,29 @@ const App = {
       const examType = document.getElementById('exam-type').value;
       const language = document.getElementById('exam-language').value;
       const subject = document.getElementById('exam-subject').value.trim() || 'General';
-      const startAt = document.getElementById('exam-start').value;
-      const endAt = document.getElementById('exam-end').value;
+      const startAt = document.getElementById('exam-start')?.value || '';
+      const endAt = document.getElementById('exam-end')?.value || '';
       const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore').value) || 100);
       if (!title) { await UI.alert('Title is required.', 'Missing fields'); return; }
-      if (!startAt || !endAt) { await UI.alert('Start and end time are required to publish.', 'Schedule'); return; }
-      if (new Date(endAt) <= new Date(startAt)) { await UI.alert('End must be after start.', 'Schedule'); return; }
-      // Scheduled start cannot be in the past (allow 1 min skew)
-      if (new Date(startAt).getTime() < Date.now() - 60000) {
+      let pubStart = startAt, pubEnd = endAt;
+      if (!pubStart || !pubEnd) {
+        const toLocal = (d) => {
+          const pad = n => String(n).padStart(2, '0');
+          return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+        };
+        pubStart = await UI.prompt('Start date & time', toLocal(new Date()), 'Publish schedule');
+        if (!pubStart) return;
+        pubEnd = await UI.prompt('End date & time', toLocal(new Date(Date.now()+3600000)), 'Publish schedule');
+        if (!pubEnd) return;
+      }
+      if (new Date(pubEnd) <= new Date(pubStart)) { await UI.alert('End must be after start.', 'Schedule'); return; }
+      if (new Date(pubStart).getTime() < Date.now() - 60000) {
         await UI.alert('Start time cannot be before the current date and time.', 'Schedule');
         return;
       }
       try {
         const exam = await Exam.createExam({
-          title, instructions, examType, language, subject, startAt, endAt, maxScore,
+          title, instructions, examType, language, subject, startAt: pubStart, endAt: pubEnd, maxScore,
           starterCode: document.getElementById('exam-starter').value,
           answerKey: document.getElementById('exam-answer').value,
           questions: examType === 'regular' ? window._builderQuestions : [],
@@ -705,49 +741,86 @@ const App = {
 
   async editExam(examId) {
     const exam = await Exam.getExam(examId);
-    if (!exam) { await UI.alert('Not found.', 'Error'); return; }
-    const toLocal = (ms) => {
-      const d = new Date(ms);
-      const pad = n => String(n).padStart(2, '0');
-      return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-    };
-    this.renderShell(`
-      <h2 class="page-title">Edit assessment</h2>
-      <div class="card">
-        <div class="form-group"><label>Title</label>
-          <input id="edit-title" class="form-control" value="${escapeHtml(exam.title || '')}" /></div>
-        <div class="form-group"><label>Instructions</label>
-          <textarea id="edit-instructions" class="form-control" rows="4">${escapeHtml(exam.instructions || '')}</textarea></div>
-        <div class="form-row">
-          <div class="form-group"><label>Start</label>
-            <input type="datetime-local" id="edit-start" class="form-control" value="${toLocal(exam.startAt || Date.now())}" /></div>
-          <div class="form-group"><label>End</label>
-            <input type="datetime-local" id="edit-end" class="form-control" value="${toLocal(exam.endAt || Date.now())}" /></div>
-        </div>
-        ${exam.examType !== 'regular' ? `<div class="form-group"><label>Max score</label>
-          <input type="number" id="edit-max" class="form-control" value="${exam.maxScore || 100}" /></div>` : ''}
-        <div class="action-btns">
-          <button class="btn btn-primary" id="save-edit">Save</button>
-          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Cancel</button>
-        </div>
-      </div>
-    `, 'exams');
-    document.getElementById('save-edit').onclick = async () => {
-      const startAt = new Date(document.getElementById('edit-start').value).getTime();
-      const endAt = new Date(document.getElementById('edit-end').value).getTime();
-      if (endAt <= startAt) { await UI.alert('End must be after start.', 'Schedule'); return; }
-      const updates = {
-        title: document.getElementById('edit-title').value.trim(),
-        instructions: document.getElementById('edit-instructions').value.trim(),
-        startAt, endAt,
-        durationMinutes: Math.max(1, Math.round((endAt - startAt) / 60000))
+    if (!exam) { await UI.alert('Assessment not found.', 'Error'); return; }
+    // Reuse create UI prefilled
+    await this.showCreateExam();
+    // Prefill after DOM ready
+    setTimeout(() => {
+      const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+      set('exam-title', exam.title);
+      set('exam-subject', exam.subject || 'General');
+      set('exam-type', exam.examType || 'regular');
+      set('exam-language', exam.language || 'python');
+      set('exam-starter', exam.starterCode || '');
+      set('exam-answer', exam.answerKey || '');
+      set('exam-maxscore', exam.maxScore || 100);
+      document.getElementById('exam-type')?.dispatchEvent(new Event('change'));
+      window._builderSections = exam.sections && exam.sections.length
+        ? JSON.parse(JSON.stringify(exam.sections))
+        : [];
+      if (!window._builderSections.length && (exam.questions || []).length) {
+        // migrate flat questions into one section
+        const sec = Regular.newSection('Questions');
+        sec.questions = JSON.parse(JSON.stringify(exam.questions));
+        window._builderSections = [sec];
+      }
+      window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
+      // trigger render if available
+      const box = document.getElementById('questions-builder');
+      if (box && window._builderSections) {
+        // re-call by clicking type or force rebuild via custom event
+        document.getElementById('exam-type')?.dispatchEvent(new Event('change'));
+      }
+      // Override create buttons to update existing
+      const draftBtn = document.getElementById('draft-exam-btn');
+      const pubBtn = document.getElementById('create-exam-btn');
+      const saveUpdate = async (publish) => {
+        const title = document.getElementById('exam-title').value.trim();
+        if (!title) { await UI.alert('Title is required.', 'Missing fields'); return; }
+        const examType = document.getElementById('exam-type').value;
+        const updates = {
+          title,
+          subject: document.getElementById('exam-subject').value.trim() || 'General',
+          examType,
+          language: document.getElementById('exam-language').value,
+          starterCode: document.getElementById('exam-starter')?.value || '',
+          answerKey: document.getElementById('exam-answer')?.value || '',
+          maxScore: examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore')?.value) || 100),
+          questions: examType === 'regular' ? (window._builderQuestions || []) : [],
+          sections: examType === 'regular' ? (window._builderSections || []) : [],
+        };
+        if (publish) {
+          updates.status = 'published';
+          updates.active = true;
+        }
+        await Exam.updateExam(examId, updates);
+        await UI.alert('Changes saved.', 'Saved');
+        if (publish) this.showSharePanel(examId);
+        else this.showTeacherHome();
       };
-      const maxEl = document.getElementById('edit-max');
-      if (maxEl) updates.maxScore = Number(maxEl.value) || 100;
-      await Exam.updateExam(examId, updates);
-      await UI.alert('Changes saved.', 'Saved');
-      this.showTeacherHome();
-    };
+      if (draftBtn) draftBtn.onclick = () => saveUpdate(false);
+      if (pubBtn) {
+        pubBtn.textContent = exam.status === 'draft' ? 'Publish…' : 'Save';
+        pubBtn.onclick = async () => {
+          if (exam.status === 'draft') {
+            // schedule then publish
+            await saveUpdate(false);
+            await this.publishDraft(examId);
+          } else {
+            await saveUpdate(false);
+          }
+        };
+      }
+      // Render sections builder
+      try {
+        const syncFlat = () => { window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []); };
+        // minimal re-render trigger: add temporary note
+        const note = document.createElement('p');
+        note.className = 'text-muted';
+        note.textContent = 'Editing assessment — save when done. Re-open type sections from the type picker if needed.';
+        document.getElementById('questions-builder')?.prepend(note);
+      } catch (_) {}
+    }, 50);
   },
 
 
@@ -1034,8 +1107,18 @@ const App = {
 
   async startStudentExam(examId) {
     try {
+      const exam = await Exam.getExam(examId);
+      if (!exam) { await UI.alert('Assessment not found.', 'Error'); return this.showStudentHome(); }
+      const { startAt, endAt } = Exam.getExamWindow(exam);
+      const now = Date.now();
+      if (now < startAt) {
+        return this.showExamCountdown(exam, startAt);
+      }
+      if (now > endAt) {
+        await UI.alert('This assessment has ended.', 'Closed');
+        return this.showStudentHome();
+      }
       const session = await Exam.joinExam(examId);
-      const exam = session.exam;
       if ((exam.examType || session.examType) === 'regular') {
         return this.startRegularExam(session);
       }
@@ -1044,6 +1127,37 @@ const App = {
       await UI.alert(err.message || String(err), 'Error');
       this.showStudentHome();
     }
+  },
+
+  showExamCountdown(exam, startAt) {
+    const examId = exam.id;
+    document.getElementById('app').innerHTML = `
+      <div class="countdown-screen">
+        <img src="assets/lvcc-logo.png" alt="" width="72" height="72" />
+        <h1>Your assessment is not started yet</h1>
+        <p class="countdown-sub">Subject: <strong>${escapeHtml(exam.subject || 'General')}</strong> — ${escapeHtml(exam.title || '')}</p>
+        <p class="text-muted">Starts at ${new Date(startAt).toLocaleString()}</p>
+        <div id="big-countdown" class="big-countdown">--:--:--</div>
+        <button class="btn btn-ghost mt-2" onclick="App.showStudentHome()">Back to home</button>
+      </div>`;
+    const tick = () => {
+      const remain = startAt - Date.now();
+      const el = document.getElementById('big-countdown');
+      if (!el) return;
+      if (remain <= 0) {
+        clearInterval(iv);
+        el.textContent = 'Starting…';
+        App.startStudentExam(examId);
+        return;
+      }
+      const s = Math.floor(remain / 1000);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      el.textContent = [h, m, sec].map(n => String(n).padStart(2, '0')).join(':');
+    };
+    tick();
+    const iv = setInterval(tick, 250);
   },
 
   async startCodeExam(session) {
@@ -1085,6 +1199,7 @@ const App = {
       </div>`;
     document.getElementById('exam-instructions-text').textContent = exam.instructions || '';
     await CodeEditor.init('monaco-container', session.code || exam.starterCode || '', session.id, exam.id, lang);
+    CodeEditor.startScreenShare(4000);
     document.getElementById('check-code-btn').onclick = () => CodeEditor.checkCode();
     document.getElementById('submit-exam-btn').onclick = async () => {
       if (!(await UI.confirm('Submit this assessment?', 'Submit'))) return;
@@ -1145,6 +1260,7 @@ const App = {
     CodeEditor.sessionId = session.id;
     CodeEditor.examId = exam.id;
     CodeEditor._setupAntiCheat();
+    CodeEditor.startScreenShare(5000);
 
     document.getElementById('submit-exam-btn').onclick = async () => {
       const ok = await UI.confirm('Submit this assessment? You will not be able to edit further.', 'Submit');
@@ -1235,56 +1351,103 @@ const App = {
         (n.type || '').toLowerCase().includes(q) ||
         (n.details || '').toLowerCase().includes(q)
       ) : all;
+      window._integrityExportRows = items;
       const el = document.getElementById('integrity-hist-list');
-      el.innerHTML = items.length ? items.map(n => {
-        const thumb = n.screenshot || n.extra?.screenshot;
-        const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '';
-        return `<div class="integrity-item card">
-          <div class="integrity-item-main">
-            <strong>${escapeHtml(n.studentName || '')}</strong> · ${escapeHtml(n.studentEmail || '')}
-            <div><span class="chip">${escapeHtml(n.type || '')}</span> ${escapeHtml(n.details || '')}</div>
-            <div class="text-muted" style="font-size:0.75rem">${time}</div>
-          </div>
-          ${thumb ? `<img class="integrity-thumb" src="${thumb}" onclick="UI.showImage(this.src,'Student screen')" />` : ''}
-        </div>`;
-      }).join('') : '<p class="text-muted">No integrity events recorded.</p>';
+      if (!items.length) {
+        el.innerHTML = '<p class="text-muted">No integrity events recorded for this assessment.</p>';
+        return;
+      }
+      el.innerHTML = `<div class="table-wrap"><table class="table integrity-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>Date stamp</th><th></th></tr></thead>
+        <tbody>${items.map(n => {
+          const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
+            : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
+          const thumb = n.screenshot || n.extra?.screenshot;
+          return `<tr>
+            <td data-label="Name">${escapeHtml(n.studentName || '—')}</td>
+            <td data-label="Email">${escapeHtml(n.studentEmail || '—')}</td>
+            <td data-label="Issue"><span class="chip">${escapeHtml(n.type || '')}</span> ${escapeHtml(n.details || '')}</td>
+            <td data-label="Date">${time}</td>
+            <td>${thumb ? `<img class="integrity-thumb" src="${thumb}" onclick="UI.showImage(this.src,'Student screen')" />` : ''}</td>
+          </tr>`;
+        }).join('')}</tbody></table></div>`;
     };
 
-    // Live sync from integrityHistory
-    const unsub = window.db.collection('integrityHistory')
-      .where('examId', '==', examId)
-      .onSnapshot(snap => {
-        all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        all.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-        render();
-      }, async (err) => {
-        // fallback notifications
-        try {
-          const snap = await window.db.collection('notifications').where('examId', '==', examId).get();
-          all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          render();
-        } catch (_) {
-          document.getElementById('integrity-hist-list').innerHTML = '<p class="text-muted">Could not load history.</p>';
-        }
+    const merge = (rows) => {
+      const map = {};
+      rows.forEach(n => {
+        const key = n.id || (n.sessionId + '_' + (n.timestamp || n.type + n.details));
+        map[key] = n;
       });
-    Dashboard.unsubscribers.push(unsub);
+      all = Object.values(map);
+      all.sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() || Date.parse(a.timestamp || 0) || 0;
+        const tb = b.createdAt?.toMillis?.() || Date.parse(b.timestamp || 0) || 0;
+        return tb - ta;
+      });
+      render();
+    };
+
+    // 1) integrityHistory
+    try {
+      const unsub = window.db.collection('integrityHistory').where('examId', '==', examId)
+        .onSnapshot(snap => {
+          merge(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }, () => {});
+      Dashboard.unsubscribers.push(unsub);
+    } catch (_) {}
+
+    // 2) notifications
+    try {
+      const unsub2 = window.db.collection('notifications').where('examId', '==', examId)
+        .onSnapshot(snap => {
+          merge([...(window._integrityExportRows || all), ...snap.docs.map(d => ({ id: d.id, ...d.data() }))]);
+        }, () => {});
+      Dashboard.unsubscribers.push(unsub2);
+    } catch (_) {}
+
+    // 3) session.events fallback (always works if sessions readable)
+    try {
+      const unsub3 = Exam.listenToSessions(examId, (sessions) => {
+        const fromSessions = [];
+        sessions.forEach(s => {
+          (s.events || []).forEach((e, i) => {
+            fromSessions.push({
+              id: s.id + '_ev_' + i,
+              sessionId: s.id,
+              examId,
+              studentName: s.studentName,
+              studentEmail: s.studentEmail,
+              type: e.type,
+              details: e.details,
+              timestamp: e.timestamp,
+              extra: e,
+              screenshot: e.screenshot
+            });
+          });
+        });
+        merge([...all, ...fromSessions]);
+      });
+      Dashboard.unsubscribers.push(unsub3);
+    } catch (_) {}
 
     document.getElementById('integrity-filter-page').oninput = render;
     document.getElementById('btn-export-integrity-pdf').onclick = () => {
+      const rows = window._integrityExportRows || all;
       const w = window.open('', '_blank');
-      const rows = all.map(n => {
-        const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '';
+      const body = rows.map(n => {
+        const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
+          : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
         return `<tr><td>${escapeHtml(n.studentName||'')}</td><td>${escapeHtml(n.studentEmail||'')}</td>
           <td>${escapeHtml(n.type||'')}</td><td>${escapeHtml(n.details||'')}</td><td>${time}</td></tr>`;
       }).join('');
-      w.document.write(`<!DOCTYPE html><html><head><title>Integrity — ${escapeHtml(exam?.title||'')}</title>
-        <style>body{font-family:system-ui;padding:24px} table{border-collapse:collapse;width:100%}
-        th,td{border:1px solid #ccc;padding:8px;font-size:12px;text-align:left} th{background:#eee}</style></head><body>
-        <h1>Integrity issues</h1><p>${escapeHtml(exam?.title||'')}</p>
-        <table><thead><tr><th>Name</th><th>Email</th><th>Type</th><th>Details</th><th>Time</th></tr></thead>
-        <tbody>${rows}</tbody></table>
-        <script>window.onload=function(){window.print()}<\/script>
-        </body></html>`);
+      w.document.write(`<!DOCTYPE html><html><head><title>Integrity</title>
+        <style>body{font-family:system-ui;padding:24px}table{border-collapse:collapse;width:100%}
+        th,td{border:1px solid #ccc;padding:8px;font-size:12px}th{background:#eee}</style></head><body>
+        <h1>Integrity issues — ${escapeHtml(exam?.title||'')}</h1>
+        <table><thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>Details</th><th>Date</th></tr></thead>
+        <tbody>${body}</tbody></table>
+        <script>window.onload=function(){window.print()}<\/script></body></html>`);
       w.document.close();
     };
   },
@@ -1364,15 +1527,37 @@ const App = {
     });
     const hardest = Object.values(wrongCount).sort((a, b) => b.wrong - a.wrong).slice(0, 5);
 
+    const pieTotal = hardest.reduce((a, h) => a + h.wrong, 0) || 1;
+    const colors = ['#2563eb','#8b5cf6','#14b8a6','#f59e0b','#f43f5e'];
+    let ang = 0;
+    const slices = hardest.map((h, i) => {
+      const frac = h.wrong / pieTotal;
+      const start = ang;
+      ang += frac * Math.PI * 2;
+      const x1 = 50 + 40 * Math.cos(start), y1 = 50 + 40 * Math.sin(start);
+      const x2 = 50 + 40 * Math.cos(ang), y2 = 50 + 40 * Math.sin(ang);
+      const large = frac > 0.5 ? 1 : 0;
+      return `<path d="M50,50 L${x1},${y1} A40,40 0 ${large} 1 ${x2},${y2} Z" fill="${colors[i % colors.length]}"><title>${escapeHtml(h.prompt).slice(0,40)} (${h.wrong})</title></path>`;
+    }).join('') || `<circle cx="50" cy="50" r="40" fill="var(--surface-2)" />`;
+    const legend = hardest.map((h, i) =>
+      `<div class="pie-legend-item"><span class="pie-swatch" style="background:${colors[i%colors.length]}"></span>${escapeHtml(h.prompt).slice(0,48)} (${h.wrong})</div>`
+    ).join('') || '<div class="text-muted">No data</div>';
+
     document.getElementById('results-stats').innerHTML = `
-      <div class="stats-grid stats-centered">
-        <div class="stat-card stat-blue"><div class="stat-val">${studentCount}</div><div class="stat-label">Students</div></div>
-        <div class="stat-card stat-purple"><div class="stat-val">${totalItems}</div><div class="stat-label">Total items</div></div>
-        <div class="stat-card stat-teal"><div class="stat-val">${avg.toFixed(1)}%</div><div class="stat-label">Average score</div></div>
-        <div class="stat-card stat-green"><div class="stat-val">${perfect}</div><div class="stat-label">Perfect scores</div></div>
-      </div>
-      <div class="stat-card stat-wide stat-amber mt-2"><div class="stat-label">Most incorrect questions</div>
-        <ol class="hardest-list">${hardest.map(h => `<li>${escapeHtml(h.prompt).slice(0, 80)} <span class="text-muted">(${h.wrong} wrong)</span></li>`).join('') || '<li class="text-muted">N/A</li>'}</ol>
+      <div class="results-stats-row">
+        <div class="stats-grid stats-4">
+          <div class="stat-card stat-blue"><div class="stat-val">${studentCount}</div><div class="stat-label">Students</div></div>
+          <div class="stat-card stat-purple"><div class="stat-val">${totalItems}</div><div class="stat-label">Total items</div></div>
+          <div class="stat-card stat-teal"><div class="stat-val">${avg.toFixed(1)}%</div><div class="stat-label">Average score</div></div>
+          <div class="stat-card stat-green"><div class="stat-val">${perfect}</div><div class="stat-label">Perfect scores</div></div>
+        </div>
+        <div class="stat-card pie-card">
+          <div class="stat-label">Most incorrect questions</div>
+          <div class="pie-wrap">
+            <svg viewBox="0 0 100 100" class="pie-svg">${slices}</svg>
+            <div class="pie-legend">${legend}</div>
+          </div>
+        </div>
       </div>`;
 
     const el = document.getElementById('results-table');

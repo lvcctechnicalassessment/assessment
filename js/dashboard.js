@@ -69,7 +69,7 @@ const Dashboard = {
       <div class="assess-list">`;
 
     if (!list.length) {
-      html += `<div class="empty-state"><p>No ${this._tab} assessments.</p>
+      html += `<div class="empty-state"><p>No assessments in ${this._tab === 'drafts' ? 'Drafts' : 'Published'}.</p>
         <button class="btn btn-primary mt-2" onclick="App.showCreateExam()">+ Create Assessment</button></div>`;
     } else {
       list.forEach(ex => {
@@ -283,11 +283,48 @@ const Dashboard = {
 
   _lastPasteAlert: null,
   _handlePasteNotifications(notifs) {
-    const paste = notifs.find(n => (n.type === 'paste' || n.type === 'paste-key') && n.id !== this._lastPasteAlert);
-    if (!paste) return;
-    this._lastPasteAlert = paste.id;
-    this.showPasteAlert(paste);
+    const critical = notifs.find(n => n.type === 'paste-critical' && n.id !== this._lastPasteAlert);
+    if (critical) {
+      this._lastPasteAlert = critical.id;
+      this.showCriticalPaste(critical);
+      return;
+    }
+    // non-blocking: only panel update (no popup for normal paste)
   },
+
+  showCriticalPaste(n) {
+    const root = document.getElementById('integrity-modal-root');
+    if (!root) return;
+    root.innerHTML = `
+      <div class="modal-overlay ui-modal-overlay" id="critical-paste-modal">
+        <div class="modal ui-modal">
+          <h2>3rd paste warning</h2>
+          <p class="ui-modal-body"><strong>${escapeHtml(n.studentName || n.studentEmail)}</strong> has reached 3 copy-paste warnings.</p>
+          <div class="modal-actions action-btns" style="flex-wrap:wrap">
+            <button class="btn btn-danger" id="cp-end">End assessment</button>
+            <button class="btn btn-ghost" id="cp-deduct">Deduct points</button>
+            <button class="btn btn-ghost" id="cp-ignore">Ignore</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('cp-ignore').onclick = () => document.getElementById('critical-paste-modal')?.remove();
+    document.getElementById('cp-end').onclick = async () => {
+      await Exam.submitSession(n.sessionId, 'teacher-ended');
+      document.getElementById('critical-paste-modal')?.remove();
+      await UI.alert('Assessment ended for this student.', 'Ended');
+    };
+    document.getElementById('cp-deduct').onclick = async () => {
+      const pts = await UI.prompt('How many points to deduct?', '5', 'Deduct points');
+      if (pts == null) return;
+      await window.db.collection('sessions').doc(n.sessionId).update({
+        penaltyPoints: firebase.firestore.FieldValue.increment(Number(pts) || 0),
+        penaltyNote: 'Paste warnings x3'
+      });
+      document.getElementById('critical-paste-modal')?.remove();
+      await UI.alert('Deducted ' + pts + ' points.', 'Penalty');
+    };
+  },
+
 
   showPasteAlert(n) {
     const lines = n.extra?.pasteRange?.lines || (String(n.details || '').match(/(\d+)\s*line/) || [])[1] || '?';
@@ -408,7 +445,7 @@ const Dashboard = {
               <div class="text-muted" style="font-size:0.7rem">${last}</div>
             </div>
           </div>
-          <pre class="student-code-preview">${preview}</pre>
+          ${s.screenThumb ? `<div class="screen-share-wrap"><img class="screen-share-img" src="${s.screenThumb}" alt="Student screen" onclick="UI.showImage(this.src,'Live student screen')" /><span class="screen-share-label">Live screen</span></div>` : `<pre class="student-code-preview">${preview}</pre>`}
           <div class="student-events">${eventsHtml}</div>
           <div class="action-btns" style="padding:0.5rem">
             <button class="btn btn-sm btn-ghost" onclick="Dashboard.openStudentDetail('${s.id}')">Details</button>
