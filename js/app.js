@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.4.7</div>
+          <div class="app-version">Build v1.4.8</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -126,8 +126,9 @@ const App = {
     const examId = params.get('exam');
 
     if (examId && role !== 'proctor') {
-      // Will clear URL if already submitted inside startStudentExam
-      this.startStudentExam(examId);
+      const isTest = new URLSearchParams(window.location.search).get('test') === '1';
+      // Instructors may only open via test=1
+      this.startStudentExam(examId, { testMode: isTest });
       return;
     }
     if (role === 'superadmin') this.showSuperAdmin();
@@ -167,7 +168,7 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.7</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.8</span>
           </div>
         </div>
         <div class="header-right">
@@ -301,6 +302,7 @@ const App = {
   },
 
   async showCreateExam() {
+    if (!window._editingExamId) window._editingExamId = null;
     if (!Auth.isTeacher()) {
       await UI.alert('Only instructors can create assessments. Students can generate mock assessments from History.', 'Access');
       this.showStudentHome();
@@ -589,21 +591,11 @@ const App = {
       renderBuilder();
     };
 
-    const draft = this.loadAutosave();
-    if (draft && (draft.title || (draft.sections||[]).length)) {
-      const restore = await UI.confirm('Restore autosaved draft?', 'Autosave');
-      if (restore) {
-        if (draft.title) document.getElementById('exam-title').value = draft.title;
-        if (draft.subject) document.getElementById('exam-subject').value = draft.subject;
-        if (draft.examType) document.getElementById('exam-type').value = draft.examType;
-        if (draft.language) document.getElementById('exam-language').value = draft.language;
-        document.getElementById('exam-type')?.dispatchEvent(new Event('change'));
-        if (draft.starter) document.getElementById('exam-starter').value = draft.starter;
-        if (draft.answer) document.getElementById('exam-answer').value = draft.answer;
-        window._builderSections = draft.sections || [];
-        window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
-        try { renderBuilder(); } catch (_) {}
-      }
+    // Fresh create by default — no restore prompt
+    if (!window._editingExamId) {
+      window._builderSections = [];
+      window._builderQuestions = [];
+      this.clearAutosave();
     }
     clearInterval(window._autosaveIv);
     window._autosaveIv = setInterval(() => this.saveAutosave(), 4000);
@@ -644,7 +636,7 @@ const App = {
           status: 'draft',
           active: false
         });
-        this.clearAutosave();
+        this.clearAutosave(); window._editingExamId = null;
         await UI.alert('Draft saved. You can edit and publish later.', 'Draft');
         this.showTeacherHome();
       } catch (err) { await UI.alert(err.message || String(err), 'Error'); }
@@ -808,6 +800,7 @@ const App = {
   },
 
   async editExam(examId) {
+    window._editingExamId = examId;
     const exam = await Exam.getExam(examId);
     if (!exam) { await UI.alert('Assessment not found.', 'Error'); return; }
     // Reuse create UI prefilled
@@ -1402,8 +1395,10 @@ const App = {
 
 
   async testAsStudent(examId) {
-    await UI.alert('Opening student preview. This is a test view and will not count as a real submission.', 'Test as student');
-    return this.startStudentExam(examId, { testMode: true });
+    const url = new URL(window.location.href);
+    url.searchParams.set('exam', examId);
+    url.searchParams.set('test', '1');
+    window.open(url.toString(), '_blank', 'noopener');
   },
 
   async startStudentExam(examId, opts = {}) {
@@ -1411,7 +1406,7 @@ const App = {
       const isTest = !!opts.testMode;
       // Instructors / superadmins cannot take real assessments
       if (!isTest && Auth.userProfile && (Auth.isTeacher() || Auth.userProfile.role === 'superadmin' || Auth.userProfile.role === 'teacher' || Auth.userProfile.role === 'proctor')) {
-        await UI.alert('You are registered as an instructor and cannot take assessments as a student.\n\nUse "Test as student" on the assessment card to preview the student view.', 'Not allowed');
+        await UI.alert('You are registered as an instructor and cannot take assessments as a student. Use "Test as student" on the assessment card to preview.', 'Not allowed');
         this.clearExamQuery();
         return this.showTeacherHome ? this.showTeacherHome() : this.showStudentHome();
       }
@@ -1443,21 +1438,10 @@ const App = {
       } else {
         session = await Exam.joinExam(examId);
       }
-      if (!isTest) {
-        const shared = await CodeEditor.requestDisplayShare();
-        if (!shared) {
-          // fallback: continue with in-app capture if getDisplayMedia unavailable (mobile)
-          const ok = await UI.confirm(
-            'Could not start full screen share. Continue using in-app screen capture of the assessment page?\n\nOn mobile, choose "Browser tab" or this page if prompted.',
-            'Screen share'
-          );
-          if (!ok) {
-            this.clearExamQuery();
-            return this.showStudentHome();
-          }
-        }
-      }
+      // Monitor gate handles fullscreen + capture
       session._testMode = isTest;
+      window._testMode = isTest;
+      await Monitor.showEntryGate(session.id, exam.id || examId);
       if ((exam.examType || session.examType) === 'regular') {
         return this.startRegularExam(session);
       }
@@ -1543,15 +1527,18 @@ const App = {
       </div>`;
     document.getElementById('exam-instructions-text').textContent = exam.instructions || '';
     await CodeEditor.init('monaco-container', session.code || exam.starterCode || '', session.id, exam.id, lang);
-    CodeEditor.startScreenShare(2500);
+    // Monitor handles screen/heartbeat
+    // CodeEditor.startScreenShare(2500);
     this._endedHandled = false;
     this._watchTeacherEnd(session.id);
+    this.injectTestModeBar();
     this.injectStudentChatFab(session.id);
     document.getElementById('check-code-btn').onclick = () => CodeEditor.checkCode();
     document.getElementById('submit-exam-btn').onclick = async () => {
       if (!(await UI.confirm('Submit this assessment?', 'Submit'))) return;
       CodeEditor.beginSubmit();
       await Exam.submitSession(session.id, 'manual');
+      try { Monitor.stop(); } catch(_){}
       CodeEditor.dispose();
       document.getElementById('student-chat-fab')?.remove();
       this.clearExamQuery();
@@ -1575,7 +1562,8 @@ const App = {
         this._endedHandled = true;
         if (this._sessionWatchUnsub) { try { this._sessionWatchUnsub(); } catch (_) {} this._sessionWatchUnsub = null; }
         CodeEditor.beginSubmit();
-        try { CodeEditor.dispose(); } catch (_) {}
+        try { try { Monitor.stop(); } catch(_){}
+      CodeEditor.dispose(); } catch (_) {}
         document.getElementById('student-chat-fab')?.remove();
         this.clearExamQuery();
         this._showEndedOverlay();
@@ -1584,12 +1572,12 @@ const App = {
       // Reply from paste modal
       if (s.instructorReply && s.instructorReply !== this._lastInstructorReply) {
         this._lastInstructorReply = s.instructorReply;
-        await UI.alert('Instructor reply:\\n\\n' + s.instructorReply, 'Message from Instructor');
+        await UI.alert(String(s.instructorReply || ''), 'Message from Instructor');
       }
       // Chat from instructor
       if (s.lastInstructorMessage && s.lastInstructorMessage !== this._lastInstructorChat) {
         this._lastInstructorChat = s.lastInstructorMessage;
-        await UI.alert('Instructor:\\n\\n' + s.lastInstructorMessage, 'Message from Instructor');
+        await UI.alert(String(s.lastInstructorMessage || ''), 'Message from Instructor');
       }
     });
   },
@@ -1622,6 +1610,27 @@ const App = {
     }
   },
 
+  injectTestModeBar() {
+    if (!window._testMode) return;
+    document.getElementById('test-mode-bar')?.remove();
+    const bar = document.createElement('div');
+    bar.id = 'test-mode-bar';
+    bar.className = 'test-mode-bar';
+    bar.innerHTML = `<span>Test as student (preview)</span>
+      <button class="btn btn-sm btn-danger" id="test-end-btn">End / Close</button>`;
+    document.body.appendChild(bar);
+    document.getElementById('test-end-btn').onclick = () => {
+      try { try { Monitor.stop(); } catch(_){}
+      CodeEditor.dispose(); } catch (_) {}
+      document.getElementById('student-chat-fab')?.remove();
+      document.getElementById('test-mode-bar')?.remove();
+      window.close();
+      // if window.close blocked
+      this.clearExamQuery();
+      this.showTeacherHome ? this.showTeacherHome() : this.showStudentHome();
+    };
+  },
+
   injectStudentChatFab(sessionId) {
     if (!sessionId || String(sessionId).startsWith('test_')) return;
     document.getElementById('student-chat-fab')?.remove();
@@ -1634,15 +1643,20 @@ const App = {
       const msg = await UI.prompt('Message your instructor:', '', 'Talk to instructor', 'Talk to instructor');
       if (msg == null) return;
       const text = String(msg).trim();
-      if (!text) return;
+      if (!text) {
+        await UI.alert('Please type a message.', 'Empty');
+        return;
+      }
       try {
         await window.db.collection('sessions').doc(sessionId).update({
           lastStudentMessage: text,
           lastStudentMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
-          chatPing: Date.now()
+          chatPing: Date.now(),
+          studentChatAt: Date.now()
         });
         await UI.alert('Message sent to instructor.', 'Sent');
       } catch (e) {
+        console.error(e);
         await UI.alert(e.message || 'Could not send', 'Error');
       }
     };
@@ -1698,9 +1712,11 @@ const App = {
     CodeEditor.sessionId = session.id;
     CodeEditor.examId = exam.id;
     CodeEditor._setupAntiCheat();
-    CodeEditor.startScreenShare(2500);
+    // Monitor handles screen/heartbeat
+    // CodeEditor.startScreenShare(2500);
     this._endedHandled = false;
     this._watchTeacherEnd(session.id);
+    this.injectTestModeBar();
     this.injectStudentChatFab(session.id);
 
     document.getElementById('submit-exam-btn').onclick = async () => {
@@ -2105,7 +2121,8 @@ const App = {
     if (!(await UI.confirm('Are you sure you want to log out?', 'Log out'))) return;
     clearInterval(this._examTimerInterval);
     Dashboard.clearListeners();
-    CodeEditor.dispose();
+    try { Monitor.stop(); } catch(_){}
+      CodeEditor.dispose();
     await Auth.signOut();
     window.history.replaceState({}, '', window.location.pathname);
     this.showLogin();

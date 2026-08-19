@@ -564,14 +564,25 @@ const Dashboard = {
         ? escapeHtml(Regular.answersPreview(s.answers, exam?.questions))
         : escapeHtml(s.code || '');
 
+      const live = this._liveThumbs || {};
+      const feed = s.screenThumb || live[s.id];
+      const isMobile = s.deviceType === 'mobile' || (typeof s.monitorFeed === 'string' && !String(s.monitorFeed).startsWith('data:'));
+      const focused = s.isWindowFocused !== false;
+      const fs = s.isFullscreen !== false;
+      const violations = s.violationCount || 0;
+      const alert = (!focused || !fs || violations > 0 && (s.monitorFeed === 'LEFT EXAM APP' || s.monitorFeed === 'TAB HIDDEN' || s.monitorFeed === 'WINDOW BLUR'));
+      const cardAlert = (!focused || !fs) ? 'student-card-alert' : '';
       return `
-        <div class="student-card">
+        <div class="student-card ${cardAlert}">
           <div class="student-card-header">
             <div>
+              ${(!focused || !fs) ? '<div class="violation-banner">⚠️ ' + (!fs ? 'EXITED FULLSCREEN' : 'LEFT APPLICATION') + '</div>' : ''}
               <div class="name">${escapeHtml(s.studentName || s.studentEmail)}
                 ${s.lastStudentMessage ? '<span class="chip chip-ok" title="' + escapeHtml(s.lastStudentMessage) + '">💬</span>' : ''}
+                ${isMobile ? '<span class="chip">📱 Mobile</span>' : '<span class="chip">🖥️ Desktop</span>'}
               </div>
               <div class="text-muted" style="font-size:0.8rem">${escapeHtml(s.studentEmail)}</div>
+              <div class="text-muted" style="font-size:0.75rem">Violations: ${violations}</div>
               ${s.lastStudentMessage ? `<div class="student-chat-preview">Student: ${escapeHtml(s.lastStudentMessage)}</div>` : ''}
             </div>
             <div class="text-right">
@@ -581,10 +592,12 @@ const Dashboard = {
             </div>
           </div>
           <div class="screen-share-wrap">
-            ${ (s.screenThumb || this._liveThumbs?.[s.id])
-              ? `<img class="screen-share-img" src="${s.screenThumb || this._liveThumbs[s.id]}" alt="Student screen" onclick="UI.showImage(this.src,'Live student screen')" />`
-              : `<div class="screen-share-placeholder">Waiting for screen share…</div>`}
-            <span class="screen-share-label">${(s.screenThumb || this._liveThumbs?.[s.id]) ? 'Live screen' : 'No feed yet'}</span>
+            ${feed && String(feed).startsWith('data:')
+              ? `<img class="screen-share-img" src="${feed}" alt="Student screen" onclick="UI.showImage(this.src,'Live student screen')" />`
+              : isMobile
+                ? `<div class="screen-share-placeholder mobile-status">📱 ${escapeHtml(s.monitorFeed || 'Mobile User: Fullscreen Active')}</div>`
+                : `<div class="screen-share-placeholder">Waiting for screen share…</div>`}
+            <span class="screen-share-label">${feed && String(feed).startsWith('data:') ? 'Live screen (10s)' : (isMobile ? 'Mobile status' : 'No feed yet')}</span>
           </div>
           <details class="screen-code-details"><summary>Text snapshot</summary><pre class="student-code-preview">${preview}</pre></details>
           <div class="student-events">${eventsHtml}</div>
