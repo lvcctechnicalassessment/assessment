@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.4.4</div>
+          <div class="app-version">Build v1.4.5</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -167,7 +167,7 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.4</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.5</span>
           </div>
         </div>
         <div class="header-right">
@@ -1170,17 +1170,43 @@ const App = {
           <tbody>
             ${questions.length ? questions.map((q, i) => {
               const resp = session.answers ? session.answers[q.id] : (session.code || '');
-              let correct = q.correct;
-              if (q.type === 'multiple' || q.type === 'truefalse' || q.type === 'modified_tf') {
-                if (Array.isArray(q.correct)) correct = (q.correct || []).map(i => (q.options||[])[i]).join(', ');
-                else if (q.options) correct = q.options[q.correct] ?? q.correct;
+              let correctDisp = '—';
+              if (q.type === 'essay') correctDisp = '(Evaluated by instructor)';
+              else if (q.type === 'fill' && q.blanks) {
+                correctDisp = q.blanks.map(b => {
+                  const primary = Array.isArray(b.correct) ? b.correct.join(' / ') : (b.correct || '');
+                  const alts = (b.alternatives || []).join(' / ');
+                  return primary + (alts ? ' (alts: ' + alts + ')' : '');
+                }).join('; ');
+              } else if (q.type === 'multiple' || q.type === 'dropdown') {
+                if (q.multiCorrect && Array.isArray(q.correct)) {
+                  correctDisp = q.correct.map(ix => (q.options && q.options[ix] != null) ? q.options[ix] : ix).join(', ');
+                } else if (q.options && q.correct != null && q.options[q.correct] != null) {
+                  correctDisp = q.options[q.correct];
+                } else if (q.correct != null) correctDisp = String(q.correct);
+              } else if (q.type === 'truefalse' || q.type === 'modified_tf') {
+                correctDisp = Number(q.correct) === 0 || q.correct === true || q.correct === 'true' ? 'True' : 'False';
+                if (q.type === 'modified_tf' && q.modifiedAnswer) correctDisp += ' / ' + q.modifiedAnswer;
+              } else if (q.correct != null && q.correct !== '') {
+                correctDisp = typeof q.correct === 'object' ? JSON.stringify(q.correct) : String(q.correct);
               }
-              if (q.type === 'essay') correct = '(Teacher evaluated)';
-              if (q.type === 'fill' && q.blanks) correct = q.blanks.map(b => (b.correct||[]).join('/')).join('; ');
+              let respDisp = '—';
+              if (typeof resp === 'object' && resp !== null) {
+                if (resp.choice != null) {
+                  respDisp = Number(resp.choice) === 0 ? 'True' : (Number(resp.choice) === 1 ? 'False' : JSON.stringify(resp));
+                  if (resp.modified) respDisp += ' / ' + resp.modified;
+                } else if (Array.isArray(resp) && q.options) {
+                  respDisp = resp.map(ix => q.options[ix] ?? ix).join(', ');
+                } else respDisp = JSON.stringify(resp);
+              } else if (resp !== undefined && resp !== null && resp !== '') {
+                if ((q.type === 'multiple' || q.type === 'dropdown') && q.options && q.options[resp] != null) respDisp = q.options[resp];
+                else if (q.type === 'truefalse') respDisp = (resp == 0 || resp === true || resp === 'true') ? 'True' : 'False';
+                else respDisp = String(resp);
+              }
               return `<tr>
                 <td data-label="Question"><strong>Q${i+1}.</strong> ${escapeHtml(q.prompt||'')}</td>
-                <td data-label="Response">${escapeHtml(typeof resp === 'object' ? JSON.stringify(resp) : String(resp ?? '—'))}</td>
-                <td data-label="Correct">${escapeHtml(typeof correct === 'object' ? JSON.stringify(correct) : String(correct ?? '—'))}</td>
+                <td data-label="Response">${escapeHtml(respDisp)}</td>
+                <td data-label="Correct">${escapeHtml(correctDisp)}</td>
               </tr>`;
             }).join('') : `<tr><td colspan="3"><pre class="student-code-preview">${escapeHtml(session.code||'No response')}</pre></td></tr>`}
           </tbody>
@@ -1188,14 +1214,18 @@ const App = {
       </div>
     `, 'history');
     document.getElementById('export-attempt-pdf').onclick = () => {
-      const w = window.open('', '_blank');
-      w.document.write(`<!DOCTYPE html><html><head><title>Attempt</title>
-        <style>body{font-family:system-ui;padding:24px}table{border-collapse:collapse;width:100%}
+      const table = document.getElementById('attempt-detail-table');
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Attempt</title>
+        <style>body{font-family:system-ui;padding:24px;color:#111}table{border-collapse:collapse;width:100%}
         th,td{border:1px solid #ccc;padding:8px;font-size:12px;vertical-align:top}th{background:#eee}</style></head>
-        <body><h1>${escapeHtml(session.examTitle||'')}</h1>
-        ${document.getElementById('attempt-detail-table').outerHTML}
-        <script>window.onload=function(){window.print()}<\/script></body></html>`);
-      w.document.close();
+        <body><h1>${escapeHtml(session.examTitle||'')}</h1>${table.outerHTML}</body></html>`;
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'attempt-' + sessionId + '.html';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      UI.alert('Downloaded. Open the file and use Print → Save as PDF if needed.', 'Export');
     };
   },
 
@@ -1298,26 +1328,63 @@ const App = {
   },
 
 
-  async startStudentExam(examId) {
+  async testAsStudent(examId) {
+    await UI.alert('Opening student preview. This is a test view and will not count as a real submission.', 'Test as student');
+    return this.startStudentExam(examId, { testMode: true });
+  },
+
+  async startStudentExam(examId, opts = {}) {
     try {
+      const isTest = !!opts.testMode;
+      // Instructors / superadmins cannot take real assessments
+      if (!isTest && Auth.userProfile && (Auth.isTeacher() || Auth.userProfile.role === 'superadmin' || Auth.userProfile.role === 'teacher' || Auth.userProfile.role === 'proctor')) {
+        await UI.alert('You are registered as an instructor and cannot take assessments as a student.\n\nUse "Test as student" on the assessment card to preview the student view.', 'Not allowed');
+        this.clearExamQuery();
+        return this.showTeacherHome ? this.showTeacherHome() : this.showStudentHome();
+      }
       const exam = await Exam.getExam(examId);
       if (!exam) { await UI.alert('Assessment not found.', 'Error'); return this.showStudentHome(); }
       const { startAt, endAt } = Exam.getExamWindow(exam);
       const now = Date.now();
-      if (now < startAt) {
+      if (!isTest && now < startAt) {
         return this.showExamCountdown(exam, startAt);
       }
-      if (now > endAt) {
+      if (!isTest && now > endAt) {
         await UI.alert('This assessment has ended.', 'Closed');
         return this.showStudentHome();
       }
-      const session = await Exam.joinExam(examId);
-      const shared = await CodeEditor.requestDisplayShare();
-      if (!shared) {
-        await UI.alert('Screen sharing is required to take this assessment. Please allow screen share and try again.', 'Permission required');
-        this.clearExamQuery();
-        return this.showStudentHome();
+      let session;
+      if (isTest) {
+        // Preview session (not graded / not listed as real taker)
+        session = {
+          id: 'test_' + Date.now(),
+          examId,
+          exam,
+          code: exam.starterCode || '',
+          answers: {},
+          status: 'test',
+          endsAt: endAt,
+          studentEmail: Auth.userProfile.email,
+          studentName: (Auth.userProfile.name || '') + ' (Test)'
+        };
+      } else {
+        session = await Exam.joinExam(examId);
       }
+      if (!isTest) {
+        const shared = await CodeEditor.requestDisplayShare();
+        if (!shared) {
+          // fallback: continue with in-app capture if getDisplayMedia unavailable (mobile)
+          const ok = await UI.confirm(
+            'Could not start full screen share. Continue using in-app screen capture of the assessment page?\n\nOn mobile, choose "Browser tab" or this page if prompted.',
+            'Screen share'
+          );
+          if (!ok) {
+            this.clearExamQuery();
+            return this.showStudentHome();
+          }
+        }
+      }
+      session._testMode = isTest;
       if ((exam.examType || session.examType) === 'regular') {
         return this.startRegularExam(session);
       }
@@ -1666,21 +1733,25 @@ const App = {
     document.getElementById('integrity-filter-page').oninput = render;
     document.getElementById('btn-export-integrity-pdf').onclick = () => {
       const rows = window._integrityExportRows || all;
-      const w = window.open('', '_blank');
       const body = rows.map(n => {
         const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
           : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
         return `<tr><td>${escapeHtml(n.studentName||'')}</td><td>${escapeHtml(n.studentEmail||'')}</td>
           <td>${escapeHtml(n.type||'')}</td><td>${escapeHtml(n.details||'')}</td><td>${time}</td></tr>`;
       }).join('');
-      w.document.write(`<!DOCTYPE html><html><head><title>Integrity</title>
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Integrity</title>
         <style>body{font-family:system-ui;padding:24px}table{border-collapse:collapse;width:100%}
         th,td{border:1px solid #ccc;padding:8px;font-size:12px}th{background:#eee}</style></head><body>
         <h1>Integrity issues — ${escapeHtml(exam?.title||'')}</h1>
         <table><thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>Details</th><th>Date</th></tr></thead>
-        <tbody>${body}</tbody></table>
-        <script>window.onload=function(){window.print()}<\/script></body></html>`);
-      w.document.close();
+        <tbody>${body}</tbody></table></body></html>`;
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'integrity-' + examId + '.html';
+      link.click();
+      URL.revokeObjectURL(link.href);
+      UI.alert('Downloaded. Open the file and use Print → Save as PDF if needed.', 'Export');
     };
   },
 

@@ -93,6 +93,7 @@ const Dashboard = {
               <div class="action-group">
                 <span class="action-label">Monitor</span>
                 ${live ? `<button class="btn btn-sm btn-primary" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : ''}
+                <button class="btn btn-sm btn-ghost" onclick="App.testAsStudent('${ex.id}')">Test as student</button>
                 <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity issues</button>
                 <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
               </div>
@@ -156,6 +157,7 @@ const Dashboard = {
             ${exam.examType === 'regular' ? 'Regular' : 'Code'} assessment
             · ${new Date(startAt).toLocaleString()} → ${new Date(endAt).toLocaleString()}
             ${isProctor ? ' · <strong>Proctor view</strong>' : ''}
+            · <strong id="live-student-count">0 taking now</strong>
           </p>
         </div>
         <div class="action-btns">
@@ -462,6 +464,9 @@ const Dashboard = {
     const grid = document.getElementById('live-sessions-grid');
     if (!grid) return;
     let list = sessions || [];
+    const activeCount = (sessions || []).filter(s => s.status === 'active' && !String(s.id).startsWith('test_')).length;
+    const countEl = document.getElementById('live-student-count');
+    if (countEl) countEl.textContent = activeCount + ' taking now';
     const q = (this._sessionScreenFilter || '').toLowerCase();
     if (q) {
       list = list.filter(s =>
@@ -501,7 +506,13 @@ const Dashboard = {
               <div class="text-muted" style="font-size:0.7rem">${last}</div>
             </div>
           </div>
-          ${s.screenThumb ? `<div class="screen-share-wrap"><img class="screen-share-img" src="${s.screenThumb}" alt="Student screen" onclick="UI.showImage(this.src,'Live student screen')" /><span class="screen-share-label">Live screen</span></div>` : `<pre class="student-code-preview">${preview}</pre>`}
+          <div class="screen-share-wrap">
+            ${s.screenThumb
+              ? `<img class="screen-share-img" src="${s.screenThumb}" alt="Student screen" onclick="UI.showImage(this.src,'Live student screen')" />`
+              : `<div class="screen-share-placeholder">Waiting for screen share…</div>`}
+            <span class="screen-share-label">${s.screenThumb ? 'Live screen' : 'No feed yet'}</span>
+          </div>
+          <details class="screen-code-details"><summary>Text snapshot</summary><pre class="student-code-preview">${preview}</pre></details>
           <div class="student-events">${eventsHtml}</div>
           <div class="action-btns" style="padding:0.5rem">
             <button class="btn btn-sm btn-ghost" onclick="Dashboard.openStudentDetail('${s.id}')">Details</button>

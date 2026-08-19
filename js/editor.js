@@ -254,13 +254,13 @@ const CodeEditor = {
   async captureScreen() {
     try {
       if (typeof html2canvas !== 'function') return null;
-      const target = document.getElementById('app') || document.body;
+      const target = document.querySelector('.exam-layout, .regular-exam-wrap, #app') || document.body;
       const canvas = await html2canvas(target, {
-        scale: 0.35,
+        scale: 0.5,
         logging: false,
         useCORS: true,
-        backgroundColor: '#0f172a',
-        windowWidth: Math.min(window.innerWidth, 1280)
+        backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
+        windowWidth: Math.min(window.innerWidth, 1400)
       });
       // Compress
       let q = 0.45;
@@ -357,16 +357,25 @@ const CodeEditor = {
     this._screenTimer = setInterval(async () => {
       if (this.isLocked || this.isSubmitting || !this.sessionId) return;
       let thumb = null;
-      if (this._displayVideo && this._displayVideo.videoWidth) {
+      // 1) OS screen/tab share if available
+      if (this._displayVideo && this._displayVideo.videoWidth > 2) {
         try {
           const c = document.createElement('canvas');
-          const w = Math.min(640, this._displayVideo.videoWidth);
-          const h = Math.round(w * (this._displayVideo.videoHeight / this._displayVideo.videoWidth));
+          const w = Math.min(800, this._displayVideo.videoWidth);
+          const h = Math.round(w * (this._displayVideo.videoHeight / Math.max(1, this._displayVideo.videoWidth)));
           c.width = w; c.height = h;
           c.getContext('2d').drawImage(this._displayVideo, 0, 0, w, h);
-          thumb = c.toDataURL('image/jpeg', 0.45);
+          // reject near-black frames
+          const ctx = c.getContext('2d');
+          const sample = ctx.getImageData(0, 0, Math.min(40, w), Math.min(40, h)).data;
+          let sum = 0;
+          for (let i = 0; i < sample.length; i += 4) sum += sample[i] + sample[i+1] + sample[i+2];
+          if (sum / (sample.length / 4 * 3) > 12) {
+            thumb = c.toDataURL('image/jpeg', 0.5);
+          }
         } catch (_) {}
       }
+      // 2) Fallback / complement: exact assessment UI the student sees
       if (!thumb) thumb = await this.captureScreen();
       if (!thumb) return;
       try {

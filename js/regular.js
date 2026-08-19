@@ -191,7 +191,7 @@ const Regular = {
         const selected = multi ? (Array.isArray(val) && val.includes(i)) : val == i;
         return `
           <button type="button" class="gq-option gq-student ${selected ? 'selected' : ''}"
-            style="background:${color}" data-qid="${q.id}" data-opt="${i}" data-multi="${multi ? '1' : '0'}">
+            style="background:${color}" data-qid="${q.id}" data-opt="${i}" data-multi="${(q.multiCorrect === true) ? '1' : '0'}">
             <span class="gq-student-check">${selected ? '✓' : ''}</span>
             <span>${escapeHtml(o || 'Option ' + (i + 1))}</span>
           </button>`;
@@ -342,19 +342,26 @@ const Regular = {
 
   bindStudentMC(container, onChange) {
     container.querySelectorAll('.gq-student').forEach(btn => {
-      btn.onclick = () => {
-        const multi = btn.dataset.multi === '1';
+      btn.onclick = (ev) => {
+        ev.preventDefault();
+        const multi = btn.getAttribute('data-multi') === '1';
         const card = btn.closest('[data-qid]');
+        if (!card) return;
         if (!multi) {
+          // single correct only — exclusive selection
           card.querySelectorAll('.gq-student').forEach(b => {
             b.classList.remove('selected');
             const c = b.querySelector('.gq-student-check');
             if (c) c.textContent = '';
           });
+          btn.classList.add('selected');
+          const check = btn.querySelector('.gq-student-check');
+          if (check) check.textContent = '✓';
+        } else {
+          btn.classList.toggle('selected');
+          const check = btn.querySelector('.gq-student-check');
+          if (check) check.textContent = btn.classList.contains('selected') ? '✓' : '';
         }
-        btn.classList.toggle('selected');
-        const check = btn.querySelector('.gq-student-check');
-        if (check) check.textContent = btn.classList.contains('selected') ? '✓' : '';
         if (onChange) onChange();
       };
     });
