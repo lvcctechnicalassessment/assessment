@@ -184,16 +184,19 @@ const Regular = {
     const val = answer !== undefined ? answer : null;
 
     if (q.type === 'multiple') {
-      const multi = !!q.multiCorrect;
+      const multi = q.multiCorrect === true;
       const opts = q.options || [];
       const cards = opts.map((o, i) => {
         const color = OPTION_COLORS[i % OPTION_COLORS.length];
-        const selected = multi ? (Array.isArray(val) && val.includes(i)) : val == i;
+        const selected = multi
+          ? (Array.isArray(val) && (val.includes(i) || val.includes(String(i))))
+          : (val == i || val === String(i));
         return `
           <button type="button" class="gq-option gq-student ${selected ? 'selected' : ''}"
-            style="background:${color}" data-qid="${q.id}" data-opt="${i}" data-multi="${(q.multiCorrect === true) ? '1' : '0'}">
+            style="background:${color}" data-qid="${q.id}" data-opt="${i}" data-multi="${multi ? '1' : '0'}"
+            role="${multi ? 'checkbox' : 'radio'}" name="q_${q.id}">
             <span class="gq-student-check">${selected ? '✓' : ''}</span>
-            <span>${escapeHtml(o || 'Option ' + (i + 1))}</span>
+            <span>${escapeHtml((o && String(o).trim()) ? o : ('Option ' + (i + 1)))}</span>
           </button>`;
       }).join('');
       return `
@@ -341,26 +344,35 @@ const Regular = {
   },
 
   bindStudentMC(container, onChange) {
+    // Unbind previous handlers by cloning options row buttons
     container.querySelectorAll('.gq-student').forEach(btn => {
+      const multi = btn.getAttribute('data-multi') === '1';
+      btn.setAttribute('role', multi ? 'checkbox' : 'radio');
       btn.onclick = (ev) => {
         ev.preventDefault();
-        const multi = btn.getAttribute('data-multi') === '1';
+        ev.stopPropagation();
         const card = btn.closest('[data-qid]');
         if (!card) return;
-        if (!multi) {
-          // single correct only — exclusive selection
+        const isMulti = btn.getAttribute('data-multi') === '1';
+        if (!isMulti) {
+          // RADIO behavior — only one selected
           card.querySelectorAll('.gq-student').forEach(b => {
             b.classList.remove('selected');
+            b.setAttribute('aria-checked', 'false');
             const c = b.querySelector('.gq-student-check');
             if (c) c.textContent = '';
           });
           btn.classList.add('selected');
+          btn.setAttribute('aria-checked', 'true');
           const check = btn.querySelector('.gq-student-check');
           if (check) check.textContent = '✓';
         } else {
+          // CHECKBOX behavior
           btn.classList.toggle('selected');
+          const on = btn.classList.contains('selected');
+          btn.setAttribute('aria-checked', on ? 'true' : 'false');
           const check = btn.querySelector('.gq-student-check');
-          if (check) check.textContent = btn.classList.contains('selected') ? '✓' : '';
+          if (check) check.textContent = on ? '✓' : '';
         }
         if (onChange) onChange();
       };

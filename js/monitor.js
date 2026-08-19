@@ -135,7 +135,7 @@ const Monitor = {
         c.width = 640;
         c.height = Math.max(1, Math.round(640 * (this.video.videoHeight / this.video.videoWidth)));
         c.getContext('2d').drawImage(this.video, 0, 0, c.width, c.height);
-        thumb = c.toDataURL('image/jpeg', 0.2);
+        thumb = c.toDataURL('image/jpeg', 0.32);
       } catch (e) { console.warn(e); }
     }
     if (!thumb) thumb = await this.captureUi();
@@ -164,13 +164,13 @@ const Monitor = {
       if (typeof html2canvas !== 'function') return null;
       const target = document.querySelector('.exam-layout, .regular-exam-wrap, #app') || document.body;
       const canvas = await html2canvas(target, {
-        scale: 0.25,
+        scale: 0.35,
         logging: false,
         useCORS: true,
         backgroundColor: '#ffffff',
         ignoreElements: (el) => el.id === 'monitor-gate' || el.id === 'monitor-lock' || el.classList?.contains('fab-msg')
       });
-      return canvas.toDataURL('image/jpeg', 0.2);
+      return canvas.toDataURL('image/jpeg', 0.32);
     } catch (e) {
       console.warn('captureUi', e);
       return null;

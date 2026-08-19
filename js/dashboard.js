@@ -158,6 +158,7 @@ const Dashboard = {
             · ${new Date(startAt).toLocaleString()} → ${new Date(endAt).toLocaleString()}
             ${isProctor ? ' · <strong>Proctor view</strong>' : ''}
             · <strong id="live-student-count">0 taking now</strong>
+            · <strong id="live-submitted-count">0 submitted</strong>
           </p>
         </div>
         <div class="action-btns">
@@ -270,6 +271,16 @@ const Dashboard = {
     if (!list) return;
     const q = (document.getElementById('integrity-filter')?.value || '').trim().toLowerCase();
     let items = notifs || [];
+    // Deduplicate by sessionId+type+details+minute
+    const seen = new Set();
+    items = items.filter(n => {
+      const ts = n.createdAt?.toMillis?.() || Date.parse(n.timestamp || 0) || 0;
+      const bucket = Math.floor(ts / 60000);
+      const key = [n.sessionId || '', n.type || '', n.details || '', bucket].join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     if (q) {
       items = items.filter(n =>
         (n.studentName || '').toLowerCase().includes(q) ||
@@ -278,21 +289,28 @@ const Dashboard = {
         (n.type || '').toLowerCase().includes(q)
       );
     }
+    // Paste issues first
+    const rank = (n) => {
+      if (n.type === 'paste-critical' || n.type === 'paste' || n.type === 'paste-key' || n.type === 'paste-message') return 0;
+      if (n.type === 'tabswitch' || n.type === 'blur' || n.type === 'exited-fullscreen') return 1;
+      return 5;
+    };
+    items.sort((a, b) => rank(a) - rank(b) || ((b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)));
     if (!items.length) {
       list.innerHTML = '<p class="text-muted">No matching integrity events.</p>';
       return;
     }
     list.innerHTML = items.map(n => {
-      const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '';
-      const thumb = n.screenshot || (n.extra && n.extra.screenshot);
-      return `<div class="integrity-item">
+      const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
+      const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb;
+      return `<div class="integrity-item integrity-item-row">
+        ${thumb ? `<img class="integrity-thumb" src="${thumb}" alt="shot" onclick="UI.showImage(this.src,'Integrity screenshot')" />` : `<div class="integrity-thumb integrity-thumb-empty"></div>`}
         <div class="integrity-item-main">
           <strong>${escapeHtml(n.studentName || n.studentEmail || '')}</strong>
           <div class="text-muted" style="font-size:0.75rem">${escapeHtml(n.studentEmail || '')}</div>
           <div><span class="chip">${escapeHtml(n.type || '')}</span> ${escapeHtml(n.details || '')}</div>
           <div class="text-muted" style="font-size:0.7rem">${time}</div>
         </div>
-        ${thumb ? `<img class="integrity-thumb" src="${thumb}" alt="screen" onclick="UI.showImage(this.src,'Student screen')" />` : ''}
       </div>`;
     }).join('');
   },
@@ -534,10 +552,16 @@ const Dashboard = {
   _renderSessions(sessions, exam) {
     const grid = document.getElementById('live-sessions-grid');
     if (!grid) return;
-    let list = sessions || [];
-    const activeCount = (sessions || []).filter(s => s.status === 'active' && !String(s.id).startsWith('test_')).length;
+    const all = sessions || [];
+    const activeCount = all.filter(s => s.status === 'active' && !String(s.id).startsWith('test_')).length;
+    const submittedCount = all.filter(s => s.status === 'submitted' || s.status === 'ended').length;
     const countEl = document.getElementById('live-student-count');
     if (countEl) countEl.textContent = activeCount + ' taking now';
+    const subEl = document.getElementById('live-submitted-count');
+    if (subEl) subEl.textContent = submittedCount + ' submitted';
+
+    // Only active sessions on live board
+    let list = all.filter(s => s.status === 'active' && !String(s.id).startsWith('test_'));
     const q = (this._sessionScreenFilter || '').toLowerCase();
     if (q) {
       list = list.filter(s =>
@@ -549,7 +573,16 @@ const Dashboard = {
       grid.innerHTML = '<div class="empty-state">Waiting for students...</div>';
       return;
     }
-    list.sort((a, b) => (a.status === 'active' ? -1 : 1));
+    // Sort: paste/copy violations first, then other alerts, then clean
+    const severity = (s) => {
+      const ev = (s.events || []).map(e => e.type);
+      if (ev.includes('paste') || ev.includes('paste-key') || ev.includes('paste-critical') || ev.includes('paste-message')) return 0;
+      if (s.isWindowFocused === false || s.isFullscreen === false) return 1;
+      if ((s.violationCount || 0) > 0) return 2;
+      if (s.lastStudentMessage) return 3;
+      return 9;
+    };
+    list.sort((a, b) => severity(a) - severity(b) || String(a.studentName||'').localeCompare(String(b.studentName||'')));
     const isRegular = exam?.examType === 'regular';
 
     grid.innerHTML = list.map(s => {
@@ -583,7 +616,6 @@ const Dashboard = {
               </div>
               <div class="text-muted" style="font-size:0.8rem">${escapeHtml(s.studentEmail)}</div>
               <div class="text-muted" style="font-size:0.75rem">Violations: ${violations}</div>
-              ${s.lastStudentMessage ? `<div class="student-chat-preview">Student: ${escapeHtml(s.lastStudentMessage)}</div>` : ''}
             </div>
             <div class="text-right">
               <span class="status ${s.status !== 'active' ? 'idle' : ''}">${s.status}</span>

@@ -1524,3 +1524,73 @@ textarea.form-control {
   padding: 0.25rem 0.5rem; border-radius: 6px; margin-bottom: 0.35rem;
 }
 .mobile-status { font-size: 0.95rem; font-weight: 600; min-height: 120px; }
+
+/* v1.4.9 layout */
+@media (min-width: 901px) {
+  .dashboard {
+    display: grid !important;
+    grid-template-columns: 2fr 7fr 3fr !important;
+    grid-template-areas: "side main integrity";
+    min-height: calc(100vh - 56px);
+  }
+  .dashboard > .sidebar {
+    grid-area: side;
+    width: auto !important;
+    max-width: none;
+  }
+  .dashboard > .main-content {
+    grid-area: main;
+    max-width: none;
+    min-width: 0;
+  }
+  /* When live layout is present, integrity panel is inside main — restructure */
+  .live-layout.live-3panel,
+  .live-layout.live-layout-fixed {
+    display: grid !important;
+    grid-template-columns: 1fr 280px !important;
+    height: calc(100vh - 130px) !important;
+    max-height: calc(100vh - 130px) !important;
+  }
+  .live-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 0.75rem;
+    align-content: start;
+  }
+  .integrity-panel-fixed {
+    width: 280px !important;
+    max-width: 280px;
+  }
+}
+@media (min-width: 1200px) {
+  .dashboard:has(.live-3panel) {
+    grid-template-columns: 180px 1fr !important;
+  }
+}
+.integrity-item-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.integrity-thumb {
+  width: 56px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  flex-shrink: 0;
+  background: var(--surface-2);
+}
+.integrity-thumb-empty {
+  width: 56px;
+  height: 42px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.gq-student[role="radio"] { cursor: pointer; }
+.gq-student[role="radio"].selected { outline: 3px solid #fff; }
+.gq-student[role="checkbox"].selected { outline: 3px solid #fff; }

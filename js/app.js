@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.4.8</div>
+          <div class="app-version">Build v1.4.9</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -168,7 +168,7 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.8</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.9</span>
           </div>
         </div>
         <div class="header-right">
@@ -1147,16 +1147,24 @@ const App = {
 
   formatAnswerDisplay(q, value, isCorrectKey = false) {
     if (!q) return '—';
-    const opts = q.options || [];
+    const opts = (q.options || []).map((o, i) => {
+      const s = o == null ? '' : String(o).trim();
+      return s || ('Option ' + (i + 1));
+    });
+    const labelAt = (i) => {
+      const n = Number(i);
+      if (!Number.isNaN(n) && opts[n] != null) return opts[n];
+      return i == null || i === '' ? '—' : String(i);
+    };
+
     if (isCorrectKey) {
       if (q.type === 'essay') return '(Evaluated by instructor)';
-      if (q.type === 'multiple' || q.type === 'dropdown') {
-        if (q.multiCorrect && Array.isArray(q.correct)) {
-          return q.correct.map(i => (opts[i] != null ? String(opts[i]) : String(i))).filter(Boolean).join(', ') || '—';
+      if (q.type === 'multiple' || q.type === 'dropdown' || q.type === 'multiselect') {
+        if (q.multiCorrect === true && Array.isArray(q.correct)) {
+          return q.correct.map(labelAt).join(', ') || '—';
         }
-        if (q.correct != null && opts[q.correct] != null) return String(opts[q.correct]);
-        if (q.correct != null && q.correct !== '') return String(q.correct);
-        return '—';
+        if (q.correct === undefined || q.correct === null || q.correct === '') return '—';
+        return labelAt(q.correct);
       }
       if (q.type === 'truefalse' || q.type === 'modified_tf') {
         let s = (Number(q.correct) === 0 || q.correct === true || q.correct === 'true') ? 'True' : 'False';
@@ -1166,24 +1174,25 @@ const App = {
       if (q.type === 'fill') {
         if (Array.isArray(q.blanks) && q.blanks.length) {
           return q.blanks.map((b, i) => {
-            const c = Array.isArray(b.correct) ? b.correct.join('/') : (b.correct || '');
-            return `Blank ${i + 1}: ${c || '—'}`;
+            const c = Array.isArray(b.correct) ? b.correct.filter(Boolean).join('/') : (b.correct || '');
+            return 'Blank ' + (i + 1) + ': ' + (c || '—');
           }).join(' · ');
         }
-        return q.correct != null && q.correct !== '' ? String(q.correct) : '—';
+        if (q.correct != null && q.correct !== '') return String(q.correct);
+        return '—';
       }
       if (q.correct != null && q.correct !== '') {
         return typeof q.correct === 'object' ? JSON.stringify(q.correct) : String(q.correct);
       }
       return '—';
     }
+
     // student response
     if (value === undefined || value === null || value === '') return '—';
     if (q.type === 'essay') return String(value);
-    if (q.type === 'multiple' || q.type === 'dropdown') {
-      if (Array.isArray(value)) return value.map(i => (opts[i] != null ? String(opts[i]) : String(i))).join(', ');
-      if (opts[value] != null) return String(opts[value]);
-      return String(value);
+    if (q.type === 'multiple' || q.type === 'dropdown' || q.type === 'multiselect') {
+      if (Array.isArray(value)) return value.map(labelAt).join(', ') || '—';
+      return labelAt(value);
     }
     if (q.type === 'truefalse' || q.type === 'modified_tf') {
       if (typeof value === 'object') {
@@ -1191,9 +1200,12 @@ const App = {
         if (value.modified) s += ' · ' + value.modified;
         return s;
       }
-      return (value == 0 || value === true || value === 'true') ? 'True' : (value == 1 || value === false || value === 'false' ? 'False' : String(value));
+      return (value == 0 || value === true || value === 'true') ? 'True'
+        : (value == 1 || value === false || value === 'false') ? 'False' : String(value);
     }
-    if (typeof value === 'object') return JSON.stringify(value);
+    if (typeof value === 'object') {
+      try { return JSON.stringify(value); } catch (_) { return String(value); }
+    }
     return String(value);
   },
 
@@ -1207,7 +1219,19 @@ const App = {
       questions = Regular.flattenQuestions(exam);
       if (!questions.length && Array.isArray(exam.questions)) questions = exam.questions;
     }
+    if (!questions.length && Array.isArray(session.questionsSnapshot)) {
+      questions = session.questionsSnapshot;
+    }
     const answers = session.answers || {};
+    // Debug-friendly: if still empty but answers exist, list answer keys
+    if (!questions.length && answers && Object.keys(answers).length) {
+      questions = Object.keys(answers).map((id, i) => ({
+        id,
+        type: 'essay',
+        prompt: 'Question ' + (i + 1) + ' (' + id + ')',
+        correct: ''
+      }));
+    }
     // map by id and by index fallback
     const rows = questions.map((q, i) => {
       let resp = answers[q.id];
@@ -1841,18 +1865,28 @@ const App = {
         el.innerHTML = '<p class="text-muted">No integrity events recorded for this assessment.</p>';
         return;
       }
+      // dedupe
+      const seen = new Set();
+      const deduped = items.filter(n => {
+        const ts = n.createdAt?.toMillis?.() || Date.parse(n.timestamp || 0) || 0;
+        const key = [n.sessionId||'', n.type||'', n.details||'', Math.floor(ts/60000)].join('|');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      window._integrityExportRows = deduped;
       el.innerHTML = `<div class="table-wrap"><table class="table integrity-table">
-        <thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>Date stamp</th><th></th></tr></thead>
-        <tbody>${items.map(n => {
+        <thead><tr><th></th><th>Name</th><th>Email</th><th>Issue</th><th>Date stamp</th></tr></thead>
+        <tbody>${deduped.map(n => {
           const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
             : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
-          const thumb = n.screenshot || n.extra?.screenshot;
+          const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb;
           return `<tr>
+            <td data-label="Shot">${thumb ? `<img class="integrity-thumb" src="${thumb}" onclick="UI.showImage(this.src,'Integrity screenshot')" />` : '—'}</td>
             <td data-label="Name">${escapeHtml(n.studentName || '—')}</td>
             <td data-label="Email">${escapeHtml(n.studentEmail || '—')}</td>
             <td data-label="Issue"><span class="chip">${escapeHtml(n.type || '')}</span> ${escapeHtml(n.details || '')}</td>
             <td data-label="Date">${time}</td>
-            <td>${thumb ? `<img class="integrity-thumb" src="${thumb}" onclick="UI.showImage(this.src,'Student screen')" />` : ''}</td>
           </tr>`;
         }).join('')}</tbody></table></div>`;
     };
@@ -1921,14 +1955,18 @@ const App = {
       const body = rows.map(n => {
         const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
           : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
-        return `<tr><td>${escapeHtml(n.studentName||'')}</td><td>${escapeHtml(n.studentEmail||'')}</td>
+        const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb;
+        return `<tr>
+          <td>${thumb ? `<img src="${thumb}" style="width:80px;height:auto;border-radius:4px"/>` : '—'}</td>
+          <td>${escapeHtml(n.studentName||'')}</td><td>${escapeHtml(n.studentEmail||'')}</td>
           <td>${escapeHtml(n.type||'')}</td><td>${escapeHtml(n.details||'')}</td><td>${time}</td></tr>`;
       }).join('');
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Integrity</title>
         <style>body{font-family:system-ui;padding:24px}table{border-collapse:collapse;width:100%}
-        th,td{border:1px solid #ccc;padding:8px;font-size:12px}th{background:#eee}</style></head><body>
+        th,td{border:1px solid #ccc;padding:8px;font-size:12px;vertical-align:top}th{background:#eee}
+        img{max-width:100px}</style></head><body>
         <h1>Integrity issues — ${escapeHtml(exam?.title||'')}</h1>
-        <table><thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>Details</th><th>Date</th></tr></thead>
+        <table><thead><tr><th>Screenshot</th><th>Name</th><th>Email</th><th>Issue</th><th>Details</th><th>Date</th></tr></thead>
         <tbody>${body}</tbody></table></body></html>`;
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       const link = document.createElement('a');

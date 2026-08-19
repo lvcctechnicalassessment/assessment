@@ -205,11 +205,18 @@ const Exam = {
   },
 
   async submitSession(sessionId, reason = 'manual') {
+    try { if (window.Monitor) Monitor.stop(); } catch (_) {}
     await window.db.collection('sessions').doc(sessionId).update({
       status: 'submitted',
       submitReason: reason,
-      submittedAt: firebase.firestore.FieldValue.serverTimestamp()
+      submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      screenThumb: null,
+      monitorFeed: 'SUBMITTED',
+      isWindowFocused: false
     });
+    try {
+      await window.db.collection('liveScreens').doc(sessionId).delete();
+    } catch (_) {}
   },
 
   /** Extend entire exam window for all students */
@@ -258,6 +265,11 @@ const Exam = {
   },
 
   async logEvent(sessionId, type, details = '', extra = {}) {
+    this._lastLog = this._lastLog || {};
+    const dedupeKey = sessionId + '|' + type + '|' + details;
+    const now = Date.now();
+    if (this._lastLog[dedupeKey] && now - this._lastLog[dedupeKey] < 5000) return;
+    this._lastLog[dedupeKey] = now;
     const event = { type, details, timestamp: new Date().toISOString(), ...extra };
     const ref = window.db.collection('sessions').doc(sessionId);
     await window.db.runTransaction(async (tx) => {
