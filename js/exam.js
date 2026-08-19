@@ -1,26 +1,46 @@
 /**
- * Exam CRUD, sessions, grading, duration
+ * Exam CRUD, sessions, grading, global time window, types
  */
 
 const Exam = {
-  async createExam({
-    title,
-    instructions,
-    starterCode = '# Write your Python solution here\n\n',
-    durationMinutes = 60,
-    maxScore = 50,
-    answerKey = ''
-  }) {
+  async createExam(opts) {
     if (!Auth.isTeacher()) throw new Error('Only teachers can create exams');
+    const {
+      title, instructions,
+      starterCode = '',
+      examType = 'code', // code | regular
+      language = 'python', // python | java
+      startAt = null, // ms timestamp or ISO
+      endAt = null,
+      durationMinutes = 60,
+      maxScore = 50,
+      answerKey = '',
+      questions = [],
+      subject = 'General'
+    } = opts;
+
+    const startMs = startAt ? new Date(startAt).getTime() : Date.now();
+    const endMs = endAt ? new Date(endAt).getTime() : (startMs + (Number(durationMinutes) || 60) * 60000);
 
     const examRef = window.db.collection('exams').doc();
     const data = {
-      title: title.trim(),
-      instructions: instructions.trim(),
-      starterCode,
-      durationMinutes: Number(durationMinutes) || 60,
+      title: (title || '').trim(),
+      instructions: (instructions || '').trim(),
+      starterCode: starterCode || (examType === 'code'
+        ? (language === 'java'
+          ? 'public class Main {\n  public static void main(String[] args) {\n    // Write your solution\n  }\n}\n'
+          : '# Write your Python solution here\n\ndef solution():\n    pass\n')
+        : ''),
+      examType,
+      language: language === 'java' ? 'java' : 'python',
+      subject: subject || 'General',
+      startAt: startMs,
+      endAt: endMs,
+      durationMinutes: Math.max(1, Math.round((endMs - startMs) / 60000)),
       maxScore: Number(maxScore) || 50,
       answerKey: answerKey || '',
+      questions: questions || [],
+      proctors: [], // [{ email, studentIds: [] }]
       teacherId: Auth.currentUser.uid,
       teacherEmail: Auth.userProfile.email,
       teacherName: Auth.userProfile.name,
@@ -36,6 +56,23 @@ const Exam = {
     await window.db.collection('exams').doc(examId).update({
       ...updates,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  },
+
+  async duplicateExam(examId, overrides = {}) {
+    const exam = await this.getExam(examId);
+    if (!exam) throw new Error('Exam not found');
+    const { id, createdAt, updatedAt, ...rest } = exam;
+    const startMs = overrides.startAt ? new Date(overrides.startAt).getTime() : Date.now();
+    const endMs = overrides.endAt
+      ? new Date(overrides.endAt).getTime()
+      : startMs + (Number(overrides.durationMinutes || rest.durationMinutes || 60) * 60000);
+    return this.createExam({
+      ...rest,
+      ...overrides,
+      title: (overrides.title || rest.title) + ' (Copy)',
+      startAt: startMs,
+      endAt: endMs
     });
   },
 
@@ -57,21 +94,28 @@ const Exam = {
         .get();
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (err) {
-      // Fallback without orderBy if index missing
-      if (String(err.message || err).includes('index')) {
-        const snap = await window.db.collection('exams')
-          .where('teacherId', '==', Auth.currentUser.uid)
-          .get();
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        list.sort((a, b) => {
-          const ta = a.createdAt?.toMillis?.() || 0;
-          const tb = b.createdAt?.toMillis?.() || 0;
-          return tb - ta;
-        });
-        return list;
-      }
-      throw err;
+      const snap = await window.db.collection('exams')
+        .where('teacherId', '==', Auth.currentUser.uid)
+        .get();
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+      return list;
     }
+  },
+
+  async listAllExamsForTeacher() {
+    // All exams teacher owns (same as listMyExams for now)
+    return this.listMyExams();
+  },
+
+  /** Global window: all students share exam.startAt / exam.endAt */
+  getExamWindow(exam) {
+    const startAt = Number(exam.startAt) || Date.now();
+    let endAt = Number(exam.endAt);
+    if (!endAt) endAt = startAt + (Number(exam.durationMinutes) || 60) * 60000;
+    // teacher extensions stored on exam.extendedMinutes
+    if (exam.extendedMinutes) endAt += Number(exam.extendedMinutes) * 60000;
+    return { startAt, endAt };
   },
 
   async joinExam(examId) {
@@ -83,38 +127,50 @@ const Exam = {
 
     const allowed = await Auth.canAccessExam(Auth.userProfile.email, examId);
     if (!allowed) {
-      throw new Error(
-        'You are not invited to this exam. Personal email access is limited to exams your teacher invited you to.'
-      );
+      throw new Error('You are not invited to this exam.');
+    }
+
+    const { startAt, endAt } = this.getExamWindow(exam);
+    const now = Date.now();
+    if (now < startAt) {
+      throw new Error('This exam has not started yet. Opens at ' + new Date(startAt).toLocaleString());
+    }
+    if (now > endAt) {
+      throw new Error("This exam has ended.");
+    }
+
+    // Proctor cannot take exam as student on same account unless student role
+    if (Auth.userProfile.role === 'proctor') {
+      throw new Error('Proctor accounts cannot take exams.');
     }
 
     const existing = await window.db.collection('sessions')
       .where('examId', '==', examId)
       .where('studentId', '==', Auth.currentUser.uid)
-      .where('status', '==', 'active')
       .limit(1)
       .get();
 
     if (!existing.empty) {
-      return { id: existing.docs[0].id, ...existing.docs[0].data(), exam };
+      const s = { id: existing.docs[0].id, ...existing.docs[0].data(), exam };
+      // Re-open if still within window and was timeout? keep status
+      return s;
     }
-
-    // Also resume submitted? No — new active only if none active
-    const durationMs = (Number(exam.durationMinutes) || 60) * 60 * 1000;
-    const endsAt = Date.now() + durationMs;
 
     const sessionRef = window.db.collection('sessions').doc();
     const session = {
       examId,
       examTitle: exam.title,
+      examType: exam.examType || 'code',
+      language: exam.language || 'python',
+      subject: exam.subject || 'General',
       studentId: Auth.currentUser.uid,
       studentEmail: Auth.userProfile.email,
       studentName: Auth.userProfile.name,
       code: exam.starterCode || '',
+      answers: {}, // regular assessment answers keyed by question id
       status: 'active',
-      durationMinutes: exam.durationMinutes || 60,
-      endsAt,
-      extendedMinutes: 0,
+      startAt,
+      endsAt: endAt,
       pasteRanges: [],
       lastUpdate: firebase.firestore.FieldValue.serverTimestamp(),
       startedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -131,6 +187,13 @@ const Exam = {
     });
   },
 
+  async updateSessionAnswers(sessionId, answers) {
+    await window.db.collection('sessions').doc(sessionId).update({
+      answers,
+      lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  },
+
   async submitSession(sessionId, reason = 'manual') {
     await window.db.collection('sessions').doc(sessionId).update({
       status: 'submitted',
@@ -139,34 +202,53 @@ const Exam = {
     });
   },
 
+  /** Extend entire exam window for all students */
+  async extendExam(examId, extraMinutes) {
+    const exam = await this.getExam(examId);
+    if (!exam) throw new Error('Exam not found');
+    const add = Number(extraMinutes) || 0;
+    const prev = Number(exam.extendedMinutes) || 0;
+    const newEnd = (Number(exam.endAt) || Date.now()) + (prev + add) * 0; // recalculate below
+    const baseEnd = Number(exam.endAt) || Date.now();
+    // Store cumulative extension
+    await this.updateExam(examId, {
+      extendedMinutes: prev + add,
+      endAt: baseEnd + add * 60000
+    });
+    // Update active sessions endsAt
+    const snap = await window.db.collection('sessions').where('examId', '==', examId).get();
+    const batch = window.db.batch();
+    snap.docs.forEach(d => {
+      const s = d.data();
+      if (s.status === 'active' || s.submitReason === 'timeout') {
+        batch.update(d.ref, {
+          endsAt: (s.endsAt || baseEnd) + add * 60000,
+          status: 'active',
+          submitReason: firebase.firestore.FieldValue.delete()
+        });
+      }
+    });
+    await batch.commit();
+    return add;
+  },
+
   async extendSession(sessionId, extraMinutes) {
     const ref = window.db.collection('sessions').doc(sessionId);
     const snap = await ref.get();
     if (!snap.exists) throw new Error('Session not found');
     const s = snap.data();
-    const currentEnds = s.endsAt || Date.now();
-    const base = Math.max(currentEnds, Date.now());
-    const newEnds = base + (Number(extraMinutes) || 0) * 60 * 1000;
+    const base = Math.max(s.endsAt || Date.now(), Date.now());
+    const newEnds = base + (Number(extraMinutes) || 0) * 60000;
     await ref.update({
       endsAt: newEnds,
-      extendedMinutes: (s.extendedMinutes || 0) + Number(extraMinutes),
-      status: s.status === 'submitted' && reasonAlive(s) ? 'active' : s.status
+      status: 'active',
+      extendedMinutes: (s.extendedMinutes || 0) + Number(extraMinutes)
     });
-    // If was time-expired locally, teacher extend should reopen
-    if (s.status === 'submitted' && s.submitReason === 'timeout') {
-      await ref.update({ status: 'active', submitReason: firebase.firestore.FieldValue.delete() });
-    }
     return newEnds;
   },
 
   async logEvent(sessionId, type, details = '', extra = {}) {
-    const event = {
-      type,
-      details,
-      timestamp: new Date().toISOString(),
-      ...extra
-    };
-
+    const event = { type, details, timestamp: new Date().toISOString(), ...extra };
     const ref = window.db.collection('sessions').doc(sessionId);
     await window.db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
@@ -207,8 +289,7 @@ const Exam = {
     return window.db.collection('sessions')
       .where('examId', '==', examId)
       .onSnapshot(snap => {
-        const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        callback(sessions);
+        callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       }, err => console.error(err));
   },
 
@@ -231,14 +312,8 @@ const Exam = {
       }, () => callback([]));
   },
 
-  // ---- Grading ----
   normalizeCode(code) {
-    return (code || '')
-      .replace(/\r\n/g, '\n')
-      .split('\n')
-      .map(l => l.replace(/\s+$/g, ''))
-      .join('\n')
-      .trim();
+    return (code || '').replace(/\r\n/g, '\n').split('\n').map(l => l.replace(/\s+$/g, '')).join('\n').trim();
   },
 
   autoGrade(studentCode, answerKey, maxScore) {
@@ -247,24 +322,23 @@ const Exam = {
     const b = this.normalizeCode(answerKey);
     if (!b) return { score: null, percent: null, method: 'none', note: 'No answer key set' };
     if (a === b) return { score: maxScore, percent: 100, method: 'exact', note: 'Exact match' };
-
-    // Token overlap heuristic
     const tokensA = new Set(a.split(/\s+/).filter(Boolean));
     const tokensB = b.split(/\s+/).filter(Boolean);
-    if (tokensB.length === 0) return { score: 0, percent: 0, method: 'empty-key' };
+    if (!tokensB.length) return { score: 0, percent: 0, method: 'empty-key' };
     let hit = 0;
     tokensB.forEach(t => { if (tokensA.has(t)) hit++; });
     const ratio = hit / tokensB.length;
-    const score = Math.round(ratio * maxScore * 10) / 10;
-    const percent = Math.round(ratio * 1000) / 10;
-    return { score, percent, method: 'token-overlap', note: `Similarity ~${percent}%` };
+    return {
+      score: Math.round(ratio * maxScore * 10) / 10,
+      percent: Math.round(ratio * 1000) / 10,
+      method: 'token-overlap',
+      note: `Similarity ~${Math.round(ratio * 1000) / 10}%`
+    };
   },
 
   async saveGrade(sessionId, examId, payload) {
-    const id = sessionId;
-    await window.db.collection('grades').doc(id).set({
-      sessionId,
-      examId,
+    await window.db.collection('grades').doc(sessionId).set({
+      sessionId, examId,
       studentId: payload.studentId,
       studentEmail: payload.studentEmail,
       studentName: payload.studentName,
@@ -280,16 +354,90 @@ const Exam = {
 
   async getGrade(sessionId) {
     const snap = await window.db.collection('grades').doc(sessionId).get();
-    if (!snap.exists) return null;
-    return { id: snap.id, ...snap.data() };
+    return snap.exists ? { id: snap.id, ...snap.data() } : null;
   },
 
   async listGrades(examId) {
     const snap = await window.db.collection('grades').where('examId', '==', examId).get();
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+
+  // ---- Proctors ----
+  async setProctors(examId, proctorEmails) {
+    const exam = await this.getExam(examId);
+    if (!exam) throw new Error('Exam not found');
+    const emails = [...new Set(proctorEmails.map(e => e.trim().toLowerCase()).filter(Boolean))];
+
+    // Get active/all student sessions for distribution
+    const snap = await window.db.collection('sessions').where('examId', '==', examId).get();
+    const studentIds = snap.docs.map(d => d.data().studentId);
+
+    // Equal distribution
+    const proctors = emails.map(email => ({ email, studentIds: [] }));
+    if (proctors.length && studentIds.length) {
+      studentIds.forEach((sid, i) => {
+        proctors[i % proctors.length].studentIds.push(sid);
+      });
+    }
+
+    await this.updateExam(examId, { proctors });
+
+    // Store proctor invites so they can sign in
+    for (const p of proctors) {
+      await window.db.collection('examProctors').doc(examId + '_' + p.email.replace(/[^a-z0-9]/g, '_')).set({
+        examId,
+        email: p.email,
+        studentIds: p.studentIds,
+        examTitle: exam.title,
+        teacherId: exam.teacherId,
+        active: true,
+        endAt: exam.endAt,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    return proctors;
+  },
+
+  async redistributeProctors(examId) {
+    const exam = await this.getExam(examId);
+    if (!exam?.proctors?.length) return [];
+    const emails = exam.proctors.map(p => p.email);
+    return this.setProctors(examId, emails);
+  },
+
+  async removeProctor(examId, email) {
+    const exam = await this.getExam(examId);
+    const remaining = (exam.proctors || []).filter(p => p.email !== email.toLowerCase());
+    await this.updateExam(examId, { proctors: remaining });
+    await window.db.collection('examProctors').doc(examId + '_' + email.toLowerCase().replace(/[^a-z0-9]/g, '_')).delete();
+    if (remaining.length) await this.setProctors(examId, remaining.map(p => p.email));
+  },
+
+  async getProctorAssignment(email) {
+    const snap = await window.db.collection('examProctors')
+      .where('email', '==', email.toLowerCase())
+      .where('active', '==', true)
+      .get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+
+  async deactivateProctorsForExam(examId) {
+    const snap = await window.db.collection('examProctors').where('examId', '==', examId).get();
+    const batch = window.db.batch();
+    snap.docs.forEach(d => batch.update(d.ref, { active: false }));
+    await batch.commit();
+    await this.updateExam(examId, { proctors: [] });
+  },
+
+  // Student history
+  async listStudentSessions(studentId) {
+    const snap = await window.db.collection('sessions')
+      .where('studentId', '==', studentId)
+      .get();
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a, b) => (b.startedAt?.toMillis?.() || 0) - (a.startedAt?.toMillis?.() || 0));
+    return list;
   }
 };
-
-function reasonAlive() { return true; }
 
 window.Exam = Exam;

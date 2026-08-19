@@ -297,7 +297,37 @@ const Auth = {
       await pending.ref.delete();
       this.userProfile.role = 'teacher';
     }
+  },
+
+  /** If user is an active proctor for any non-ended exam */
+  async resolveProctorState(user) {
+    try {
+      const snap = await window.db.collection('examProctors')
+        .where('email', '==', user.email.toLowerCase())
+        .where('active', '==', true)
+        .get();
+      const now = Date.now();
+      const active = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(p => !p.endAt || Number(p.endAt) + ((p.extendedMinutes || 0) * 60000) > now);
+      this.proctorAssignments = active;
+      if (active.length && this.userProfile && this.userProfile.role === 'student') {
+        // Mark as proctor for UI without wiping student history
+        this.userProfile.isProctor = true;
+        this.userProfile.role = 'proctor';
+      }
+      return active;
+    } catch (e) {
+      console.error(e);
+      this.proctorAssignments = [];
+      return [];
+    }
+  },
+
+  isProctor() {
+    return this.userProfile?.role === 'proctor' || this.userProfile?.isProctor;
   }
 };
 
 window.Auth = Auth;
+

@@ -1,35 +1,35 @@
 /**
- * Monaco Editor setup + Anti-cheat monitoring
+ * Monaco Editor + Anti-cheat (copy/paste detection, highlights)
  */
 
 const CodeEditor = {
   editor: null,
   sessionId: null,
   examId: null,
+  language: 'python',
   updateTimer: null,
   lastCode: '',
   isLocked: false,
+  _handlers: [],
 
-  async init(containerId, initialCode = '', sessionId, examId) {
+  async init(containerId, initialCode = '', sessionId, examId, language = 'python') {
     this.sessionId = sessionId;
     this.examId = examId;
+    this.language = language === 'java' ? 'java' : 'python';
+    this.isLocked = false;
 
     return new Promise((resolve) => {
       require.config({
         paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.0/min/vs' }
       });
 
-      // Avoid re-loading
-      if (window.monaco) {
+      const boot = () => {
         this._createEditor(containerId, initialCode);
         resolve(this.editor);
-        return;
-      }
+      };
 
-      require(['vs/editor/editor.main'], () => {
-        this._createEditor(containerId, initialCode);
-        resolve(this.editor);
-      });
+      if (window.monaco) boot();
+      else require(['vs/editor/editor.main'], boot);
     });
   },
 
@@ -39,14 +39,14 @@ const CodeEditor = {
 
     this.editor = monaco.editor.create(container, {
       value: initialCode,
-      language: 'python',
+      language: this.language,
       theme: 'vs-dark',
       automaticLayout: true,
-      fontSize: 15,
-      minimap: { enabled: true },
+      fontSize: 14,
+      minimap: { enabled: false },
       scrollBeyondLastLine: false,
       wordWrap: 'on',
-      tabSize: 4,
+      tabSize: this.language === 'python' ? 4 : 2,
       insertSpaces: true,
       suggestOnTriggerCharacters: true,
       quickSuggestions: true,
@@ -54,23 +54,44 @@ const CodeEditor = {
       autoClosingBrackets: 'always',
       autoClosingQuotes: 'always',
       formatOnType: true,
-      // Disable some features that could help cheating
       contextmenu: false,
-      // Basic Python support is built-in
+      readOnly: false
     });
 
-    // Sync code to Firestore (debounced)
     this.editor.onDidChangeModelContent(() => {
       this._scheduleUpdate();
+      this._checkBasicSyntax();
     });
 
-    // Basic syntax markers via simple heuristics + Monaco markers
-    this.editor.onDidChangeModelContent(() => {
-      this._checkBasicSyntax();
+    // Monaco-native paste (most reliable)
+    this.editor.onDidPaste((e) => {
+      try {
+        const range = e.range;
+        const startLine = range.startLineNumber;
+        const endLine = range.endLineNumber;
+        const lines = endLine - startLine + 1;
+        const text = this.editor.getModel().getValueInRange(range) || '';
+        const pasteRange = {
+          startLine, endLine, lines,
+          chars: text.length,
+          at: new Date().toISOString()
+        };
+        this._flag('paste', `Student pasted code (${lines} line${lines === 1 ? '' : 's'})`, { pasteRange });
+        this._highlightPaste(startLine, endLine);
+      } catch (err) {
+        console.error('paste handler', err);
+      }
     });
 
     this.lastCode = initialCode;
     this._setupAntiCheat();
+  },
+
+  setLanguage(lang) {
+    this.language = lang === 'java' ? 'java' : 'python';
+    if (this.editor) {
+      monaco.editor.setModelLanguage(this.editor.getModel(), this.language);
+    }
   },
 
   _scheduleUpdate() {
@@ -81,64 +102,51 @@ const CodeEditor = {
         this.lastCode = code;
         Exam.updateSessionCode(this.sessionId, code).catch(console.error);
       }
-    }, 800); // 800ms debounce for live feel without spamming
+    }, 800);
   },
 
   _checkBasicSyntax() {
-    // Very lightweight syntax checks for common Python mistakes
-    // For real syntax errors, students should use the "Check" button which uses a simple parser
-    const model = this.editor.getModel();
-    if (!model) return;
-
+    const model = this.editor?.getModel();
+    if (!model || !window.monaco) return;
     const code = model.getValue();
     const markers = [];
-
-    // Unmatched brackets / parentheses (simple count)
     const opens = (code.match(/[\(\[\{]/g) || []).length;
     const closes = (code.match(/[\)\]\}]/g) || []).length;
     if (opens !== closes) {
       markers.push({
         severity: monaco.MarkerSeverity.Warning,
         message: 'Possible unmatched brackets/parentheses',
-        startLineNumber: 1,
-        startColumn: 1,
-        endLineNumber: 1,
-        endColumn: 1
+        startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1
       });
     }
-
-    // Indentation warning for mixed tabs/spaces is hard; skip for now
-
-    monaco.editor.setModelMarkers(model, 'python-basic', markers);
+    monaco.editor.setModelMarkers(model, 'syntax-basic', markers);
   },
 
-  // Simple "run" using a message – real execution needs Pyodide (heavy)
-  // For this MVP we show a note and highlight errors if any markers exist
   checkCode() {
     const code = this.editor.getValue();
     const outputEl = document.getElementById('output-content');
     if (!outputEl) return;
-
     outputEl.innerHTML = '';
-
-    // Very basic static analysis
     const lines = code.split('\n');
     let hasError = false;
-
-    lines.forEach((line, i) => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('print ') && !trimmed.startsWith('print(')) {
-        this._addOutput(`Line ${i + 1}: print statement should use parentheses: print(...)`, 'error');
-        hasError = true;
+    if (this.language === 'python') {
+      lines.forEach((line, i) => {
+        const t = line.trim();
+        if (t.startsWith('print ') && !t.startsWith('print(')) {
+          this._addOutput(`Line ${i + 1}: use print(...)`, 'error');
+          hasError = true;
+        }
+      });
+    } else {
+      if (!code.includes('{') && code.includes('class ')) {
+        this._addOutput('Possible incomplete class body', 'warning');
       }
-      if (trimmed.match(/^\s*def\s+\w+\s*\([^)]*$/)) {
-        this._addOutput(`Line ${i + 1}: Possible incomplete function definition`, 'warning');
+      if (code.includes('System.out.println') === false && code.includes('main')) {
+        this._addOutput('Tip: use System.out.println for output', 'info');
       }
-    });
-
+    }
     if (!hasError) {
-      this._addOutput('Basic syntax check passed. (Full execution requires server-side or Pyodide integration)', 'success');
-      this._addOutput('Your code is being live-synced to the teacher dashboard.', 'info');
+      this._addOutput('Basic check passed. Code is live-synced to the proctor/teacher dashboard.', 'success');
     }
   },
 
@@ -151,74 +159,77 @@ const CodeEditor = {
     el.appendChild(p);
   },
 
-  // ========== ANTI-CHEAT ==========
+  _on(target, event, fn) {
+    target.addEventListener(event, fn);
+    this._handlers.push({ target, event, fn });
+  },
+
   _setupAntiCheat() {
-    // 1. Block right-click / context menu
-    document.addEventListener('contextmenu', (e) => {
+    // Ctrl/Cmd + C
+    this._on(document, 'keydown', (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const key = (e.key || '').toLowerCase();
+      if (key === 'c') {
+        this._flag('copy', 'Ctrl+C / copy shortcut used');
+      }
+      if (key === 'v') {
+        // paste event / onDidPaste will fire with details; still log key
+        this._flag('paste-key', 'Ctrl+V / paste shortcut used');
+      }
+      if (key === 'x') {
+        this._flag('cut', 'Ctrl+X / cut shortcut used');
+      }
+    });
+
+    this._on(document, 'contextmenu', (e) => {
       e.preventDefault();
       this._flag('rightclick', 'Right-click attempted');
     });
 
-    // 2. Detect copy
-    document.addEventListener('copy', (e) => {
+    this._on(document, 'copy', () => {
       this._flag('copy', 'Copy action detected');
     });
 
-    // 3. Detect paste — record line ranges for teacher highlight
-    document.addEventListener('paste', (e) => {
-      const text = (e.clipboardData || window.clipboardData).getData('text') || '';
-      const lines = text.split(/\r?\n/).length;
-      let startLine = 1, endLine = lines;
+    this._on(document, 'paste', (e) => {
+      const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+      const lines = text ? text.split(/\r?\n/).length : 0;
+      let startLine = 1, endLine = Math.max(lines, 1);
       try {
-        if (this.editor) {
-          const sel = this.editor.getSelection();
-          if (sel) {
-            startLine = sel.startLineNumber;
-            endLine = startLine + Math.max(lines - 1, 0);
-          }
+        const sel = this.editor?.getSelection();
+        if (sel) {
+          startLine = sel.startLineNumber;
+          endLine = startLine + Math.max(lines - 1, 0);
         }
       } catch (_) {}
-      const pasteRange = { startLine, endLine, lines, chars: text.length, at: new Date().toISOString() };
-      this._flag('paste', `Student pasted code (${lines} line${lines === 1 ? '' : 's'})`, { pasteRange });
-      // Local highlight markers
-      this._highlightPaste(startLine, endLine);
+      const pasteRange = { startLine, endLine, lines: lines || 1, chars: text.length, at: new Date().toISOString() };
+      this._flag('paste', `Student pasted code (${pasteRange.lines} line${pasteRange.lines === 1 ? '' : 's'})`, { pasteRange });
+      setTimeout(() => this._highlightPaste(startLine, endLine), 50);
     });
 
-    // 4. Tab / window switch / minimize
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
-        this._flag('tabswitch', 'Tab/window switched or minimized');
-      }
+    this._on(document, 'visibilitychange', () => {
+      if (document.hidden) this._flag('tabswitch', 'Tab/window switched or minimized');
     });
 
-    // 5. Window blur (another common switch signal)
-    window.addEventListener('blur', () => {
-      this._flag('blur', 'Window lost focus');
-    });
+    this._on(window, 'blur', () => this._flag('blur', 'Window lost focus'));
 
-    // 6. Attempt to close / navigate away
-    window.addEventListener('beforeunload', (e) => {
+    this._on(window, 'beforeunload', (e) => {
       this._flag('close', 'Attempted to close or leave the page');
-      // Modern browsers ignore custom messages
       e.preventDefault();
       e.returnValue = '';
     });
 
-    // 7. Prevent drag-drop of files/text into editor
-    document.addEventListener('drop', (e) => {
+    this._on(document, 'drop', (e) => {
       e.preventDefault();
       this._flag('drop', 'Drag-and-drop of content attempted');
     });
-    document.addEventListener('dragover', (e) => e.preventDefault());
-
-    // Optional: try to request fullscreen (browsers may block)
-    // document.documentElement.requestFullscreen?.().catch(() => {});
+    this._on(document, 'dragover', (e) => e.preventDefault());
   },
 
   _flag(type, details, extra = {}) {
-    if (!this.sessionId) return;
+    if (!this.sessionId || this.isLocked) return;
     const key = type + details;
-    if (this._lastFlag === key && Date.now() - (this._lastFlagTime || 0) < 4000) return;
+    if (this._lastFlag === key && Date.now() - (this._lastFlagTime || 0) < 2500) return;
     this._lastFlag = key;
     this._lastFlagTime = Date.now();
 
@@ -228,7 +239,7 @@ const CodeEditor = {
     if (banner) {
       banner.textContent = '⚠ Integrity alert: ' + details;
       banner.classList.remove('hidden');
-      setTimeout(() => banner.classList.add('hidden'), 3500);
+      setTimeout(() => banner.classList.add('hidden'), 4000);
     }
   },
 
@@ -236,34 +247,36 @@ const CodeEditor = {
     if (!this.editor || !window.monaco) return;
     const model = this.editor.getModel();
     if (!model) return;
-    const markers = monaco.editor.getModelMarkers({ resource: model.uri }) || [];
-    markers.push({
-      severity: monaco.MarkerSeverity.Warning,
-      message: 'Recently pasted block',
-      startLineNumber: startLine,
-      startColumn: 1,
-      endLineNumber: endLine,
-      endColumn: 1
-    });
-    monaco.editor.setModelMarkers(model, 'paste-highlight', markers.filter(m => m.message === 'Recently pasted block' || m.owner === 'paste-highlight').concat([{
+    const existing = (this._pasteDecorations || []);
+    this._pasteDecorations = this.editor.deltaDecorations(existing, [{
+      range: new monaco.Range(startLine, 1, endLine, 1),
+      options: {
+        isWholeLine: true,
+        className: 'paste-line-highlight',
+        linesDecorationsClassName: 'paste-line-gutter',
+        overviewRuler: { color: '#dc2626', position: 4 }
+      }
+    }]);
+    monaco.editor.setModelMarkers(model, 'paste-highlight', [{
       severity: monaco.MarkerSeverity.Warning,
       message: 'Recently pasted block',
       startLineNumber: startLine,
       startColumn: 1,
       endLineNumber: endLine,
       endColumn: 200
-    }]));
+    }]);
   },
 
   lockEditor() {
-    if (this.editor) {
-      this.editor.updateOptions({ readOnly: true });
-    }
+    if (this.editor) this.editor.updateOptions({ readOnly: true });
     this.isLocked = true;
   },
 
-
   dispose() {
+    this._handlers.forEach(({ target, event, fn }) => {
+      try { target.removeEventListener(event, fn); } catch (_) {}
+    });
+    this._handlers = [];
     if (this.editor) {
       this.editor.dispose();
       this.editor = null;

@@ -1,28 +1,27 @@
 # LVCC Assessment Portal — Release Notes
 
-## v1.2.0 — 2026-08-18
+## v1.3.0 — 2026-08-19
 
 ### Fixed
-- **Missing or insufficient permissions**: Added `firestore.rules` for the project. Publish these rules in Firebase Console → Firestore → Rules. Exam list also falls back if the composite index is missing.
-- **Slow logo**: Compressed from ~7MB to ~32KB (128×128). Favicons included.
+- **Mobile UI**: Responsive sidebar (hamburger), stacked exam layout, scrollable tables, flexible action buttons, auth card spacing.
+- **Extend button**: Primary **⏱ Extend** on each student card + **⏱ Extend all** on the live dashboard header.
+- **Copy/paste detection**: Ctrl+C / Ctrl+V / Cmd shortcuts, DOM paste, and Monaco `onDidPaste` with line-count + red line highlights for teachers.
+- **Exam window**: Start/End apply to **all students** (not per-join). Timer uses shared `exam.startAt` / `exam.endAt`.
 
 ### Added
-- **Per-exam personal email invites** — invite is bound to one exam only.
-- **Exam duration** (minutes) when creating an exam + live countdown timer (top right).
-- **Time’s up**: editor locks, screen dims, message shown, code auto-submitted.
-- **Extend time** on live dashboard / student detail (teacher adds minutes).
-- **Paste integrity**: teacher modal “Suspicious activity: Student pasted code (N lines)” with **See details** and highlighted pasted line ranges.
-- **Confirm dialogs** for logout, close/reopen exam, submit exam.
-- **Answer key** on create exam for auto-grade hint (token-overlap similarity).
-- **Manual grading** with optional comment; max score (default 50); % on /100 scale.
-- **Results** page per exam; **Export** individual student report (.txt) and class summary (.csv).
-- **Release notes** (this file).
+- **Exam type**: Code Assessment or Regular Assessment.
+- **Languages** (code): Python or Java — Monaco language, starter templates, basic checks.
+- **Proctors**: Assign emails per exam; equal student distribution; proctor live view = assigned students only; auto-deactivate when exam is closed/ended.
+- **Duplicate exam** with new schedule.
+- **Regular assessment** student screen + question builder (all listed types supported in model; interactive UI for multiple, multi-select, T/F, fill, open, dropdown, match, reorder, categorize, passage; other types use structured text response).
+- **Live integrity** for regular assessments (same copy/paste/tab events).
+- **Student history** by subject category (code vs regular).
+- **Mock exam** from past regular questions (randomized practice).
 
-### Changed
-- Branding: **LVCC Assessment Portal** — “True to our name, true to our test”.
+### Deploy
+1. Publish updated `firestore.rules` (includes `examProctors`).
+2. Restore Firebase keys in `js/firebase-config.js`.
+3. Push to GitHub Pages root; hard-refresh.
 
-### Deploy checklist
-1. Firebase → Firestore → **Rules** → paste contents of `firestore.rules` → **Publish**.
-2. Restore real keys in `js/firebase-config.js` (`SUPERADMIN_EMAILS`, `ALLOWED_EMAIL_DOMAINS`).
-3. Index on `exams`: `teacherId` ASC + `createdAt` DESC (optional; app has fallback).
-4. Push files to GitHub Pages root → hard-refresh.
+### Notes on advanced item types
+Graphing, hotspot, full drag-drop canvas, and rich hot-text are available as question types with text/structured answers in v1.3. Richer visual editors can be added in a later release without changing the data model.
