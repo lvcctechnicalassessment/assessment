@@ -146,16 +146,18 @@ const App = {
     document.getElementById('app').innerHTML = `
       <header class="app-header">
         <div class="header-left">
-          <button class="btn btn-ghost btn-sm menu-toggle" onclick="App.toggleMobileNav()" aria-label="Menu">☰</button>
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
             <span class="logo-text">LVCC Assessment Portal</span>
           </div>
         </div>
-        <div class="user-info header-user-desktop">
-          <span class="role-badge ${role}">${role}</span>
-          <span class="user-name">${escapeHtml(name)}</span>
-          <button class="btn btn-sm btn-ghost" onclick="App.logout()">Logout</button>
+        <div class="header-right">
+          <div class="user-info header-user-desktop">
+            <span class="role-badge ${role}">${role}</span>
+            <span class="user-name">${escapeHtml(name)}</span>
+            <button class="btn btn-sm btn-ghost" onclick="App.logout()">Logout</button>
+          </div>
+          <button class="btn btn-ghost btn-sm menu-toggle" onclick="App.toggleMobileNav()" aria-label="Menu">☰</button>
         </div>
       </header>
       <div id="nav-backdrop" class="nav-backdrop" onclick="App.toggleMobileNav()"></div>
@@ -229,17 +231,17 @@ const App = {
   },
 
   async removeTeacher(uid) {
-    if (!confirm('Demote this user to student?')) return;
+    if (!(await UI.confirm('Demote this user to student?', 'Demote'))) return;
     await Auth.removeTeacher(uid);
     this.loadTeachersList();
   },
   async makeSuperAdmin(uid) {
-    if (!confirm('Promote to Superadmin?')) return;
+    if (!(await UI.confirm('Promote to Superadmin?', 'Promote'))) return;
     await Auth.setRole(uid, 'superadmin');
     this.loadTeachersList();
   },
   async setRole(uid, role) {
-    if (!confirm('Change role to ' + role + '?')) return;
+    if (!(await UI.confirm('Change role to "' + role + '"?', 'Change role'))) return;
     await Auth.setRole(uid, role);
     this.loadTeachersList();
   },
@@ -288,10 +290,7 @@ const App = {
             <option value="java">Java</option>
           </select>
         </div>
-        <div class="form-group">
-          <label>Instructions</label>
-          <textarea id="exam-instructions" class="form-control" rows="4"></textarea>
-        </div>
+        <!-- Instructions are per-section when adding questions -->
         <div class="form-row">
           <div class="form-group">
             <label>Time start (all students)</label>
@@ -353,6 +352,9 @@ const App = {
         </div>`;
         if (q.type === 'multiple' || q.type === 'multiselect') {
           return `<div class="card">${typeSel}${Regular.renderBuilderMC(q, i)}</div>`;
+        }
+        if (q.type === 'truefalse' || q.type === 'modified_tf') {
+          return `<div class="card">${typeSel}${Regular.renderBuilderTF(q, i)}</div>`;
         }
         return `<div class="card q-edit">${typeSel}
           <textarea class="form-control q-prompt" data-i="${i}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
@@ -417,24 +419,64 @@ const App = {
         el.onchange = () => {
           const qi = Number(el.dataset.multi);
           const q = window._builderQuestions[qi];
+          // Preserve pointsMode from current select before re-render
+          const modeSel = box.querySelector(`[data-pointsmode="${qi}"]`);
+          if (modeSel) q.pointsMode = modeSel.value;
+          const ptsInp = box.querySelector(`[data-points="${qi}"]`);
+          if (ptsInp) q.points = Number(ptsInp.value) || 1;
           q.multiCorrect = el.checked;
-          q.type = el.checked ? 'multiselect' : 'multiple';
-          q.correct = el.checked ? (Array.isArray(q.correct) ? q.correct : [q.correct].filter(x => x !== undefined)) : (Array.isArray(q.correct) ? (q.correct[0] ?? 0) : q.correct);
+          q.type = 'multiple'; // keep type multiple; multiCorrect flag only
+          q.correct = el.checked
+            ? (Array.isArray(q.correct) ? q.correct : [q.correct].filter(x => x !== undefined && x !== null))
+            : (Array.isArray(q.correct) ? (q.correct[0] ?? 0) : q.correct);
+          if (!q.pointsMode) q.pointsMode = 'all';
           renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-pointsmode]').forEach(el => {
+        el.onchange = () => {
+          const qi = Number(el.dataset.pointsmode);
+          window._builderQuestions[qi].pointsMode = el.value;
+        };
+      });
+      box.querySelectorAll('[data-points]').forEach(el => {
+        el.oninput = () => {
+          window._builderQuestions[Number(el.dataset.points)].points = Number(el.value) || 1;
+        };
+      });
+      box.querySelectorAll('[data-modified]').forEach(el => {
+        el.oninput = () => { window._builderQuestions[Number(el.dataset.modified)].modifiedAnswer = el.value; };
+      });
+      box.querySelectorAll('[data-modified-alt]').forEach(el => {
+        el.oninput = () => {
+          window._builderQuestions[Number(el.dataset.modifiedAlt)].modifiedAlternatives =
+            el.value.split(',').map(s => s.trim()).filter(Boolean);
         };
       });
       box.querySelectorAll('[data-correct-text]').forEach(el => {
         el.oninput = () => { window._builderQuestions[Number(el.dataset.correctText)].correct = el.value; };
       });
     };
-    document.getElementById('add-q-btn').onclick = () => {
-      window._builderQuestions.push(Regular.newQuestion('multiple'));
+    document.getElementById('add-q-btn').onclick = async () => {
+      // Pick type → auto section
+      const typeList = QUESTION_TYPES.map(x => x.id + ' = ' + x.label).join('\n');
+      const type = await UI.prompt('Question type id (e.g. multiple, truefalse, modified_tf, essay, fill):\n\n' + typeList, 'multiple', 'Add question');
+      if (!type) return;
+      const tId = type.trim().split(/\s|=/)[0];
+      const label = (QUESTION_TYPES.find(x => x.id === tId) || { label: tId }).label;
+      if (!window._builderSections) window._builderSections = [];
+      const sec = Regular.newSection(label);
+      sec.instructions = '';
+      const q = Regular.newQuestion(tId);
+      sec.questions.push(q);
+      window._builderSections.push(sec);
+      window._builderQuestions.push(q);
       renderBuilder();
     };
 
     const buildPayload = (status) => {
       const title = document.getElementById('exam-title').value.trim();
-      const instructions = document.getElementById('exam-instructions').value.trim();
+      const instructions = (document.getElementById('exam-instructions')?.value || '').trim();
       const examType = document.getElementById('exam-type').value;
       const language = document.getElementById('exam-language').value;
       const subject = document.getElementById('exam-subject').value.trim() || 'General';
@@ -465,19 +507,19 @@ const App = {
 
     document.getElementById('create-exam-btn').onclick = async () => {
       const title = document.getElementById('exam-title').value.trim();
-      const instructions = document.getElementById('exam-instructions').value.trim();
+      const instructions = (document.getElementById('exam-instructions')?.value || '').trim();
       const examType = document.getElementById('exam-type').value;
       const language = document.getElementById('exam-language').value;
       const subject = document.getElementById('exam-subject').value.trim() || 'General';
       const startAt = document.getElementById('exam-start').value;
       const endAt = document.getElementById('exam-end').value;
       const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore').value) || 100);
-      if (!title || !instructions) { alert('Title and instructions required'); return; }
-      if (!startAt || !endAt) { alert('Start and end time required'); return; }
-      if (new Date(endAt) <= new Date(startAt)) { alert('End must be after start'); return; }
+      if (!title) { await UI.alert('Title is required.', 'Missing fields'); return; }
+      if (!startAt || !endAt) { await UI.alert('Start and end time are required to publish.', 'Schedule'); return; }
+      if (new Date(endAt) <= new Date(startAt)) { await UI.alert('End must be after start.', 'Schedule'); return; }
       // Scheduled start cannot be in the past (allow 1 min skew)
       if (new Date(startAt).getTime() < Date.now() - 60000) {
-        alert('Start time cannot be before the current date and time.');
+        await UI.alert('Start time cannot be before the current date and time.', 'Schedule');
         return;
       }
       try {
@@ -497,15 +539,18 @@ const App = {
     };
   },
 
-  copyExamLink(examId) {
+  async copyExamLink(examId) {
     const url = `${window.location.origin}${window.location.pathname}?exam=${examId}`;
-    navigator.clipboard.writeText(url).then(() => alert('Assessment link copied to clipboard.')).catch(() => {
-      // silent fallback without ugly prompt URL when possible
+    try {
+      await navigator.clipboard.writeText(url);
+      await UI.alert('Assessment link copied to clipboard.', 'Share');
+    } catch (_) {
       const ta = document.createElement('textarea');
       ta.value = url; document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); alert('Assessment link copied to clipboard.'); } catch (_) {}
+      try { document.execCommand('copy'); } catch (__) {}
       ta.remove();
-    });
+      await UI.alert('Assessment link copied to clipboard.', 'Share');
+    }
   },
 
   showSharePanel(examId) {
@@ -535,7 +580,7 @@ const App = {
   },
 
   async shareToCoTeacher(examId) {
-    const email = prompt('Co-teacher email (La Verdad account):');
+    const email = await UI.prompt('Co-teacher email (La Verdad account):', '', 'Share to Co-teacher');
     if (!email) return;
     try {
       const exam = await Exam.getExam(examId);
@@ -579,23 +624,23 @@ const App = {
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
       }
-      alert('Shared with co-teacher. They will see a fresh copy to configure.');
+      await UI.alert('Shared with co-teacher. They will see a fresh copy to configure.', 'Shared');
     } catch (e) {
       alert(e.message || String(e));
     }
   },
 
   async deleteExam(examId, title) {
-    const typed = prompt('Type the assessment name to confirm deletion:\n\n' + title);
+    const typed = await UI.prompt('Type the assessment name to confirm deletion:\n\n' + title, '', 'Delete assessment');
     if (typed === null) return;
     if (typed.trim() !== title.trim()) {
-      alert('Name did not match. Deletion cancelled.');
+      await UI.alert('Name did not match. Deletion cancelled.', 'Delete');
       return;
     }
-    if (!confirm('Permanently delete this assessment?')) return;
+    if (!(await UI.confirm('Permanently delete this assessment?', 'Delete'))) return;
     try {
       await Exam.deleteExam(examId);
-      alert('Assessment deleted.');
+      await UI.alert('Assessment deleted.', 'Deleted');
       this.showTeacherHome();
     } catch (e) {
       alert(e.message);
@@ -634,7 +679,7 @@ const App = {
     document.getElementById('save-edit').onclick = async () => {
       const startAt = new Date(document.getElementById('edit-start').value).getTime();
       const endAt = new Date(document.getElementById('edit-end').value).getTime();
-      if (endAt <= startAt) { alert('End must be after start'); return; }
+      if (endAt <= startAt) { await UI.alert('End must be after start.', 'Schedule'); return; }
       const updates = {
         title: document.getElementById('edit-title').value.trim(),
         instructions: document.getElementById('edit-instructions').value.trim(),
@@ -644,14 +689,14 @@ const App = {
       const maxEl = document.getElementById('edit-max');
       if (maxEl) updates.maxScore = Number(maxEl.value) || 100;
       await Exam.updateExam(examId, updates);
-      alert('Saved.');
+      await UI.alert('Changes saved.', 'Saved');
       this.showTeacherHome();
     };
   },
 
 
   async toggleExamActive(examId, active) {
-    if (!confirm(active ? 'Reopen this exam?' : 'Close this exam?')) return;
+    if (!(await UI.confirm(active ? 'Reopen this assessment?' : 'Close this assessment?', 'Confirm'))) return;
     await Exam.updateExam(examId, { active });
     if (!active) {
       try { await Exam.deactivateProctorsForExam(examId); } catch (_) {}
@@ -660,9 +705,9 @@ const App = {
   },
 
   async duplicateExam(examId) {
-    if (!confirm('Duplicate this exam? You can set a new schedule next.')) return;
-    const start = prompt('New start (YYYY-MM-DDTHH:MM) or leave blank for now:', '');
-    const mins = prompt('Duration in minutes:', '60');
+    if (!(await UI.confirm('Duplicate this assessment? You can set a new schedule next.', 'Duplicate'))) return;
+    const start = await UI.prompt('New start (YYYY-MM-DDTHH:MM) or leave blank for now:', '', 'Duplicate');
+    const mins = await UI.prompt('Duration in minutes:', '60', 'Duplicate');
     const startAt = start || new Date().toISOString();
     const endAt = new Date(new Date(startAt).getTime() + (Number(mins) || 60) * 60000).toISOString();
     try {
@@ -713,7 +758,7 @@ const App = {
   },
 
   async removeExamInvite(examId, email) {
-    if (!confirm('Remove invite?')) return;
+    if (!(await UI.confirm('Remove this invite?', 'Remove invite'))) return;
     await Auth.removeExamInvite(examId, email);
     this.loadExamInvitesList(examId);
   },
@@ -853,7 +898,7 @@ const App = {
   async startMockFromSelection(type, subject) {
     const boxes = [...document.querySelectorAll(`.mock-pick[data-type="${type}"][data-subject="${CSS.escape(subject)}"]:checked`)];
     if (!boxes.length) {
-      alert('Select at least one assessment under this category.');
+      await UI.alert('Select at least one assessment under this category.', 'Mock');
       return;
     }
     const examIds = [...new Set(boxes.map(b => b.dataset.examid))];
@@ -873,7 +918,7 @@ const App = {
     }
     questions = questions.sort(() => Math.random() - 0.5).slice(0, 20);
     if (!questions.length) {
-      alert('No questions available from the selection.');
+      await UI.alert('No questions available from the selection.', 'Mock');
       return;
     }
     // Save mock history
@@ -895,8 +940,8 @@ const App = {
     const area = document.getElementById('mock-area');
     area.innerHTML = questions.map(q => Regular.renderStudentQuestion(q, null)).join('');
     Regular.bindStudentMC(area, () => {});
-    document.getElementById('mock-done').onclick = () => {
-      alert('Mock finished (practice only).');
+    document.getElementById('mock-done').onclick = async () => {
+      await UI.alert('Mock finished (practice only).', 'Done');
       this.showMockExam();
     };
   },
@@ -1166,31 +1211,92 @@ const App = {
       <div class="card-header page-header-responsive">
         <h2 class="page-title">Results — ${escapeHtml(exam.title)}</h2>
         <div class="action-btns">
-          <button class="btn btn-ghost" onclick="App.exportSummary('${examId}')">Export CSV</button>
+          <button class="btn btn-ghost" id="btn-export-xlsx">Export Excel</button>
           <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
         </div>
       </div>
-      <div id="results-table">Loading...</div>
+      <div id="results-stats" class="stats-grid">Loading stats...</div>
+      <div id="results-table" class="mt-2">Loading...</div>
     `, 'exams');
+
     const sessionsSnap = await window.db.collection('sessions').where('examId', '==', examId).get();
     const sessions = sessionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const grades = await Exam.listGrades(examId);
     const gradeMap = Object.fromEntries(grades.map(g => [g.sessionId, g]));
+    const questions = Regular.flattenQuestions(exam);
+
+    // Auto-grade missing where possible
+    for (const s of sessions) {
+      if (!gradeMap[s.id] && questions.length && s.answers) {
+        const g = Regular.gradeAnswers(questions, s.answers);
+        gradeMap[s.id] = { ...g, sessionId: s.id };
+      } else if (!gradeMap[s.id] && s.code && exam.answerKey) {
+        const g = Exam.autoGrade(s.code, exam.answerKey, exam.maxScore || 100);
+        gradeMap[s.id] = { score: g.score, maxScore: exam.maxScore || 100, percent: g.percent, sessionId: s.id };
+      }
+    }
+
+    const graded = Object.values(gradeMap).filter(g => g.score != null);
+    const studentCount = sessions.length;
+    const totalItems = questions.length || 1;
+    const avg = graded.length ? graded.reduce((a, g) => a + (Number(g.percent) || 0), 0) / graded.length : 0;
+    const perfect = graded.filter(g => Number(g.percent) >= 100).length;
+
+    // Most incorrect: for regular, count wrong per question
+    const wrongCount = {};
+    questions.forEach(q => { wrongCount[q.id] = { prompt: q.prompt || q.id, wrong: 0 }; });
+    sessions.forEach(s => {
+      if (!s.answers || !questions.length) return;
+      questions.forEach(q => {
+        const g = Regular.gradeAnswers([q], { [q.id]: s.answers[q.id] });
+        if ((g.score || 0) < (g.maxScore || 1)) wrongCount[q.id].wrong++;
+      });
+    });
+    const hardest = Object.values(wrongCount).sort((a, b) => b.wrong - a.wrong).slice(0, 5);
+
+    document.getElementById('results-stats').innerHTML = `
+      <div class="stat-card"><div class="stat-val">${studentCount}</div><div class="stat-label">Students</div></div>
+      <div class="stat-card"><div class="stat-val">${totalItems}</div><div class="stat-label">Total items</div></div>
+      <div class="stat-card"><div class="stat-val">${avg.toFixed(1)}%</div><div class="stat-label">Average score</div></div>
+      <div class="stat-card"><div class="stat-val">${perfect}</div><div class="stat-label">Perfect scores</div></div>
+      <div class="stat-card stat-wide"><div class="stat-label">Most incorrect</div>
+        <ol class="hardest-list">${hardest.map(h => `<li>${escapeHtml(h.prompt).slice(0, 80)} <span class="text-muted">(${h.wrong} wrong)</span></li>`).join('') || '<li class="text-muted">N/A</li>'}</ol>
+      </div>`;
+
     const el = document.getElementById('results-table');
-    el.innerHTML = `<div class="table-wrap"><table class="table"><thead><tr>
+    el.innerHTML = `<div class="table-wrap"><table class="table" id="results-data-table"><thead><tr>
       <th>Student</th><th>Email</th><th>Status</th><th>Score</th><th>%</th><th></th></tr></thead><tbody>
       ${sessions.map(s => {
         const g = gradeMap[s.id];
         return `<tr>
           <td>${escapeHtml(s.studentName||'')}</td><td>${escapeHtml(s.studentEmail||'')}</td>
           <td>${escapeHtml(s.status)}</td>
-          <td>${g ? g.score+'/'+g.maxScore : '—'}</td>
-          <td>${g ? g.percent+'%' : '—'}</td>
+          <td>${g && g.score != null ? g.score+'/'+(g.maxScore||'') : '—'}</td>
+          <td>${g && g.percent != null ? g.percent+'%' : '—'}</td>
           <td class="action-btns">
             <button class="btn btn-sm btn-primary" onclick="App.gradeSession('${s.id}','${examId}')">Grade</button>
             <button class="btn btn-sm btn-ghost" onclick="App.exportStudentReport('${s.id}','${examId}')">Export</button>
           </td></tr>`;
       }).join('')}</tbody></table></div>`;
+
+    document.getElementById('btn-export-xlsx').onclick = () => {
+      const rows = [['Name','Email','Status','Score','Max','Percent']];
+      sessions.forEach(s => {
+        const g = gradeMap[s.id];
+        rows.push([s.studentName||'', s.studentEmail||'', s.status||'', g?.score??'', g?.maxScore??'', g?.percent??'']);
+      });
+      rows.push([]);
+      rows.push(['Summary']);
+      rows.push(['Students', studentCount]);
+      rows.push(['Total items', totalItems]);
+      rows.push(['Average %', avg.toFixed(1)]);
+      rows.push(['Perfect scores', perfect]);
+      hardest.forEach((h, i) => rows.push(['Hardest Q'+(i+1), h.prompt, h.wrong + ' wrong']));
+      const csv = rows.map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\\n');
+      // Excel-friendly CSV
+      downloadText(`results-${examId}.csv`, '\uFEFF' + csv);
+      UI.alert('Exported results as CSV (opens in Excel).', 'Export');
+    };
   },
 
   async exportStudentReport(sessionId, examId) {

@@ -997,3 +997,37 @@ textarea.form-control {
     max-height: 320px;
   }
 }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  text-align: center;
+}
+.stat-card.stat-wide { grid-column: 1 / -1; text-align: left; }
+.stat-val { font-size: 1.75rem; font-weight: 700; color: var(--primary); }
+.stat-label { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+.hardest-list { margin: 0.5rem 0 0 1.1rem; font-size: 0.9rem; }
+
+@media (max-width: 900px) {
+  .menu-toggle { display: inline-flex; order: 2; }
+  .header-right { margin-left: auto; }
+  .sidebar {
+    left: auto;
+    right: 0;
+    transform: translateX(105%);
+  }
+  .sidebar.open { transform: translateX(0); }
+}

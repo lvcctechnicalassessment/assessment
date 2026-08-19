@@ -146,8 +146,16 @@ const Auth = {
 
     if (snap.exists) {
       const data = snap.data();
+      // Always re-assert superadmin from config list (fixes stuck teacher role)
+      if (this.isSuperAdminEmail(email) && data.role !== 'superadmin') {
+        await ref.update({
+          role: 'superadmin',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        return { uid: user.uid, ...data, role: 'superadmin' };
+      }
       // Personal email with invite: keep student role only
-      if (check.reason === 'invited' && data.role !== 'student') {
+      if (check.reason === 'invited' && data.role !== 'student' && !this.isSuperAdminEmail(email)) {
         await ref.update({ role: 'student', invited: true });
         return { uid: user.uid, ...data, role: 'student', invited: true };
       }

@@ -5,6 +5,7 @@
 const QUESTION_TYPES = [
   { id: 'multiple', label: 'Multiple choice' },
   { id: 'truefalse', label: 'True or False' },
+  { id: 'modified_tf', label: 'Modified True or False' },
   { id: 'fill', label: 'Fill in the blank' },
   { id: 'essay', label: 'Essay' },
   { id: 'dropdown', label: 'Dropdown' },
@@ -53,11 +54,23 @@ const Regular = {
       case 'truefalse':
         return {
           ...base,
-          tfCategory: 'simple', // simple | modified
+          tfCategory: 'simple',
+          options: ['True', 'False'],
+          correct: 0,
+          statement: ''
+        };
+      case 'modified_tf':
+        return {
+          ...base,
+          points: 2,
+          pointsMode: 'split', // 1 for TF + 1 for correction text
+          tfCategory: 'modified',
           options: ['True', 'False'],
           correct: 0,
           statement: '',
-          modifiedAnswer: ''
+          modifiedAnswer: '',
+          modifiedAlternatives: [],
+          highlightWords: []
         };
       case 'fill':
         return {
@@ -127,8 +140,8 @@ const Regular = {
           <div class="points-row">
             <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
             ${multi ? `<label class="gq-toggle"><select data-pointsmode="${index}" class="form-control" style="width:auto;display:inline-block">
-              <option value="all" ${q.pointsMode !== 'each' ? 'selected' : ''}>Full points if all correct</option>
-              <option value="each" ${q.pointsMode === 'each' ? 'selected' : ''}>1 pt (or set) per correct option</option>
+              <option value="all" ${(q.pointsMode || 'all') === 'all' ? 'selected' : ''}>Full points if all correct</option>
+              <option value="each" ${q.pointsMode === 'each' ? 'selected' : ''}>Point(s) per correct answer</option>
             </select></label>` : ''}
           </div>
         </div>
@@ -136,19 +149,11 @@ const Regular = {
   },
 
   renderBuilderTF(q, index) {
-    const cat = q.tfCategory || 'simple';
+    const isMod = q.type === 'modified_tf' || q.tfCategory === 'modified';
     return `
       <div class="gq-block" data-qi="${index}">
-        <div class="form-group">
-          <label>True/False category</label>
-          <select class="form-control" data-tfcategory="${index}">
-            <option value="simple" ${cat === 'simple' ? 'selected' : ''}>True or False only</option>
-            <option value="modified" ${cat === 'modified' ? 'selected' : ''}>Modified True or False</option>
-          </select>
-          <p class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">${escapeHtml(TF_INSTRUCTIONS[cat])}</p>
-        </div>
         <div class="gq-question-box">
-          <textarea class="gq-question-input" data-prompt="${index}" placeholder="Statement / question" rows="2">${escapeHtml(q.prompt || q.statement || '')}</textarea>
+          <textarea class="gq-question-input" data-prompt="${index}" placeholder="Type statement here" rows="2">${escapeHtml(q.prompt || q.statement || '')}</textarea>
         </div>
         <div class="gq-options-row">
           <div class="gq-option" style="background:${OPTION_COLORS[0]}">
@@ -164,13 +169,16 @@ const Regular = {
             <div class="gq-option-input" style="pointer-events:none">False</div>
           </div>
         </div>
-        ${cat === 'modified' ? `
+        ${isMod ? `
           <div class="form-group mt-1">
-            <label>If False — correct answer</label>
-            <input class="form-control" data-modified="${index}" value="${escapeHtml(q.modifiedAnswer || '')}" placeholder="Write the correct answer" />
+            <label>Correct answer (if False)</label>
+            <input class="form-control" data-modified="${index}" value="${escapeHtml(q.modifiedAnswer || '')}" placeholder="Primary correct answer" />
+            <label class="mt-1">Alternative correct answers (comma-separated)</label>
+            <input class="form-control" data-modified-alt="${index}" value="${escapeHtml((q.modifiedAlternatives || []).join(', '))}" placeholder="alt1, alt2" />
           </div>` : ''}
         <div class="points-row mt-1">
-          <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+          <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? (isMod ? 2 : 1)}" style="width:70px;display:inline-block"/></label>
+          ${isMod ? '<span class="text-muted" style="font-size:0.8rem">Default 2 (1 for T/F + 1 for correction)</span>' : ''}
         </div>
       </div>`;
   },
@@ -198,25 +206,26 @@ const Regular = {
         </div>`;
     }
 
-    if (q.type === 'truefalse') {
-      const cat = q.tfCategory || 'simple';
+    if (q.type === 'truefalse' || q.type === 'modified_tf') {
+      const cat = q.type === 'modified_tf' ? 'modified' : (q.tfCategory || 'simple');
       const selected = val && typeof val === 'object' ? val.choice : val;
       return `
-        <div class="q-card gq-block" data-qid="${q.id}" data-type="truefalse" data-tfcategory="${cat}">
+        <div class="q-card gq-block" data-qid="${q.id}" data-type="${q.type}" data-tfcategory="${cat}">
           <div class="gq-question-box">
-            <div class="gq-question-text">${escapeHtml(q.prompt || 'Statement')}</div>
-            <p class="text-muted" style="font-size:0.8rem">${escapeHtml(TF_INSTRUCTIONS[cat])}</p>
+            <div class="gq-question-text">${escapeHtml(q.prompt || 'Statement')} <span class="text-muted">(${q.points ?? (cat==='modified'?2:1)} pt)</span></div>
           </div>
           <div class="gq-options-row">
             <button type="button" class="gq-option gq-student ${selected == 0 || selected === 'true' ? 'selected' : ''}"
-              style="background:${OPTION_COLORS[0]}" data-qid="${q.id}" data-opt="0" data-multi="0">True</button>
+              style="background:${OPTION_COLORS[0]}" data-qid="${q.id}" data-opt="0" data-multi="0">
+              <span class="gq-student-check">${selected == 0 ? '✓' : ''}</span>True</button>
             <button type="button" class="gq-option gq-student ${selected == 1 || selected === 'false' ? 'selected' : ''}"
-              style="background:${OPTION_COLORS[3]}" data-qid="${q.id}" data-opt="1" data-multi="0">False</button>
+              style="background:${OPTION_COLORS[3]}" data-qid="${q.id}" data-opt="1" data-multi="0">
+              <span class="gq-student-check">${selected == 1 ? '✓' : ''}</span>False</button>
           </div>
           ${cat === 'modified' ? `
             <div class="form-group mt-1">
               <label>If False, write the correct answer</label>
-              <input class="form-control" data-qid="${q.id}" data-tf-mod="1" value="${escapeHtml((val && val.modified) || '')}" />
+              <input class="form-control" data-qid="${q.id}" data-tf-mod="1" value="${escapeHtml((val && val.modified) || '')}" placeholder="Correct answer" />
             </div>` : ''}
         </div>`;
     }
