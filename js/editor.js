@@ -309,25 +309,65 @@ const CodeEditor = {
   async _studentPasteWarn() {
     this._pasteWarnCount = (this._pasteWarnCount || 0) + 1;
     const n = this._pasteWarnCount;
-    const msg = n >= 3
-      ? 'You have been detected copy-pasting. This is your 3rd warning. Your teacher has been notified and may end your assessment or deduct points.'
-      : `You have been detected copy-pasting. This is your warning #${n} of 3. Further violations will be reported to your teacher.`;
-    try {
-      if (window.UI) await UI.alert(msg, 'Integrity warning');
-      else alert(msg);
-    } catch (_) {}
-    if (n >= 3 && this.sessionId) {
-      Exam.logEvent(this.sessionId, 'paste-critical', 'Student reached 3 paste warnings', {
-        pasteWarnings: n
-      }).catch(() => {});
+    if (n === 1) {
+      if (window.UI) await UI.alert('You have been detected copy-pasting. This is your warning #1 of 3.', 'Integrity warning');
+      return;
+    }
+    // 2nd and 3rd: message the instructor
+    const studentMsg = await UI.prompt(
+      `You have been detected copy-pasting. This is your warning #${n} of 3.\n\nMessage your instructor (required):`,
+      '',
+      'Message instructor'
+    );
+    const text = (studentMsg || '').trim() || '(No message provided)';
+    if (this.sessionId) {
+      await Exam.logEvent(this.sessionId, n >= 3 ? 'paste-critical' : 'paste-message',
+        n >= 3 ? 'Student reached 3 paste warnings' : 'Student paste warning with message',
+        { pasteWarnings: n, studentMessage: text }
+      ).catch(() => {});
     }
   },
 
-  startScreenShare(intervalMs = 4000) {
+  async requestDisplayShare() {
+    try {
+      this._displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 2, displaySurface: 'monitor' },
+        audio: false
+      });
+      this._displayVideo = document.createElement('video');
+      this._displayVideo.srcObject = this._displayStream;
+      this._displayVideo.muted = true;
+      await this._displayVideo.play();
+      this._displayStream.getVideoTracks()[0].addEventListener('ended', () => {
+        this.stopScreenShare();
+        if (typeof UI !== 'undefined') {
+          UI.alert('Screen sharing stopped. Please allow screen share to continue the assessment.', 'Screen share required')
+            .then(() => this.requestDisplayShare().catch(() => {}));
+        }
+      });
+      return true;
+    } catch (e) {
+      console.warn('getDisplayMedia failed', e);
+      return false;
+    }
+  },
+
+  startScreenShare(intervalMs = 3000) {
     this.stopScreenShare();
     this._screenTimer = setInterval(async () => {
       if (this.isLocked || this.isSubmitting || !this.sessionId) return;
-      const thumb = await this.captureScreen();
+      let thumb = null;
+      if (this._displayVideo && this._displayVideo.videoWidth) {
+        try {
+          const c = document.createElement('canvas');
+          const w = Math.min(640, this._displayVideo.videoWidth);
+          const h = Math.round(w * (this._displayVideo.videoHeight / this._displayVideo.videoWidth));
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(this._displayVideo, 0, 0, w, h);
+          thumb = c.toDataURL('image/jpeg', 0.45);
+        } catch (_) {}
+      }
+      if (!thumb) thumb = await this.captureScreen();
       if (!thumb) return;
       try {
         await window.db.collection('sessions').doc(this.sessionId).update({
@@ -341,6 +381,11 @@ const CodeEditor = {
   stopScreenShare() {
     if (this._screenTimer) clearInterval(this._screenTimer);
     this._screenTimer = null;
+    if (this._displayStream) {
+      this._displayStream.getTracks().forEach(tr => tr.stop());
+      this._displayStream = null;
+    }
+    this._displayVideo = null;
   },
 
   lockEditor() {

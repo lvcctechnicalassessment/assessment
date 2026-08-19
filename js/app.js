@@ -4,6 +4,16 @@
  */
 
 const App = {
+  clearExamQuery() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('exam');
+      window.history.replaceState({}, '', url.pathname + (url.search || '') + (url.hash || ''));
+    } catch (_) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  },
+
   async init() {
     Theme.init();
     const loading = document.getElementById('loading');
@@ -78,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.4.3</div>
+          <div class="app-version">Build v1.4.4</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -116,6 +126,7 @@ const App = {
     const examId = params.get('exam');
 
     if (examId && role !== 'proctor') {
+      // Will clear URL if already submitted inside startStudentExam
       this.startStudentExam(examId);
       return;
     }
@@ -136,7 +147,7 @@ const App = {
     let navItems = '';
     if (role === 'superadmin') {
       navItems = `
-        <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin();App.toggleMobileNav()">👥 Teachers</div>
+        <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin();App.toggleMobileNav()">👥 Instructors</div>
         <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Assessments</div>`;
     } else if (role === 'teacher') {
       navItems = `
@@ -156,7 +167,7 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.3</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.4</span>
           </div>
         </div>
         <div class="header-right">
@@ -189,17 +200,17 @@ const App = {
   // ---- Superadmin ----
   async showSuperAdmin() {
     this.renderShell(`
-      <h2 class="page-title">Teacher Management</h2>
+      <h2 class="page-title">Instructor Management</h2>
       <div class="card">
         <div class="form-group">
-          <label>Teacher Email</label>
+          <label>Instructor Email</label>
           <input type="email" id="teacher-email" class="form-control" placeholder="teacher@laverdad.edu.ph" />
         </div>
-        <button class="btn btn-primary" id="add-teacher-btn">Add Teacher</button>
+        <button class="btn btn-primary" id="add-teacher-btn">Add Instructor</button>
         <p id="add-teacher-msg" class="mt-1 text-muted"></p>
       </div>
       <div class="card mt-2">
-        <div class="card-title">Teachers & Admins</div>
+        <div class="card-title">Instructors & Admins</div>
         <div id="teachers-list">Loading...</div>
       </div>
     `, 'teachers');
@@ -262,9 +273,36 @@ const App = {
     await Dashboard.renderMyExams(document.getElementById('exams-container'));
   },
 
+  autosaveKey() { return 'lvcc_draft_' + (Auth.currentUser?.uid || 'anon'); },
+  saveAutosave() {
+    try {
+      const data = {
+        title: document.getElementById('exam-title')?.value || '',
+        subject: document.getElementById('exam-subject')?.value || '',
+        examType: document.getElementById('exam-type')?.value || 'regular',
+        language: document.getElementById('exam-language')?.value || 'python',
+        starter: document.getElementById('exam-starter')?.value || '',
+        answer: document.getElementById('exam-answer')?.value || '',
+        maxScore: document.getElementById('exam-maxscore')?.value || 100,
+        sections: window._builderSections || [],
+        at: Date.now()
+      };
+      localStorage.setItem(this.autosaveKey(), JSON.stringify(data));
+    } catch (_) {}
+  },
+  loadAutosave() {
+    try {
+      const raw = localStorage.getItem(this.autosaveKey());
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+  },
+  clearAutosave() {
+    try { localStorage.removeItem(this.autosaveKey()); } catch (_) {}
+  },
+
   async showCreateExam() {
     if (!Auth.isTeacher()) {
-      await UI.alert('Only teachers can create assessments. Students can generate mock assessments from History.', 'Access');
+      await UI.alert('Only instructors can create assessments. Students can generate mock assessments from History.', 'Access');
       this.showStudentHome();
       return;
     }
@@ -320,11 +358,15 @@ const App = {
           <div class="card-title">Question sections</div>
           <div id="questions-builder" class="mt-2"></div>
         </div>
-        <div class="modal-actions action-btns form-footer-actions">
-          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Cancel</button>
-          <button class="btn btn-ghost" id="draft-exam-btn">Save draft</button>
-          <button class="btn btn-primary" id="add-question-footer-btn" type="button">Add Question</button>
-          <button class="btn btn-primary" id="create-exam-btn">Publish…</button>
+        <div class="modal-actions action-btns form-footer-actions form-footer-split">
+          <div class="footer-left">
+            <button class="btn btn-primary" id="add-question-footer-btn" type="button">Add Question</button>
+          </div>
+          <div class="footer-right">
+            <button class="btn btn-ghost" onclick="App.saveAutosave();App.showTeacherHome()">Cancel</button>
+            <button class="btn btn-ghost" id="draft-exam-btn">Save draft</button>
+            <button class="btn btn-primary" id="create-exam-btn">Publish…</button>
+          </div>
         </div>
       </div>
     `, 'exams');
@@ -520,13 +562,13 @@ const App = {
         })();
         root.innerHTML = `<div class="modal-overlay ui-modal-overlay"><div class="modal ui-modal modal-wide">
           <h2>Select question type</h2>
-          <div class="type-picker type-picker-modal">${QUESTION_TYPES.map(x =>
-            `<button type="button" class="btn btn-sm btn-ghost type-pick" data-type="${x.id}">${escapeHtml(x.label)}</button>`
+          <div class="type-picker type-picker-modal type-cards">${QUESTION_TYPES.map(x =>
+            `<button type="button" class="type-card" data-type="${x.id}"><span class="type-card-label">${escapeHtml(x.label)}</span></button>`
           ).join('')}</div>
           <div class="modal-actions"><button class="btn btn-ghost" id="type-cancel">Cancel</button></div>
         </div></div>`;
         root.querySelector('#type-cancel').onclick = () => { UI.close(); resolve(null); };
-        root.querySelectorAll('.type-pick').forEach(btn => {
+        root.querySelectorAll('.type-card, .type-pick').forEach(btn => {
           btn.onclick = () => { const type = btn.dataset.type; UI.close(); resolve(type); };
         });
       });
@@ -546,6 +588,26 @@ const App = {
       syncFlat();
       renderBuilder();
     };
+
+    const draft = this.loadAutosave();
+    if (draft && (draft.title || (draft.sections||[]).length)) {
+      const restore = await UI.confirm('Restore autosaved draft?', 'Autosave');
+      if (restore) {
+        if (draft.title) document.getElementById('exam-title').value = draft.title;
+        if (draft.subject) document.getElementById('exam-subject').value = draft.subject;
+        if (draft.examType) document.getElementById('exam-type').value = draft.examType;
+        if (draft.language) document.getElementById('exam-language').value = draft.language;
+        document.getElementById('exam-type')?.dispatchEvent(new Event('change'));
+        if (draft.starter) document.getElementById('exam-starter').value = draft.starter;
+        if (draft.answer) document.getElementById('exam-answer').value = draft.answer;
+        window._builderSections = draft.sections || [];
+        window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
+        try { renderBuilder(); } catch (_) {}
+      }
+    }
+    clearInterval(window._autosaveIv);
+    window._autosaveIv = setInterval(() => this.saveAutosave(), 4000);
+    window.addEventListener('beforeunload', () => this.saveAutosave());
 
     document.getElementById('add-question-footer-btn').onclick = async () => {
       const type = await openTypePicker();
@@ -582,6 +644,7 @@ const App = {
           status: 'draft',
           active: false
         });
+        this.clearAutosave();
         await UI.alert('Draft saved. You can edit and publish later.', 'Draft');
         this.showTeacherHome();
       } catch (err) { await UI.alert(err.message || String(err), 'Error'); }
@@ -597,16 +660,20 @@ const App = {
       const endAt = document.getElementById('exam-end')?.value || '';
       const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore').value) || 100);
       if (!title) { await UI.alert('Title is required.', 'Missing fields'); return; }
+      if (examType === 'regular') {
+        const qs = window._builderQuestions || [];
+        const missing = qs.filter(q => q.type !== 'essay' && (q.correct === undefined || q.correct === null || q.correct === ''));
+        if (missing.length) {
+          await UI.alert('Every question except Essay must have a correct answer configured.', 'Correct answers required');
+          return;
+        }
+      }
       let pubStart = startAt, pubEnd = endAt;
       if (!pubStart || !pubEnd) {
-        const toLocal = (d) => {
-          const pad = n => String(n).padStart(2, '0');
-          return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-        };
-        pubStart = await UI.prompt('Start date & time', toLocal(new Date()), 'Publish schedule');
-        if (!pubStart) return;
-        pubEnd = await UI.prompt('End date & time', toLocal(new Date(Date.now()+3600000)), 'Publish schedule');
-        if (!pubEnd) return;
+        const sched = await this.pickSchedule();
+        if (!sched) return;
+        pubStart = new Date(sched.startAt).toISOString();
+        pubEnd = new Date(sched.endAt).toISOString();
       }
       if (new Date(pubEnd) <= new Date(pubStart)) { await UI.alert('End must be after start.', 'Schedule'); return; }
       if (new Date(pubStart).getTime() < Date.now() - 60000) {
@@ -623,6 +690,7 @@ const App = {
           status: 'published',
           active: true
         });
+        this.clearAutosave();
         await UI.alert('Assessment published. Share the link or QR with students.', 'Published');
         this.showSharePanel(exam.id);
       } catch (err) {
@@ -777,6 +845,14 @@ const App = {
       const saveUpdate = async (publish) => {
         const title = document.getElementById('exam-title').value.trim();
         if (!title) { await UI.alert('Title is required.', 'Missing fields'); return; }
+      if (examType === 'regular') {
+        const qs = window._builderQuestions || [];
+        const missing = qs.filter(q => q.type !== 'essay' && (q.correct === undefined || q.correct === null || q.correct === ''));
+        if (missing.length) {
+          await UI.alert('Every question except Essay must have a correct answer configured.', 'Correct answers required');
+          return;
+        }
+      }
         const examType = document.getElementById('exam-type').value;
         const updates = {
           title,
@@ -980,32 +1056,149 @@ const App = {
   },
 
   async showStudentHistory() {
-    this.renderShell(`<h2 class="page-title">Assessment History</h2><div id="hist">Loading...</div>`, 'history');
-    const sessions = await Exam.listStudentSessions(Auth.currentUser.uid);
-    const el = document.getElementById('hist');
-    if (!sessions.length) {
-      el.innerHTML = '<p class="text-muted">No assessments yet.</p>';
-      return;
-    }
-    // Group by subject then type
-    const bySubject = {};
-    sessions.forEach(s => {
-      const sub = s.subject || 'General';
-      if (!bySubject[sub]) bySubject[sub] = { code: [], regular: [] };
-      if ((s.examType || 'code') === 'regular') bySubject[sub].regular.push(s);
-      else bySubject[sub].code.push(s);
-    });
+    this.renderShell(`
+      <h2 class="page-title">Assessment History</h2>
+      <div class="hist-section">
+        <div class="hist-section-head">
+          <h3>Code assessments</h3>
+          <input type="search" id="hist-filter-code" class="form-control" placeholder="Filter code assessments..." />
+        </div>
+        <div id="hist-code" class="table-wrap">Loading...</div>
+      </div>
+      <div class="hist-section mt-2">
+        <div class="hist-section-head">
+          <h3>Regular assessments</h3>
+          <input type="search" id="hist-filter-reg" class="form-control" placeholder="Filter regular assessments..." />
+        </div>
+        <div id="hist-reg" class="table-wrap">Loading...</div>
+      </div>
+    `, 'history');
 
-    let html = '';
-    Object.keys(bySubject).sort().forEach(sub => {
-      const g = bySubject[sub];
-      html += `<div class="card mt-2"><h3>${escapeHtml(sub)}</h3>`;
-      html += this._histBlock('Code assessments', g.code, 'code', sub);
-      html += this._histBlock('Regular assessments', g.regular, 'regular', sub);
-      html += `</div>`;
-    });
-    el.innerHTML = html;
+    const sessions = await Exam.listStudentSessions(Auth.currentUser.uid);
+    const grades = {};
+    for (const s of sessions) {
+      try {
+        const g = await Exam.getGrade(s.id);
+        if (g) grades[s.id] = g;
+      } catch (_) {}
+    }
+
+    const enrich = async (s) => {
+      const exam = await Exam.getExam(s.examId).catch(() => null);
+      const questions = exam ? Regular.flattenQuestions(exam) : [];
+      const total = questions.length || (s.code != null ? 1 : 0);
+      let correct = 0, incorrect = 0, unattempted = 0, partial = 0;
+      if (questions.length && s.answers) {
+        questions.forEach(q => {
+          const a = s.answers[q.id];
+          if (a === undefined || a === null || a === '' || (Array.isArray(a) && !a.length)) {
+            unattempted++;
+            return;
+          }
+          if (q.type === 'essay') { partial++; return; }
+          const g = Regular.gradeAnswers([q], { [q.id]: a });
+          if (g.score >= (g.maxScore || 1)) correct++;
+          else if (g.score > 0) partial++;
+          else incorrect++;
+        });
+      } else if (grades[s.id]) {
+        const pct = Number(grades[s.id].percent) || 0;
+        if (pct >= 100) correct = total;
+        else if (pct <= 0) incorrect = total;
+        else { partial = 1; incorrect = Math.max(0, total - 1); }
+      }
+      return { s, exam, total, correct, incorrect, unattempted, partial, grade: grades[s.id] };
+    };
+
+    const enriched = [];
+    for (const s of sessions) enriched.push(await enrich(s));
+
+    const renderTable = (list, elId, filterId) => {
+      const el = document.getElementById(elId);
+      const q = (document.getElementById(filterId)?.value || '').toLowerCase();
+      const filtered = q ? list.filter(x =>
+        (x.s.examTitle || '').toLowerCase().includes(q) ||
+        (x.s.subject || '').toLowerCase().includes(q)
+      ) : list;
+      if (!filtered.length) {
+        el.innerHTML = '<p class="text-muted">No assessments in this section.</p>';
+        return;
+      }
+      el.innerHTML = `<table class="table">
+        <thead><tr>
+          <th>Title</th><th>Subject</th><th>Status</th>
+          <th>Total Questions</th><th>Correct</th><th>Incorrect</th><th>Unattempted</th><th>Partially Correct</th>
+        </tr></thead>
+        <tbody>${filtered.map(x => `
+          <tr class="hist-row" style="cursor:pointer" onclick="App.showStudentAttempt('${x.s.id}')">
+            <td data-label="Title">${escapeHtml(x.s.examTitle || x.s.examId)}</td>
+            <td data-label="Subject">${escapeHtml(x.s.subject || '')}</td>
+            <td data-label="Status">${escapeHtml(x.s.status || '')}</td>
+            <td data-label="Total">${x.total}</td>
+            <td data-label="Correct">${x.correct}</td>
+            <td data-label="Incorrect">${x.incorrect}</td>
+            <td data-label="Unattempted">${x.unattempted}</td>
+            <td data-label="Partial">${x.partial}</td>
+          </tr>`).join('')}</tbody></table>`;
+    };
+
+    const code = enriched.filter(x => (x.s.examType || 'code') !== 'regular');
+    const reg = enriched.filter(x => x.s.examType === 'regular');
+    renderTable(code, 'hist-code', 'hist-filter-code');
+    renderTable(reg, 'hist-reg', 'hist-filter-reg');
+    document.getElementById('hist-filter-code').oninput = () => renderTable(code, 'hist-code', 'hist-filter-code');
+    document.getElementById('hist-filter-reg').oninput = () => renderTable(reg, 'hist-reg', 'hist-filter-reg');
   },
+
+  async showStudentAttempt(sessionId) {
+    const snap = await window.db.collection('sessions').doc(sessionId).get();
+    if (!snap.exists) { await UI.alert('Not found.', 'Error'); return; }
+    const session = { id: snap.id, ...snap.data() };
+    const exam = await Exam.getExam(session.examId);
+    const questions = exam ? Regular.flattenQuestions(exam) : [];
+    this.renderShell(`
+      <div class="card-header page-header-responsive">
+        <h2 class="page-title">${escapeHtml(session.examTitle || 'Attempt')}</h2>
+        <div class="action-btns">
+          <button class="btn btn-ghost" id="export-attempt-pdf">Export PDF</button>
+          <button class="btn btn-ghost" onclick="App.showStudentHistory()">Back</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="attempt-detail-table">
+          <thead><tr><th>Question</th><th>Your response</th><th>Correct answer</th></tr></thead>
+          <tbody>
+            ${questions.length ? questions.map((q, i) => {
+              const resp = session.answers ? session.answers[q.id] : (session.code || '');
+              let correct = q.correct;
+              if (q.type === 'multiple' || q.type === 'truefalse' || q.type === 'modified_tf') {
+                if (Array.isArray(q.correct)) correct = (q.correct || []).map(i => (q.options||[])[i]).join(', ');
+                else if (q.options) correct = q.options[q.correct] ?? q.correct;
+              }
+              if (q.type === 'essay') correct = '(Teacher evaluated)';
+              if (q.type === 'fill' && q.blanks) correct = q.blanks.map(b => (b.correct||[]).join('/')).join('; ');
+              return `<tr>
+                <td data-label="Question"><strong>Q${i+1}.</strong> ${escapeHtml(q.prompt||'')}</td>
+                <td data-label="Response">${escapeHtml(typeof resp === 'object' ? JSON.stringify(resp) : String(resp ?? '—'))}</td>
+                <td data-label="Correct">${escapeHtml(typeof correct === 'object' ? JSON.stringify(correct) : String(correct ?? '—'))}</td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="3"><pre class="student-code-preview">${escapeHtml(session.code||'No response')}</pre></td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `, 'history');
+    document.getElementById('export-attempt-pdf').onclick = () => {
+      const w = window.open('', '_blank');
+      w.document.write(`<!DOCTYPE html><html><head><title>Attempt</title>
+        <style>body{font-family:system-ui;padding:24px}table{border-collapse:collapse;width:100%}
+        th,td{border:1px solid #ccc;padding:8px;font-size:12px;vertical-align:top}th{background:#eee}</style></head>
+        <body><h1>${escapeHtml(session.examTitle||'')}</h1>
+        ${document.getElementById('attempt-detail-table').outerHTML}
+        <script>window.onload=function(){window.print()}<\/script></body></html>`);
+      w.document.close();
+    };
+  },
+
 
   _histBlock(title, list, type, subject) {
     const items = list.map(s => `
@@ -1119,11 +1312,22 @@ const App = {
         return this.showStudentHome();
       }
       const session = await Exam.joinExam(examId);
+      const shared = await CodeEditor.requestDisplayShare();
+      if (!shared) {
+        await UI.alert('Screen sharing is required to take this assessment. Please allow screen share and try again.', 'Permission required');
+        this.clearExamQuery();
+        return this.showStudentHome();
+      }
       if ((exam.examType || session.examType) === 'regular') {
         return this.startRegularExam(session);
       }
       return this.startCodeExam(session);
     } catch (err) {
+      this.clearExamQuery();
+      if (err.code === 'already-submitted') {
+        await UI.alert('You already submitted this assessment.', 'Already submitted');
+        return this.showStudentHistory();
+      }
       await UI.alert(err.message || String(err), 'Error');
       this.showStudentHome();
     }
@@ -1209,6 +1413,7 @@ const App = {
       this.showStudentHome();
     };
     this._runTimer(session);
+    this._watchTeacherEnd(session.id);
   },
 
   async startRegularExam(session) {
@@ -1268,6 +1473,7 @@ const App = {
       CodeEditor.beginSubmit();
       await Exam.updateSessionAnswers(session.id, Regular.collectAnswers(box));
       await Exam.submitSession(session.id, 'manual');
+      this.clearExamQuery();
       await UI.alert('Submitted successfully.', 'Done');
       this.showStudentHome();
     };
@@ -1305,25 +1511,51 @@ const App = {
   async publishDraft(examId) {
     const exam = await Exam.getExam(examId);
     if (!exam) { await UI.alert('Not found.', 'Error'); return; }
-    const toLocal = (ms) => {
-      const d = new Date(ms || Date.now());
-      const pad = n => String(n).padStart(2, '0');
-      return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-    };
-    const start = await UI.prompt('Start time (YYYY-MM-DDTHH:MM)', toLocal(Date.now()), 'Publish');
-    if (!start) return;
-    const end = await UI.prompt('End time (YYYY-MM-DDTHH:MM)', toLocal(Date.now() + 3600000), 'Publish');
-    if (!end) return;
-    const startAt = new Date(start).getTime();
-    const endAt = new Date(end).getTime();
-    if (endAt <= startAt) { await UI.alert('End must be after start.', 'Schedule'); return; }
-    if (startAt < Date.now() - 60000) { await UI.alert('Start cannot be in the past.', 'Schedule'); return; }
+    const schedule = await this.pickSchedule();
+    if (!schedule) return;
     await Exam.updateExam(examId, {
-      startAt, endAt, status: 'published', active: true,
-      durationMinutes: Math.max(1, Math.round((endAt - startAt) / 60000))
+      startAt: schedule.startAt, endAt: schedule.endAt, status: 'published', active: true,
+      durationMinutes: Math.max(1, Math.round((schedule.endAt - schedule.startAt) / 60000))
     });
     await UI.alert('Assessment published.', 'Published');
     this.showSharePanel(examId);
+  },
+
+  pickSchedule() {
+    return new Promise((resolve) => {
+      const toLocal = (d) => {
+        const pad = n => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      };
+      const now = new Date();
+      const later = new Date(now.getTime() + 3600000);
+      UI._root().innerHTML = `<div class="modal-overlay ui-modal-overlay"><div class="modal ui-modal">
+        <h2>Publish schedule</h2>
+        <div class="form-group"><label>Start</label>
+          <input type="datetime-local" id="sched-start" class="form-control" value="${toLocal(now)}" /></div>
+        <div class="form-group"><label>End</label>
+          <input type="datetime-local" id="sched-end" class="form-control" value="${toLocal(later)}" /></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="sched-cancel">Cancel</button>
+          <button class="btn btn-primary" id="sched-ok">Publish</button>
+        </div>
+      </div></div>`;
+      document.getElementById('sched-cancel').onclick = () => { UI.close(); resolve(null); };
+      document.getElementById('sched-ok').onclick = () => {
+        const startAt = new Date(document.getElementById('sched-start').value).getTime();
+        const endAt = new Date(document.getElementById('sched-end').value).getTime();
+        if (!startAt || !endAt || endAt <= startAt) {
+          UI.alert('End must be after start.', 'Schedule');
+          return;
+        }
+        if (startAt < Date.now() - 60000) {
+          UI.alert('Start cannot be in the past.', 'Schedule');
+          return;
+        }
+        UI.close();
+        resolve({ startAt, endAt });
+      };
+    });
   },
 
   async showIntegrityHistory(examId) {
@@ -1572,6 +1804,7 @@ const App = {
           <td>${g && g.percent != null ? g.percent+'%' : '—'}</td>
           <td class="action-btns">
             <button class="btn btn-sm btn-primary" onclick="App.gradeSession('${s.id}','${examId}')">Grade</button>
+            <button class="btn btn-sm btn-ghost" onclick="App.reEvaluateSession('${s.id}','${examId}')">Re-evaluate</button>
             <button class="btn btn-sm btn-ghost" onclick="App.exportStudentReport('${s.id}','${examId}')">Export</button>
           </td></tr>`;
       }).join('')}</tbody></table></div>`;

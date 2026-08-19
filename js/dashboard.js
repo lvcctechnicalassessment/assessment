@@ -164,7 +164,7 @@ const Dashboard = {
         </div>
       </div>
       <div id="integrity-modal-root"></div>
-      <div class="live-layout live-layout-fixed">
+      <div class="live-layout live-layout-fixed live-3panel">
         <div class="live-main">
           <div class="live-main-toolbar">
             <input type="search" id="session-screen-filter" class="form-control" placeholder="Filter student screens by name or email..." />
@@ -289,25 +289,81 @@ const Dashboard = {
       this.showCriticalPaste(critical);
       return;
     }
-    // non-blocking: only panel update (no popup for normal paste)
+    const msg = notifs.find(n => n.type === 'paste-message' && n.id !== this._lastPasteAlert && n.extra?.studentMessage);
+    if (msg) {
+      this._lastPasteAlert = msg.id;
+      this.showStudentMessage(msg);
+    }
+  },
+
+  showStudentMessage(n) {
+    const root = document.getElementById('integrity-modal-root');
+    if (!root) return;
+    const studentMsg = n.extra?.studentMessage || '';
+    root.innerHTML = `
+      <div class="modal-overlay ui-modal-overlay" id="student-msg-modal">
+        <div class="modal ui-modal">
+          <h2>Message from student</h2>
+          <p class="ui-modal-body"><strong>${escapeHtml(n.studentName || n.studentEmail)}</strong></p>
+          <p class="ui-modal-body">${escapeHtml(studentMsg)}</p>
+          <div id="sm-reply-box" class="hidden form-group"><label>Reply</label>
+            <textarea id="sm-reply-text" class="form-control" rows="3"></textarea>
+            <button class="btn btn-primary mt-1" id="sm-send">Send reply</button>
+          </div>
+          <div class="modal-actions action-btns cp-actions-row">
+            <button class="btn btn-primary" id="sm-reply">Reply</button>
+            <button class="btn btn-ghost" id="sm-close">Close</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('sm-close').onclick = () => document.getElementById('student-msg-modal')?.remove();
+    document.getElementById('sm-reply').onclick = () => document.getElementById('sm-reply-box')?.classList.remove('hidden');
+    document.getElementById('sm-send').onclick = async () => {
+      const text = document.getElementById('sm-reply-text').value.trim();
+      if (!text) return;
+      await window.db.collection('sessions').doc(n.sessionId).update({
+        instructorReply: text,
+        instructorReplyAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      document.getElementById('student-msg-modal')?.remove();
+      await UI.alert('Reply sent.', 'Sent');
+    };
   },
 
   showCriticalPaste(n) {
     const root = document.getElementById('integrity-modal-root');
     if (!root) return;
+    const studentMsg = n.extra?.studentMessage || n.studentMessage || '';
     root.innerHTML = `
       <div class="modal-overlay ui-modal-overlay" id="critical-paste-modal">
         <div class="modal ui-modal">
           <h2>3rd paste warning</h2>
           <p class="ui-modal-body"><strong>${escapeHtml(n.studentName || n.studentEmail)}</strong> has reached 3 copy-paste warnings.</p>
-          <div class="modal-actions action-btns" style="flex-wrap:wrap">
+          ${studentMsg ? `<p class="ui-modal-body"><em>Student message:</em> ${escapeHtml(studentMsg)}</p>` : ''}
+          <div id="cp-reply-box" class="hidden form-group"><label>Reply to student</label>
+            <textarea id="cp-reply-text" class="form-control" rows="3"></textarea>
+            <button class="btn btn-primary mt-1" id="cp-send-reply">Send reply</button>
+          </div>
+          <div class="modal-actions action-btns cp-actions-row">
             <button class="btn btn-danger" id="cp-end">End assessment</button>
             <button class="btn btn-ghost" id="cp-deduct">Deduct points</button>
-            <button class="btn btn-ghost" id="cp-ignore">Ignore</button>
+            <button class="btn btn-ghost" id="cp-reply">Reply</button>
+            <button class="btn btn-ghost" id="cp-ignore">Close</button>
           </div>
         </div>
       </div>`;
     document.getElementById('cp-ignore').onclick = () => document.getElementById('critical-paste-modal')?.remove();
+    document.getElementById('cp-reply').onclick = () => document.getElementById('cp-reply-box')?.classList.remove('hidden');
+    document.getElementById('cp-send-reply').onclick = async () => {
+      const text = document.getElementById('cp-reply-text').value.trim();
+      if (!text) return;
+      await window.db.collection('sessions').doc(n.sessionId).update({
+        instructorReply: text,
+        instructorReplyAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      await UI.alert('Reply sent to student.', 'Sent');
+      document.getElementById('critical-paste-modal')?.remove();
+    };
     document.getElementById('cp-end').onclick = async () => {
       await Exam.submitSession(n.sessionId, 'teacher-ended');
       document.getElementById('critical-paste-modal')?.remove();

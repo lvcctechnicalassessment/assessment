@@ -14,11 +14,8 @@ const QUESTION_TYPES = [
   { id: 'categorize', label: 'Categorize' },
   { id: 'table', label: 'Table fill' },
   { id: 'passage', label: 'Passage' },
-  { id: 'graphing', label: 'Graphing' },
-  { id: 'math', label: 'Math response' },
   { id: 'dragdrop', label: 'Drag and drop' },
   { id: 'hottext', label: 'Hot text' },
-  { id: 'matchtable', label: 'Match table' },
   { id: 'labeling', label: 'Labeling' },
   { id: 'hotspot', label: 'Hotspot' },
   { id: 'wordbox', label: 'Word Box' }

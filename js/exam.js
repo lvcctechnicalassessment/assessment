@@ -157,7 +157,12 @@ const Exam = {
 
     if (!existing.empty) {
       const s = { id: existing.docs[0].id, ...existing.docs[0].data(), exam };
-      // Re-open if still within window and was timeout? keep status
+      if (s.status === 'submitted' || s.status === 'ended' || s.submitReason === 'teacher-ended') {
+        const err = new Error('You already submitted this assessment.');
+        err.code = 'already-submitted';
+        err.session = s;
+        throw err;
+      }
       return s;
     }
 
