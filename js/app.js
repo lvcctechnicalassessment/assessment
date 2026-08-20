@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.4.9</div>
+          <div class="app-version">Build v1.5.0</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -168,7 +168,7 @@ const App = {
         <div class="header-left">
           <div class="logo">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.4.9</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.5.0</span>
           </div>
         </div>
         <div class="header-right">
