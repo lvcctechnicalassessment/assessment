@@ -205,14 +205,17 @@ const Exam = {
   },
 
   async submitSession(sessionId, reason = 'manual') {
-    try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+    try { if (window.Monitor) Monitor.markSubmitting(); } catch (_) {}
+    try { if (window.CodeEditor) CodeEditor.beginSubmit(); } catch (_) {}
     await window.db.collection('sessions').doc(sessionId).update({
       status: 'submitted',
       submitReason: reason,
       submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
       screenThumb: null,
+      cameraThumb: null,
       monitorFeed: 'SUBMITTED',
-      isWindowFocused: false
+      isWindowFocused: false,
+      monitoringStopped: true
     });
     try {
       await window.db.collection('liveScreens').doc(sessionId).delete();
@@ -265,6 +268,10 @@ const Exam = {
   },
 
   async logEvent(sessionId, type, details = '', extra = {}) {
+    try {
+      const snap = await window.db.collection('sessions').doc(sessionId).get();
+      if (snap.exists && (snap.data().status === 'submitted' || snap.data().monitoringStopped)) return;
+    } catch (_) {}
     this._lastLog = this._lastLog || {};
     const dedupeKey = sessionId + '|' + type + '|' + details;
     const now = Date.now();

@@ -1056,112 +1056,194 @@ const App = {
       <div class="hist-section">
         <div class="hist-section-head">
           <h3>Code assessments</h3>
-          <input type="search" id="hist-filter-code" class="form-control" placeholder="Filter code assessments..." />
+          <div class="hist-head-actions">
+            <input type="search" id="hist-filter-code" class="form-control" placeholder="Filter code assessments..." />
+            <button type="button" class="btn btn-primary btn-sm" id="mock-from-code">Create mock exam</button>
+          </div>
         </div>
         <div id="hist-code" class="table-wrap">Loading...</div>
       </div>
       <div class="hist-section mt-2">
         <div class="hist-section-head">
           <h3>Regular assessments</h3>
-          <input type="search" id="hist-filter-reg" class="form-control" placeholder="Filter regular assessments..." />
+          <div class="hist-head-actions">
+            <input type="search" id="hist-filter-reg" class="form-control" placeholder="Filter regular assessments..." />
+            <button type="button" class="btn btn-primary btn-sm" id="mock-from-reg">Create mock exam</button>
+          </div>
         </div>
         <div id="hist-reg" class="table-wrap">Loading...</div>
+      </div>
+      <div class="hist-section mt-2">
+        <div class="hist-section-head">
+          <h3>Mock history</h3>
+        </div>
+        <div id="hist-mock" class="table-wrap">Loading...</div>
       </div>
     `, 'history');
 
     const sessions = await Exam.listStudentSessions(Auth.currentUser.uid);
-    const grades = {};
-    for (const s of sessions) {
-      try {
-        const g = await Exam.getGrade(s.id);
-        if (g) grades[s.id] = g;
-      } catch (_) {}
-    }
+    window._histSessions = sessions;
 
-    const enrich = async (s) => {
-      const exam = await Exam.getExam(s.examId).catch(() => null);
-      const questions = exam ? Regular.flattenQuestions(exam) : [];
-      const total = questions.length || (s.code != null ? 1 : 0);
-      let correct = 0, incorrect = 0, unattempted = 0, partial = 0;
-      if (questions.length && s.answers) {
-        questions.forEach(q => {
-          const a = s.answers[q.id];
-          if (a === undefined || a === null || a === '' || (Array.isArray(a) && !a.length)) {
-            unattempted++;
-            return;
-          }
-          if (q.type === 'essay') { partial++; return; }
-          const g = Regular.gradeAnswers([q], { [q.id]: a });
-          if (g.score >= (g.maxScore || 1)) correct++;
-          else if (g.score > 0) partial++;
-          else incorrect++;
-        });
-      } else if (grades[s.id]) {
-        const pct = Number(grades[s.id].percent) || 0;
-        if (pct >= 100) correct = total;
-        else if (pct <= 0) incorrect = total;
-        else { partial = 1; incorrect = Math.max(0, total - 1); }
-      }
-      return { s, exam, total, correct, incorrect, unattempted, partial, grade: grades[s.id] };
+    const renderTables = () => {
+      const qCode = (document.getElementById('hist-filter-code')?.value || '').toLowerCase();
+      const qReg = (document.getElementById('hist-filter-reg')?.value || '').toLowerCase();
+      const code = sessions.filter(s => (s.examType || 'code') === 'code' && !s.isMock);
+      const reg = sessions.filter(s => (s.examType || '') === 'regular' && !s.isMock);
+      const mocks = sessions.filter(s => s.isMock);
+
+      const row = (s, withCb) => {
+        const title = s.examTitle || s.subject || 'Assessment';
+        const match = (s.examType === 'regular' ? qReg : qCode);
+        if (match && !title.toLowerCase().includes(match) && !(s.subject||'').toLowerCase().includes(match)) return '';
+        return `<tr>
+          <td>${withCb ? `<input type="checkbox" class="mock-pick" data-sid="${s.id}" data-eid="${s.examId||''}" />` : ''}
+            <a href="#" class="link" data-open="${s.id}">${escapeHtml(title)}</a></td>
+          <td>${escapeHtml(s.subject || '—')}</td>
+          <td>${s.score != null ? s.score : '—'}</td>
+          <td>${s.submittedAt?.toDate ? s.submittedAt.toDate().toLocaleString() : '—'}</td>
+        </tr>`;
+      };
+
+      const table = (list, withCb) => {
+        if (!list.length) return '<p class="text-muted">No assessments in this section.</p>';
+        return `<table class="table"><thead><tr>
+          <th>Title</th><th>Subject</th><th>Score</th><th>Submitted</th>
+        </tr></thead><tbody>${list.map(s => row(s, withCb)).join('')}</tbody></table>`;
+      };
+
+      document.getElementById('hist-code').innerHTML = table(code, true);
+      document.getElementById('hist-reg').innerHTML = table(reg, true);
+      document.getElementById('hist-mock').innerHTML = mocks.length ? `<table class="table"><thead><tr>
+        <th>Title</th><th>Subject</th><th>Score</th><th></th></tr></thead><tbody>
+        ${mocks.map(s => `<tr>
+          <td><a href="#" class="link" data-open="${s.id}">${escapeHtml(s.examTitle || 'Mock')}</a></td>
+          <td>${escapeHtml(s.subject || '—')}</td>
+          <td>${s.score != null ? s.score : '—'}</td>
+          <td><button class="btn btn-sm btn-primary" data-retake-mock="${s.id}">Retake (randomized)</button></td>
+        </tr>`).join('')}</tbody></table>` : '<p class="text-muted">No mock assessments yet.</p>';
+
+      document.querySelectorAll('[data-open]').forEach(a => {
+        a.onclick = (e) => { e.preventDefault(); App.showStudentAttempt(a.getAttribute('data-open')); };
+      });
+      document.querySelectorAll('[data-retake-mock]').forEach(btn => {
+        btn.onclick = () => App.retakeMock(btn.getAttribute('data-retake-mock'));
+      });
     };
 
-    const enriched = [];
-    for (const s of sessions) enriched.push(await enrich(s));
+    renderTables();
+    document.getElementById('hist-filter-code').oninput = renderTables;
+    document.getElementById('hist-filter-reg').oninput = renderTables;
 
-    const renderTable = (list, elId, filterId) => {
-      const el = document.getElementById(elId);
-      const q = (document.getElementById(filterId)?.value || '').toLowerCase();
-      const filtered = q ? list.filter(x =>
-        (x.s.examTitle || '').toLowerCase().includes(q) ||
-        (x.s.subject || '').toLowerCase().includes(q)
-      ) : list;
-      if (!filtered.length) {
-        el.innerHTML = '<p class="text-muted">No assessments in this section.</p>';
+    const buildMock = async (type) => {
+      const boxes = [...document.querySelectorAll(`.mock-pick`)].filter(cb => {
+        if (!cb.checked) return false;
+        const s = sessions.find(x => x.id === cb.getAttribute('data-sid'));
+        if (!s) return false;
+        if (type === 'code') return (s.examType || 'code') === 'code';
+        return (s.examType || '') === 'regular';
+      });
+      if (!boxes.length) {
+        await UI.alert('Select at least one assessment in this section.', 'Mock exam');
         return;
       }
-      el.innerHTML = `<table class="table">
-        <thead><tr>
-          <th>Title</th><th>Subject</th><th>Status</th>
-          <th>Total Questions</th><th>Correct</th><th>Incorrect</th><th>Unattempted</th><th>Partially Correct</th>
-        </tr></thead>
-        <tbody>${filtered.map(x => `
-          <tr class="hist-row" style="cursor:pointer" onclick="App.showStudentAttempt('${x.s.id}')">
-            <td data-label="Title">${escapeHtml(x.s.examTitle || x.s.examId)}</td>
-            <td data-label="Subject">${escapeHtml(x.s.subject || '')}</td>
-            <td data-label="Status">${escapeHtml(x.s.status || '')}</td>
-            <td data-label="Total">${x.total}</td>
-            <td data-label="Correct">${x.correct}</td>
-            <td data-label="Incorrect">${x.incorrect}</td>
-            <td data-label="Unattempted">${x.unattempted}</td>
-            <td data-label="Partial">${x.partial}</td>
-          </tr>`).join('')}</tbody></table>`;
+      await this.startMockFromSessions(boxes.map(b => b.getAttribute('data-sid')), type);
     };
-
-    const code = enriched.filter(x => (x.s.examType || 'code') !== 'regular');
-    const reg = enriched.filter(x => x.s.examType === 'regular');
-    renderTable(code, 'hist-code', 'hist-filter-code');
-    renderTable(reg, 'hist-reg', 'hist-filter-reg');
-    document.getElementById('hist-filter-code').oninput = () => renderTable(code, 'hist-code', 'hist-filter-code');
-    document.getElementById('hist-filter-reg').oninput = () => renderTable(reg, 'hist-reg', 'hist-filter-reg');
+    document.getElementById('mock-from-code').onclick = () => buildMock('code');
+    document.getElementById('mock-from-reg').onclick = () => buildMock('regular');
   },
+
+  async startMockFromSessions(sessionIds, type) {
+    const allQ = [];
+    for (const sid of sessionIds) {
+      const snap = await window.db.collection('sessions').doc(sid).get();
+      if (!snap.exists) continue;
+      const s = snap.data();
+      let qs = s.questionsSnapshot || [];
+      if (!qs.length && s.examId) {
+        const exam = await Exam.getExam(s.examId);
+        if (exam) qs = Regular.flattenQuestions(exam);
+      }
+      qs.forEach(q => allQ.push({ ...q }));
+    }
+    if (!allQ.length) {
+      await UI.alert('No questions found in the selected assessments.', 'Mock exam');
+      return;
+    }
+    // shuffle
+    for (let i = allQ.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allQ[i], allQ[j]] = [allQ[j], allQ[i]];
+    }
+    const mockExam = {
+      id: 'mock_' + Date.now(),
+      title: 'Mock exam',
+      examType: type === 'code' ? 'code' : 'regular',
+      subject: 'Mock',
+      sections: [{ id: 'm1', title: 'Mock', instructions: 'Practice mock — randomized from your history.', questions: allQ }],
+      questions: allQ,
+      durationMinutes: Math.max(30, allQ.length * 2)
+    };
+    const session = {
+      id: 'test_mock_' + Date.now(),
+      examId: mockExam.id,
+      exam: mockExam,
+      answers: {},
+      status: 'mock',
+      isMock: true,
+      examTitle: mockExam.title,
+      examType: mockExam.examType,
+      endsAt: Date.now() + mockExam.durationMinutes * 60000,
+      studentEmail: Auth.userProfile.email,
+      studentName: Auth.userProfile.name || ''
+    };
+    window._testMode = true;
+    window._mockSessionMeta = { questions: allQ, type: mockExam.examType };
+    if (mockExam.examType === 'regular') return this.startRegularExam(session);
+    return this.startCodeExam(session);
+  },
+
+  async retakeMock(sessionId) {
+    const snap = await window.db.collection('sessions').doc(sessionId).get();
+    if (!snap.exists) {
+      // local-only mock may not be in DB — rebuild from meta if needed
+      await UI.alert('Could not load that mock. Create a new mock from history.', 'Retake');
+      return;
+    }
+    const s = snap.data();
+    let qs = s.questionsSnapshot || [];
+    if (!qs.length) {
+      await UI.alert('No questions stored for this mock.', 'Retake');
+      return;
+    }
+    for (let i = qs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [qs[i], qs[j]] = [qs[j], qs[i]];
+    }
+    await this.startMockFromSessions([sessionId], s.examType || 'regular');
+  },
+
 
   formatAnswerDisplay(q, value, isCorrectKey = false) {
     if (!q) return '—';
-    const opts = (q.options || []).map((o, i) => {
-      const s = o == null ? '' : String(o).trim();
-      return s || ('Option ' + (i + 1));
-    });
+    const rawOpts = q.options || [];
+    const opts = rawOpts.map((o) => (o == null ? '' : String(o).trim()));
     const labelAt = (i) => {
+      if (i === true || i === 'true') return 'True';
+      if (i === false || i === 'false') return 'False';
       const n = Number(i);
-      if (!Number.isNaN(n) && opts[n] != null) return opts[n];
-      return i == null || i === '' ? '—' : String(i);
+      if (!Number.isNaN(n) && n >= 0 && n < rawOpts.length) {
+        const s = opts[n];
+        if (s) return s;
+        return String(rawOpts[n] ?? '') || ('Choice ' + (n + 1));
+      }
+      if (i != null && i !== '') return String(i);
+      return '—';
     };
-
     if (isCorrectKey) {
       if (q.type === 'essay') return '(Evaluated by instructor)';
       if (q.type === 'multiple' || q.type === 'dropdown' || q.type === 'multiselect') {
         if (q.multiCorrect === true && Array.isArray(q.correct)) {
-          return q.correct.map(labelAt).join(', ') || '—';
+          return q.correct.map(labelAt).filter(Boolean).join(', ') || '—';
         }
         if (q.correct === undefined || q.correct === null || q.correct === '') return '—';
         return labelAt(q.correct);
@@ -1178,16 +1260,13 @@ const App = {
             return 'Blank ' + (i + 1) + ': ' + (c || '—');
           }).join(' · ');
         }
-        if (q.correct != null && q.correct !== '') return String(q.correct);
-        return '—';
+        return q.correct != null && q.correct !== '' ? String(q.correct) : '—';
       }
       if (q.correct != null && q.correct !== '') {
         return typeof q.correct === 'object' ? JSON.stringify(q.correct) : String(q.correct);
       }
       return '—';
     }
-
-    // student response
     if (value === undefined || value === null || value === '') return '—';
     if (q.type === 'essay') return String(value);
     if (q.type === 'multiple' || q.type === 'dropdown' || q.type === 'multiselect') {
@@ -1688,74 +1767,143 @@ const App = {
   },
 
   async startRegularExam(session) {
-    const exam = session.exam;
-    const questions = exam.questions || [];
-    document.getElementById('app').innerHTML = `
-      <div class="lock-banner hidden" id="lock-banner"></div>
-      <div id="timesup-overlay" class="timesup-overlay hidden">
-        <div class="timesup-box">
-          <h1>Time's up!</h1>
-          <p>Your answers were submitted automatically.</p>
-          <div class="action-btns" style="justify-content:center;margin-top:1rem">
-            <button class="btn btn-primary" onclick="App.showStudentHistory()">View results</button>
-            <button class="btn btn-ghost" onclick="App.showStudentHome()">Back to home</button>
+    const exam = session.exam || await Exam.getExam(session.examId);
+    const groups = (typeof Regular.groupQuestionsForTake === 'function')
+      ? Regular.groupQuestionsForTake(exam)
+      : (Regular.flattenQuestions(exam) || []).map(q => ({ kind: 'single', question: q }));
+    if (!groups.length) {
+      await UI.alert('This assessment has no questions yet.', 'Empty');
+      return this.showStudentHome();
+    }
+    let gi = 0;
+    let pi = 0;
+    const answers = { ...(session.answers || {}) };
+    window._takeAnswers = answers;
+
+    const renderTake = () => {
+      if (gi >= groups.length) {
+        this.finishRegularTake(session, answers, 'manual');
+        return;
+      }
+      const g = groups[gi];
+      const progress = Math.round((gi / groups.length) * 100);
+      let body = '';
+      if (g.kind === 'passage') {
+        const list = g.questions && g.questions.length ? g.questions : [g.passage];
+        if (pi >= list.length) pi = list.length - 1;
+        const pq = list[pi];
+        const passageHtml = (g.passage.passages || []).map(pp =>
+          `<div class="passage-doc"><h4>${escapeHtml(pp.title || 'Passage')}</h4>${pp.html || ''}</div>`
+        ).join('') || `<div class="passage-doc">${escapeHtml(g.passage.prompt || '')}</div>`;
+        body = `<div class="take-passage">
+          <div class="take-passage-left">${passageHtml}</div>
+          <div class="take-passage-right" id="take-q-box">${Regular.renderStudentQuestion(pq, answers[pq.id])}</div>
+        </div>`;
+      } else {
+        const q = g.question;
+        body = `<div class="take-single" id="take-q-box">${Regular.renderStudentQuestion(q, answers[q.id])}</div>`;
+      }
+
+      this.renderShell(`
+        <div class="exam-take-wrap">
+          <div class="take-topbar">
+            <div class="take-progress"><div class="take-progress-bar" style="width:${progress}%"></div></div>
+            <div class="take-topbar-meta">
+              <span class="take-count">${gi + 1} / ${groups.length}</span>
+              <span id="exam-timer" class="timer-badge">--:--</span>
+              <button type="button" class="btn btn-sm btn-danger" id="take-end-btn">End assessment</button>
+            </div>
+          </div>
+          <div class="take-stage">${body}</div>
+          <div class="take-nav">
+            ${g.kind === 'passage' ? '<button type="button" class="btn btn-ghost" id="take-skip-passage">Skip passage</button>' : ''}
+            <button type="button" class="btn btn-ghost" id="take-skip">Skip</button>
+            <button type="button" class="btn btn-primary" id="take-next">${gi >= groups.length - 1 && (g.kind !== 'passage' || pi >= (g.questions||[1]).length - 1) ? 'Submit' : 'Next'}</button>
           </div>
         </div>
-      </div>
-      <header class="app-header exam-header-bar">
-        <div class="logo"><span class="logo-text">Regular Assessment</span></div>
-        <div class="user-info">
-          <span id="exam-timer" class="exam-timer">--:--</span>
-          <button class="btn btn-sm btn-danger" id="submit-exam-btn">Submit</button>
-        </div>
-      </header>
-      <div class="regular-exam-wrap">
-        <div class="card"><h3>${escapeHtml(exam.title)}</h3>
-          <p class="text-muted">${escapeHtml(exam.instructions || '')}</p></div>
-        <div id="regular-questions"></div>
-      </div>`;
+      `, 'exam');
 
-    const box = document.getElementById('regular-questions');
-    const answers = session.answers || {};
-    box.innerHTML = questions.map(q => Regular.renderStudentQuestion(q, answers[q.id])).join('') ||
-      '<p class="text-muted">No questions in this assessment.</p>';
+      const box = document.getElementById('take-q-box');
+      const save = () => {
+        Object.assign(answers, Regular.collectAnswers(box));
+        window._takeAnswers = answers;
+        if (!String(session.id).startsWith('test_')) {
+          Exam.updateSessionAnswers(session.id, answers).catch(() => {});
+        }
+      };
+      Regular.bindStudentMC(box, save);
+      box.querySelectorAll('input, textarea, select').forEach(el => {
+        el.addEventListener('change', save);
+        el.addEventListener('input', save);
+      });
 
-    let saveTimer;
-    const save = () => {
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        const a = Regular.collectAnswers(box);
-        Exam.updateSessionAnswers(session.id, a).catch(console.error);
-      }, 600);
+      const advance = (skipWholePassage) => {
+        save();
+        if (g.kind === 'passage' && !skipWholePassage) {
+          const list = g.questions && g.questions.length ? g.questions : [g.passage];
+          if (pi < list.length - 1) {
+            pi += 1;
+            renderTake();
+            return;
+          }
+        }
+        gi += 1;
+        pi = 0;
+        if (gi >= groups.length) {
+          this.finishRegularTake(session, answers, 'manual');
+        } else {
+          renderTake();
+        }
+      };
+
+      document.getElementById('take-next').onclick = () => advance(false);
+      document.getElementById('take-skip').onclick = () => advance(false);
+      document.getElementById('take-skip-passage')?.addEventListener('click', () => advance(true));
+      document.getElementById('take-end-btn').onclick = async () => {
+        const ok = await UI.confirm(
+          'End this assessment now? Confirming will automatically submit your answers and end the assessment.',
+          'End assessment'
+        );
+        if (!ok) return;
+        save();
+        await this.finishRegularTake(session, answers, 'manual');
+      };
+
+      this.injectTestModeBar();
+      if (!String(session.id).startsWith('test_')) this.injectStudentChatFab(session.id);
     };
-    Regular.bindStudentMC(box, save);
-    box.addEventListener('change', save);
-    box.addEventListener('input', save);
 
-    // Integrity for regular (copy/paste etc.)
-    CodeEditor.sessionId = session.id;
-    CodeEditor.examId = exam.id;
-    CodeEditor._setupAntiCheat();
-    // Monitor handles screen/heartbeat
-    // CodeEditor.startScreenShare(2500);
     this._endedHandled = false;
     this._watchTeacherEnd(session.id);
-    this.injectTestModeBar();
-    this.injectStudentChatFab(session.id);
-
-    document.getElementById('submit-exam-btn').onclick = async () => {
-      const ok = await UI.confirm('Submit this assessment? You will not be able to edit further.', 'Submit');
-      if (!ok) return;
-      CodeEditor.beginSubmit();
-      await Exam.updateSessionAnswers(session.id, Regular.collectAnswers(box));
-      await Exam.submitSession(session.id, 'manual');
-      this.clearExamQuery();
-      await UI.alert('Submitted successfully.', 'Done');
-      this.showStudentHome();
-    };
+    renderTake();
     this._runTimer(session, async () => {
-      await Exam.updateSessionAnswers(session.id, Regular.collectAnswers(box));
+      Object.assign(answers, window._takeAnswers || {});
+      await this.finishRegularTake(session, answers, 'time-up');
     });
+  },
+
+  async finishRegularTake(session, answers, reason = 'manual') {
+    try { if (window.Monitor) Monitor.markSubmitting(); } catch (_) {}
+    try { CodeEditor.beginSubmit(); } catch (_) {}
+    if (!String(session.id).startsWith('test_')) {
+      try {
+        await Exam.updateSessionAnswers(session.id, answers || {});
+        await Exam.submitSession(session.id, reason === 'time-up' ? 'time-up' : 'manual');
+      } catch (e) { console.error(e); }
+    }
+    this.clearExamQuery();
+    document.getElementById('student-chat-fab')?.remove();
+    document.getElementById('test-mode-bar')?.remove();
+    this.renderShell(`
+      <div class="card empty-state times-up-card">
+        <h2>${reason === 'time-up' ? "Time's up!" : 'Assessment submitted'}</h2>
+        <p>Your answers were submitted${reason === 'time-up' ? ' automatically' : ''}.</p>
+        <div class="action-btns" style="justify-content:center">
+          <button class="btn btn-primary" onclick="App.showStudentHistory()">View results</button>
+          <button class="btn btn-ghost" onclick="App.showStudentHome()">Back to home</button>
+        </div>
+      </div>
+    `, 'history');
   },
 
   _runTimer(session, onExpireExtra) {

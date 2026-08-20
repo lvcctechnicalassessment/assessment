@@ -62,3 +62,13 @@ Full Google-Docs-style passage multi-tab editor and complete visual editors for 
 
 ### Deploy note
 If features seem missing, replace **all** app files from the zip (not only one JS file), then hard-refresh or clear cache. Confirm **v1.4.1** appears next to the logo.
+
+## v1.5.0
+- Integrity gate: centered logo/button, larger justified text
+- Desktop fullscreen enforced; camera permission at start
+- Live grid: screen + camera thumbs (overwrite); HQ stills only on violation
+- Stop monitoring after submit (history kept)
+- Single-question gamified take UI with skip / skip passage
+- Mobile End assessment with confirm → auto-submit
+- History: real option values; Create mock exam checkboxes; mock retake randomized
+- Non-live layouts restored to classic sidebar; live view keeps 3-panel density

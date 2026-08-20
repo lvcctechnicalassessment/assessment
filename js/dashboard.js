@@ -217,6 +217,10 @@ const Dashboard = {
           const id = ch.doc.id;
           const data = ch.doc.data() || {};
           if (data.thumb) this._liveThumbs[id] = data.thumb;
+          if (data.cameraThumb) {
+            this._liveCams = this._liveCams || {};
+            this._liveCams[id] = data.cameraThumb;
+          }
         });
         if (this.sessionsCache && this.sessionsCache.length) {
           const list = this.sessionsCache.map(s => ({
@@ -623,13 +627,21 @@ const Dashboard = {
               <div class="text-muted" style="font-size:0.7rem">${last}</div>
             </div>
           </div>
-          <div class="screen-share-wrap">
-            ${feed && String(feed).startsWith('data:')
-              ? `<img class="screen-share-img" src="${feed}" alt="Student screen" onclick="UI.showImage(this.src,'Live student screen')" />`
-              : isMobile
-                ? `<div class="screen-share-placeholder mobile-status">📱 ${escapeHtml(s.monitorFeed || 'Mobile User: Fullscreen Active')}</div>`
-                : `<div class="screen-share-placeholder">Waiting for screen share…</div>`}
-            <span class="screen-share-label">${feed && String(feed).startsWith('data:') ? 'Live screen (10s)' : (isMobile ? 'Mobile status' : 'No feed yet')}</span>
+          <div class="live-feeds-row">
+            <div class="screen-share-wrap">
+              ${feed && String(feed).startsWith('data:')
+                ? `<img class="screen-share-img" src="${feed}" alt="Screen" onclick="UI.showImage(this.src,'Student screen')" />`
+                : isMobile
+                  ? `<div class="screen-share-placeholder mobile-status">📱 ${escapeHtml(s.monitorFeed || 'Mobile active')}</div>`
+                  : `<div class="screen-share-placeholder">Waiting for screen…</div>`}
+              <span class="screen-share-label">Screen</span>
+            </div>
+            <div class="screen-share-wrap">
+              ${(s.cameraThumb || this._liveCams?.[s.id])
+                ? `<img class="screen-share-img" src="${s.cameraThumb || this._liveCams[s.id]}" alt="Camera" onclick="UI.showImage(this.src,'Student camera')" />`
+                : `<div class="screen-share-placeholder">Waiting for camera…</div>`}
+              <span class="screen-share-label">Camera</span>
+            </div>
           </div>
           <details class="screen-code-details"><summary>Text snapshot</summary><pre class="student-code-preview">${preview}</pre></details>
           <div class="student-events">${eventsHtml}</div>

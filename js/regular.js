@@ -438,6 +438,33 @@ const Regular = {
       return exam.sections.flatMap(s => s.questions || []);
     }
     return exam.questions || [];
+  },
+
+  /** Group questions for single-item take UI. Passages stay as one unit. */
+  groupQuestionsForTake(exam) {
+    const sections = exam.sections || [];
+    const groups = [];
+    if (sections.length) {
+      sections.forEach(sec => {
+        (sec.questions || []).forEach(q => {
+          if (q.type === 'passage' || q.isPassageSet) {
+            const kids = (q.questions || []).length ? q.questions : [];
+            groups.push({ kind: 'passage', passage: q, questions: kids.length ? kids : [q], section: sec });
+          } else {
+            groups.push({ kind: 'single', question: q, section: sec });
+          }
+        });
+      });
+    } else {
+      (exam.questions || []).forEach(q => {
+        if (q.type === 'passage' || q.isPassageSet) {
+          groups.push({ kind: 'passage', passage: q, questions: q.questions || [q] });
+        } else {
+          groups.push({ kind: 'single', question: q });
+        }
+      });
+    }
+    return groups;
   }
 };
 
