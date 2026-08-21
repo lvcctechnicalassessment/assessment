@@ -89,29 +89,16 @@ const Dashboard = {
               </div>
               <div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">${start} → ${end}</div>
             </div>
-            <div class="assess-actions">
-              <div class="action-group">
-                <span class="action-label">Monitor</span>
-                ${live ? `<button class="btn btn-sm btn-primary" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : ''}
-                <button class="btn btn-sm btn-ghost" onclick="App.testAsStudent('${ex.id}')">Test as student</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity issues</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
-              </div>
-              <div class="action-group">
-                <span class="action-label">Share</span>
-                ${ex.status !== 'draft' ? `<button class="btn btn-sm btn-ghost" onclick="App.showSharePanel('${ex.id}')">Link / QR</button>` : ''}
-                <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.shareToCoTeacher('${ex.id}')">Share to Co-teacher</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.showProctors('${ex.id}')">Proctors</button>
-              </div>
-              <div class="action-group">
-                <span class="action-label">Manage</span>
-                <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
-                <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
-                ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : `
-                <button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>`}
-                <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
-              </div>
+            <div class="assess-actions-row">
+              <button class="btn btn-primary" onclick="App.openManageMenu('${ex.id}')">Manage</button>
+              <button class="btn btn-primary" onclick="App.openMonitorMenu('${ex.id}', ${!!live})">Monitor</button>
+              <button class="btn btn-primary" onclick="App.openShareMenu('${ex.id}')">Share</button>
+            </div>
+            <div class="action-btns mt-1" style="flex-wrap:wrap;gap:0.35rem">
+              <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
+              ${live ? `<button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : ''}
+              <button class="btn btn-sm btn-ghost" onclick="App.testAsStudent('${ex.id}')">Test</button>
+              ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : ''}
             </div>
           </div>`;
       });
@@ -335,7 +322,8 @@ const Dashboard = {
   _lastPasteAlert: null,
   _handlePasteNotifications(notifs) {
     this._endedSessions = this._endedSessions || {};
-    const critical = notifs.find(n => n.type === 'paste-critical' && n.id !== this._lastPasteAlert && !this._endedSessions[n.sessionId]);
+    this._pasteIgnoreSessions = this._pasteIgnoreSessions || {};
+    const critical = notifs.find(n => n.type === 'paste-critical' && n.id !== this._lastPasteAlert && !this._endedSessions[n.sessionId] && !this._pasteIgnoreSessions[n.sessionId]);
     if (critical) {
       this._lastPasteAlert = critical.id;
       this.showCriticalPaste(critical);
@@ -404,14 +392,25 @@ const Dashboard = {
           </div>
         </div>
       </div>`;
-    document.getElementById('cp-ignore').onclick = () => document.getElementById('critical-paste-modal')?.remove();
-    document.getElementById('cp-reply').onclick = () => document.getElementById('cp-reply-box')?.classList.remove('hidden');
+    document.getElementById('cp-ignore').onclick = () => {
+      this._pasteIgnoreSessions = this._pasteIgnoreSessions || {};
+      this._pasteIgnoreSessions[n.sessionId] = true;
+      document.getElementById('critical-paste-modal')?.remove();
+      UI.alert('Further paste alerts for this student are silenced for this session. History is still recorded.', 'Ignored');
+    };
+    document.getElementById('cp-reply').onclick = () => {
+      document.getElementById('cp-reply-box')?.classList.remove('hidden');
+      const ta = document.getElementById('cp-reply-text');
+      if (ta) { ta.value = ''; ta.placeholder = 'Type your reply…'; }
+    };
     document.getElementById('cp-send-reply').onclick = async () => {
       const text = document.getElementById('cp-reply-text').value.trim();
       if (!text) return;
       await window.db.collection('sessions').doc(n.sessionId).update({
         instructorReply: text,
-        instructorReplyAt: firebase.firestore.FieldValue.serverTimestamp()
+        lastInstructorMessage: text,
+        instructorReplyAt: firebase.firestore.FieldValue.serverTimestamp(),
+        chatPing: Date.now()
       });
       await UI.alert('Reply sent to student.', 'Sent');
       document.getElementById('critical-paste-modal')?.remove();
@@ -421,6 +420,7 @@ const Dashboard = {
       if (btn) btn.disabled = true;
       this._lastPasteAlert = n.id; // prevent re-popup loop
       this._endedSessions = this._endedSessions || {};
+    this._pasteIgnoreSessions = this._pasteIgnoreSessions || {};
       this._endedSessions[n.sessionId] = true;
       try {
         await window.db.collection('sessions').doc(n.sessionId).update({
@@ -627,21 +627,16 @@ const Dashboard = {
               <div class="text-muted" style="font-size:0.7rem">${last}</div>
             </div>
           </div>
-          <div class="live-feeds-row">
-            <div class="screen-share-wrap">
-              ${feed && String(feed).startsWith('data:')
-                ? `<img class="screen-share-img" src="${feed}" alt="Screen" onclick="UI.showImage(this.src,'Student screen')" />`
-                : isMobile
-                  ? `<div class="screen-share-placeholder mobile-status">📱 ${escapeHtml(s.monitorFeed || 'Mobile active')}</div>`
-                  : `<div class="screen-share-placeholder">Waiting for screen…</div>`}
-              <span class="screen-share-label">Screen</span>
-            </div>
-            <div class="screen-share-wrap">
-              ${(s.cameraThumb || this._liveCams?.[s.id])
-                ? `<img class="screen-share-img" src="${s.cameraThumb || this._liveCams[s.id]}" alt="Camera" onclick="UI.showImage(this.src,'Student camera')" />`
-                : `<div class="screen-share-placeholder">Waiting for camera…</div>`}
-              <span class="screen-share-label">Camera</span>
-            </div>
+          <div class="screen-share-wrap">
+            ${feed && String(feed).startsWith('data:')
+              ? `<img class="screen-share-img" src="${feed}" alt="Screen" onclick="UI.showImage(this.src,'Student screen')" />`
+              : isMobile
+                ? `<div class="screen-share-placeholder mobile-status">📱 ${escapeHtml(s.monitorFeed || 'Mobile active')}</div>`
+                : `<div class="screen-share-placeholder">Waiting for screen…</div>`}
+            <span class="screen-share-label">Screen</span>
+          </div>
+          <div class="${(s.connectionQuality === 'bad' || s.pingMs > 800) ? 'ping-bad' : 'ping-ok'}">
+            ${(s.connectionQuality === 'bad' || s.pingMs > 800) ? '⚠ Bad connection' : (s.pingMs != null ? ('Ping ' + s.pingMs + ' ms') : 'Connection OK')}
           </div>
           <details class="screen-code-details"><summary>Text snapshot</summary><pre class="student-code-preview">${preview}</pre></details>
           <div class="student-events">${eventsHtml}</div>

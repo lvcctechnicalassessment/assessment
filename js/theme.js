@@ -53,22 +53,25 @@ const Theme = {
     }
   },
 
+  icon() {
+    return this.current() === 'dark' ? '☀️' : '🌙';
+  },
+
   syncButtons() {
-    const label = this.current() === 'dark' ? '☀️ Light' : '🌙 Dark';
+    const icon = this.icon();
     document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
-      btn.textContent = label;
-      btn.setAttribute('aria-label', 'Switch theme');
+      btn.textContent = icon;
+      btn.setAttribute('aria-label', this.current() === 'dark' ? 'Switch to light' : 'Switch to dark');
+      btn.title = this.current() === 'dark' ? 'Light mode' : 'Dark mode';
     });
   },
 
   buttonHtml() {
-    const label = this.current() === 'dark' ? '☀️ Light' : '🌙 Dark';
-    return `<button type="button" class="theme-toggle" data-theme-toggle onclick="Theme.toggle()">${label}</button>`;
+    return `<button type="button" class="theme-toggle-icon" data-theme-toggle onclick="Theme.toggle()" aria-label="Switch theme">${this.icon()}</button>`;
   }
 };
 
 window.Theme = Theme;
-// Apply ASAP before paint flicker
 try {
   const t = localStorage.getItem('lvcc_theme') || 'light';
   document.documentElement.setAttribute('data-theme', t);

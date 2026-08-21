@@ -72,3 +72,11 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Mobile End assessment with confirm → auto-submit
 - History: real option values; Create mock exam checkboxes; mock retake randomized
 - Non-live layouts restored to classic sidebar; live view keeps 3-panel density
+
+## v1.5.1
+- Brand colors (light/dark hex palette); contrast placeholders
+- Header/sidebar layout: theme icon by role; name/email/logout in menu bottom; logo → Dashboard
+- Live: screen only; connection ping; HQ on violation; paste ignore/deduct
+- History: row click, mock checkboxes on demand, separate Mock History page
+- Full-screen gamified take UI; skip loops to unanswered
+- Manage / Monitor / Share equal actions; direct edit state

@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.0</div>
+          <div class="app-version">Build v1.5.1</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -131,10 +131,10 @@ const App = {
       this.startStudentExam(examId, { testMode: isTest });
       return;
     }
-    if (role === 'superadmin') this.showSuperAdmin();
-    else if (role === 'teacher') this.showTeacherHome();
+    if (role === 'superadmin') this.showDashboard();
+    else if (role === 'teacher') this.showDashboard();
     else if (role === 'proctor') this.showProctorHome();
-    else this.showStudentHome();
+    else this.showDashboard();
   },
 
   toggleMobileNav() {
@@ -145,38 +145,49 @@ const App = {
   renderShell(contentHtml, activeNav = '') {
     const role = Auth.userProfile.role;
     const name = Auth.userProfile.name || Auth.userProfile.email;
+    const email = Auth.userProfile.email || '';
     let navItems = '';
     if (role === 'superadmin') {
       navItems = `
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.toggleMobileNav()">📊 Dashboard</div>
         <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin();App.toggleMobileNav()">👥 Instructors</div>
         <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Assessments</div>`;
     } else if (role === 'teacher') {
       navItems = `
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.toggleMobileNav()">📊 Dashboard</div>
         <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Assessments</div>`;
     } else if (role === 'proctor') {
       navItems = `
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.toggleMobileNav()">📊 Dashboard</div>
         <div class="nav-item ${activeNav==='proctor'?'active':''}" onclick="App.showProctorHome();App.toggleMobileNav()">👁 Proctor</div>`;
     } else {
       navItems = `
-        <div class="nav-item ${activeNav==='student'?'active':''}" onclick="App.showStudentHome();App.toggleMobileNav()">🏠 Home</div>
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.toggleMobileNav()">📊 Dashboard</div>
+        <div class="nav-item ${activeNav==='student'?'active':''}" onclick="App.showStudentHome();App.toggleMobileNav()">🏠 Assessments</div>
         <div class="nav-item ${activeNav==='history'?'active':''}" onclick="App.showStudentHistory();App.toggleMobileNav()">📚 History</div>
-        <div class="nav-item ${activeNav==='mock'?'active':''}" onclick="App.showMockExam();App.toggleMobileNav()">🎲 Mock History</div>`;
+        <div class="nav-item ${activeNav==='mock'?'active':''}" onclick="App.showMockHistory();App.toggleMobileNav()">🎲 Mock History</div>`;
     }
 
     document.getElementById('app').innerHTML = `
       <header class="app-header">
         <div class="header-left">
-          <div class="logo">
+          <div class="logo" style="cursor:pointer" onclick="App.showDashboard()" title="Dashboard">
             <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.5.0</span>
+            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.5.1</span>
           </div>
         </div>
         <div class="header-right">
-          ${Theme.buttonHtml()}
-          <div class="user-info header-user-desktop">
+          <div class="header-user-desktop header-role-row">
             <span class="role-badge ${role}">${role}</span>
+            ${Theme.buttonHtml()}
+          </div>
+          <div class="header-user-mobile">
             <span class="user-name">${escapeHtml(name)}</span>
-            <button class="btn btn-sm btn-ghost" onclick="App.logout()">Logout</button>
+            <span class="user-email">${escapeHtml(email)}</span>
+            <div class="header-role-row">
+              <span class="role-badge ${role}">${role}</span>
+              ${Theme.buttonHtml()}
+            </div>
           </div>
           <button class="btn btn-ghost btn-sm menu-toggle" onclick="App.toggleMobileNav()" aria-label="Menu">☰</button>
         </div>
@@ -187,16 +198,70 @@ const App = {
           <h3>Menu</h3>
           ${navItems}
           <div class="sidebar-user">
-            <div class="text-muted" style="font-size:0.75rem;margin-bottom:0.35rem">Signed in</div>
-            <div style="font-weight:600;word-break:break-all">${escapeHtml(name)}</div>
-            <span class="role-badge ${role}" style="margin-top:0.35rem;display:inline-block">${role}</span>
-            <div class="mt-1">${Theme.buttonHtml()}</div>
-            <button class="btn btn-sm btn-ghost w-full mt-1" onclick="App.logout()">Logout</button>
+            <div style="font-weight:600;word-break:break-word">${escapeHtml(name)}</div>
+            <div class="text-muted" style="font-size:0.8rem;word-break:break-all">${escapeHtml(email)}</div>
+            <button class="btn btn-sm btn-logout w-full mt-1" onclick="App.logout()">Logout</button>
           </div>
         </aside>
         <main class="main-content" id="main-content">${contentHtml}</main>
       </div>`;
   },
+
+  async showDashboard() {
+    const role = Auth.userProfile.role;
+    if (role === 'student') return this.showStudentDashboard();
+    if (role === 'proctor') return this.showProctorHome();
+    return this.showTeacherDashboard();
+  },
+
+  async showTeacherDashboard() {
+    let exams = [];
+    try { exams = await Exam.listTeacherExams(Auth.currentUser.uid); } catch (_) {}
+    const published = exams.filter(e => e.status === 'published').length;
+    const drafts = exams.filter(e => e.status !== 'published').length;
+    this.renderShell(`
+      <h2 class="page-title">Dashboard</h2>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val">${exams.length}</div><div class="stat-label">Total assessments</div></div>
+        <div class="stat-card"><div class="stat-val">${published}</div><div class="stat-label">Published</div></div>
+        <div class="stat-card"><div class="stat-val">${drafts}</div><div class="stat-label">Drafts</div></div>
+      </div>
+      <div class="card mt-2">
+        <p class="text-muted">Quick actions</p>
+        <div class="action-btns">
+          <button class="btn btn-primary" onclick="App.showCreateExam()">New assessment</button>
+          <button class="btn btn-ghost" onclick="App.showTeacherHome()">My Assessments</button>
+        </div>
+      </div>
+    `, 'dashboard');
+  },
+
+  async showStudentDashboard() {
+    let sessions = [];
+    try { sessions = await Exam.listStudentSessions(Auth.currentUser.uid); } catch (_) {}
+    const done = sessions.filter(s => s.status === 'submitted').length;
+    const mocks = sessions.filter(s => s.isMock).length;
+    const avg = (() => {
+      const scored = sessions.filter(s => s.score != null);
+      if (!scored.length) return '—';
+      return (scored.reduce((a, s) => a + Number(s.score), 0) / scored.length).toFixed(1);
+    })();
+    this.renderShell(`
+      <h2 class="page-title">Dashboard</h2>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val">${done}</div><div class="stat-label">Completed</div></div>
+        <div class="stat-card"><div class="stat-val">${avg}</div><div class="stat-label">Avg score</div></div>
+        <div class="stat-card"><div class="stat-val">${mocks}</div><div class="stat-label">Mock attempts</div></div>
+      </div>
+      <div class="card mt-2">
+        <div class="action-btns">
+          <button class="btn btn-primary" onclick="App.showStudentHome()">Available assessments</button>
+          <button class="btn btn-ghost" onclick="App.showStudentHistory()">History</button>
+        </div>
+      </div>
+    `, 'dashboard');
+  },
+
 
   // ---- Superadmin ----
   async showSuperAdmin() {
@@ -799,6 +864,45 @@ const App = {
     }
   },
 
+
+  async openManageMenu(examId) {
+    const choice = await UI.prompt('Type: edit | duplicate | delete | close | reopen | publish', 'edit', 'Manage', 'edit');
+    if (choice == null) return;
+    const c = String(choice).trim().toLowerCase();
+    if (c === 'edit') return this.editExam(examId);
+    if (c === 'duplicate') return this.duplicateExam(examId);
+    if (c === 'delete') {
+      const ex = await Exam.getExam(examId);
+      return this.deleteExam(examId, ex?.title || '');
+    }
+    if (c === 'publish') return this.publishDraft(examId);
+    if (c === 'close') return this.toggleExamActive(examId, false);
+    if (c === 'reopen') return this.toggleExamActive(examId, true);
+    await UI.alert('Unknown action. Use edit, duplicate, delete, publish, close, or reopen.', 'Manage');
+  },
+
+  async openMonitorMenu(examId, live) {
+    const choice = await UI.prompt('Type: live | integrity | results | test', live ? 'live' : 'results', 'Monitor', 'live');
+    if (choice == null) return;
+    const c = String(choice).trim().toLowerCase();
+    if (c === 'live') return this.openLiveDashboard(examId);
+    if (c === 'integrity') return this.showIntegrityHistory(examId);
+    if (c === 'results') return this.showExamResults(examId);
+    if (c === 'test') return this.testAsStudent(examId);
+    await UI.alert('Unknown. Use live, integrity, results, or test.', 'Monitor');
+  },
+
+  async openShareMenu(examId) {
+    const choice = await UI.prompt('Type: link | invite | coteacher | proctors', 'link', 'Share', 'link');
+    if (choice == null) return;
+    const c = String(choice).trim().toLowerCase();
+    if (c === 'link' || c === 'qr') return this.showSharePanel(examId);
+    if (c === 'invite') return this.showExamInvites(examId);
+    if (c === 'coteacher' || c === 'co-teacher') return this.shareToCoTeacher(examId);
+    if (c === 'proctors') return this.showProctors(examId);
+    await UI.alert('Unknown. Use link, invite, coteacher, or proctors.', 'Share');
+  },
+
   async editExam(examId) {
     window._editingExamId = examId;
     const exam = await Exam.getExam(examId);
@@ -1051,14 +1155,15 @@ const App = {
   },
 
   async showStudentHistory() {
+    this._mockSelectMode = false;
     this.renderShell(`
       <h2 class="page-title">Assessment History</h2>
       <div class="hist-section">
         <div class="hist-section-head">
           <h3>Code assessments</h3>
-          <div class="hist-head-actions">
+          <div class="hist-toolbar">
             <input type="search" id="hist-filter-code" class="form-control" placeholder="Filter code assessments..." />
-            <button type="button" class="btn btn-primary btn-sm" id="mock-from-code">Create mock exam</button>
+            <button type="button" class="btn btn-primary" id="mock-from-code">Create mock exam</button>
           </div>
         </div>
         <div id="hist-code" class="table-wrap">Loading...</div>
@@ -1066,67 +1171,50 @@ const App = {
       <div class="hist-section mt-2">
         <div class="hist-section-head">
           <h3>Regular assessments</h3>
-          <div class="hist-head-actions">
+          <div class="hist-toolbar">
             <input type="search" id="hist-filter-reg" class="form-control" placeholder="Filter regular assessments..." />
-            <button type="button" class="btn btn-primary btn-sm" id="mock-from-reg">Create mock exam</button>
+            <button type="button" class="btn btn-primary" id="mock-from-reg">Create mock exam</button>
           </div>
         </div>
         <div id="hist-reg" class="table-wrap">Loading...</div>
       </div>
-      <div class="hist-section mt-2">
-        <div class="hist-section-head">
-          <h3>Mock history</h3>
-        </div>
-        <div id="hist-mock" class="table-wrap">Loading...</div>
-      </div>
     `, 'history');
 
-    const sessions = await Exam.listStudentSessions(Auth.currentUser.uid);
+    const sessions = (await Exam.listStudentSessions(Auth.currentUser.uid)).filter(s => !s.isMock);
     window._histSessions = sessions;
 
     const renderTables = () => {
       const qCode = (document.getElementById('hist-filter-code')?.value || '').toLowerCase();
       const qReg = (document.getElementById('hist-filter-reg')?.value || '').toLowerCase();
-      const code = sessions.filter(s => (s.examType || 'code') === 'code' && !s.isMock);
-      const reg = sessions.filter(s => (s.examType || '') === 'regular' && !s.isMock);
-      const mocks = sessions.filter(s => s.isMock);
+      const code = sessions.filter(s => (s.examType || 'code') === 'code');
+      const reg = sessions.filter(s => (s.examType || '') === 'regular');
+      const showCb = this._mockSelectMode;
 
-      const row = (s, withCb) => {
-        const title = s.examTitle || s.subject || 'Assessment';
-        const match = (s.examType === 'regular' ? qReg : qCode);
-        if (match && !title.toLowerCase().includes(match) && !(s.subject||'').toLowerCase().includes(match)) return '';
-        return `<tr>
-          <td>${withCb ? `<input type="checkbox" class="mock-pick" data-sid="${s.id}" data-eid="${s.examId||''}" />` : ''}
-            <a href="#" class="link" data-open="${s.id}">${escapeHtml(title)}</a></td>
-          <td>${escapeHtml(s.subject || '—')}</td>
-          <td>${s.score != null ? s.score : '—'}</td>
-          <td>${s.submittedAt?.toDate ? s.submittedAt.toDate().toLocaleString() : '—'}</td>
-        </tr>`;
-      };
-
-      const table = (list, withCb) => {
-        if (!list.length) return '<p class="text-muted">No assessments in this section.</p>';
-        return `<table class="table"><thead><tr>
+      const table = (list, filter) => {
+        const filtered = list.filter(s => {
+          const title = (s.examTitle || s.subject || '').toLowerCase();
+          return !filter || title.includes(filter) || (s.subject || '').toLowerCase().includes(filter);
+        });
+        if (!filtered.length) return '<p class="text-muted" style="text-align:left">No assessments in this section.</p>';
+        return `<table class="table" style="text-align:left"><thead><tr>
+          ${showCb ? '<th class="mock-pick-col"></th>' : ''}
           <th>Title</th><th>Subject</th><th>Score</th><th>Submitted</th>
-        </tr></thead><tbody>${list.map(s => row(s, withCb)).join('')}</tbody></table>`;
+        </tr></thead><tbody>${filtered.map(s => {
+          const title = s.examTitle || s.subject || 'Assessment';
+          return `<tr class="hist-row" data-open="${s.id}">
+            ${showCb ? `<td class="mock-pick-col" onclick="event.stopPropagation()"><input type="checkbox" class="mock-pick" data-sid="${s.id}" data-eid="${s.examId||''}" /></td>` : ''}
+            <td>${escapeHtml(title)}</td>
+            <td>${escapeHtml(s.subject || '—')}</td>
+            <td>${s.score != null ? s.score : '—'}</td>
+            <td>${s.submittedAt?.toDate ? s.submittedAt.toDate().toLocaleString() : '—'}</td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
       };
 
-      document.getElementById('hist-code').innerHTML = table(code, true);
-      document.getElementById('hist-reg').innerHTML = table(reg, true);
-      document.getElementById('hist-mock').innerHTML = mocks.length ? `<table class="table"><thead><tr>
-        <th>Title</th><th>Subject</th><th>Score</th><th></th></tr></thead><tbody>
-        ${mocks.map(s => `<tr>
-          <td><a href="#" class="link" data-open="${s.id}">${escapeHtml(s.examTitle || 'Mock')}</a></td>
-          <td>${escapeHtml(s.subject || '—')}</td>
-          <td>${s.score != null ? s.score : '—'}</td>
-          <td><button class="btn btn-sm btn-primary" data-retake-mock="${s.id}">Retake (randomized)</button></td>
-        </tr>`).join('')}</tbody></table>` : '<p class="text-muted">No mock assessments yet.</p>';
-
-      document.querySelectorAll('[data-open]').forEach(a => {
-        a.onclick = (e) => { e.preventDefault(); App.showStudentAttempt(a.getAttribute('data-open')); };
-      });
-      document.querySelectorAll('[data-retake-mock]').forEach(btn => {
-        btn.onclick = () => App.retakeMock(btn.getAttribute('data-retake-mock'));
+      document.getElementById('hist-code').innerHTML = table(code, qCode);
+      document.getElementById('hist-reg').innerHTML = table(reg, qReg);
+      document.querySelectorAll('tr.hist-row[data-open]').forEach(tr => {
+        tr.onclick = () => App.showStudentAttempt(tr.getAttribute('data-open'));
       });
     };
 
@@ -1134,25 +1222,66 @@ const App = {
     document.getElementById('hist-filter-code').oninput = renderTables;
     document.getElementById('hist-filter-reg').oninput = renderTables;
 
-    const buildMock = async (type) => {
-      const boxes = [...document.querySelectorAll(`.mock-pick`)].filter(cb => {
-        if (!cb.checked) return false;
-        const s = sessions.find(x => x.id === cb.getAttribute('data-sid'));
-        if (!s) return false;
-        if (type === 'code') return (s.examType || 'code') === 'code';
-        return (s.examType || '') === 'regular';
-      });
-      if (!boxes.length) {
-        await UI.alert('Select at least one assessment in this section.', 'Mock exam');
+    const startMockFlow = async (type) => {
+      if (!this._mockSelectMode) {
+        this._mockSelectMode = true;
+        renderTables();
+        await UI.alert('Select assessments with the checkboxes, then click Create mock exam again.', 'Select assessments');
         return;
       }
-      await this.startMockFromSessions(boxes.map(b => b.getAttribute('data-sid')), type);
+      const boxes = [...document.querySelectorAll('.mock-pick:checked')].filter(cb => {
+        const s = sessions.find(x => x.id === cb.getAttribute('data-sid'));
+        if (!s) return false;
+        return type === 'code' ? (s.examType || 'code') === 'code' : (s.examType || '') === 'regular';
+      });
+      if (!boxes.length) {
+        await UI.alert('Select at least one assessment.', 'Mock exam');
+        return;
+      }
+      const name = await UI.prompt('Mock exam name:', 'My mock exam', 'Mock exam', 'Name');
+      if (name == null) return;
+      const mins = await UI.prompt('Time limit (minutes):', '30', 'Mock exam', 'Minutes');
+      if (mins == null) return;
+      await this.startMockFromSessions(boxes.map(b => b.getAttribute('data-sid')), type, {
+        title: String(name).trim() || 'Mock exam',
+        durationMinutes: Math.max(5, Number(mins) || 30)
+      });
     };
-    document.getElementById('mock-from-code').onclick = () => buildMock('code');
-    document.getElementById('mock-from-reg').onclick = () => buildMock('regular');
+    document.getElementById('mock-from-code').onclick = () => startMockFlow('code');
+    document.getElementById('mock-from-reg').onclick = () => startMockFlow('regular');
   },
 
-  async startMockFromSessions(sessionIds, type) {
+  async showMockHistory() {
+    this.renderShell(`
+      <h2 class="page-title">Mock History</h2>
+      <div id="mock-hist-table" class="table-wrap">Loading...</div>
+    `, 'mock');
+    let sessions = [];
+    try { sessions = (await Exam.listStudentSessions(Auth.currentUser.uid)).filter(s => s.isMock); } catch (_) {}
+    const el = document.getElementById('mock-hist-table');
+    if (!sessions.length) {
+      el.innerHTML = '<p class="text-muted" style="text-align:left">No mock assessments yet. Create one from History.</p>';
+      return;
+    }
+    el.innerHTML = `<table class="table" style="text-align:left"><thead><tr>
+      <th>Title</th><th>Subject</th><th>Score</th><th>Max</th><th>Time taken</th><th></th>
+    </tr></thead><tbody>${sessions.map(s => {
+      const mins = s.durationMs ? Math.round(s.durationMs / 60000) : (s.timeTakenMinutes != null ? s.timeTakenMinutes : '—');
+      return `<tr>
+        <td>${escapeHtml(s.examTitle || 'Mock')}</td>
+        <td>${escapeHtml(s.subject || '—')}</td>
+        <td>${s.score != null ? s.score : '—'}</td>
+        <td>${s.maxScore != null ? s.maxScore : '—'}</td>
+        <td>${mins}${mins !== '—' ? ' min' : ''}</td>
+        <td>
+          <button class="btn btn-sm btn-ghost" onclick="App.showStudentAttempt('${s.id}')">View</button>
+          <button class="btn btn-sm btn-primary" onclick="App.retakeMock('${s.id}')">Retake</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+  },
+
+  async startMockFromSessions(sessionIds, type, opts = {}) {
     const allQ = [];
     for (const sid of sessionIds) {
       const snap = await window.db.collection('sessions').doc(sid).get();
@@ -1169,19 +1298,18 @@ const App = {
       await UI.alert('No questions found in the selected assessments.', 'Mock exam');
       return;
     }
-    // shuffle
     for (let i = allQ.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [allQ[i], allQ[j]] = [allQ[j], allQ[i]];
     }
     const mockExam = {
       id: 'mock_' + Date.now(),
-      title: 'Mock exam',
+      title: opts.title || 'Mock exam',
       examType: type === 'code' ? 'code' : 'regular',
       subject: 'Mock',
       sections: [{ id: 'm1', title: 'Mock', instructions: 'Practice mock — randomized from your history.', questions: allQ }],
       questions: allQ,
-      durationMinutes: Math.max(30, allQ.length * 2)
+      durationMinutes: opts.durationMinutes || Math.max(30, allQ.length * 2)
     };
     const session = {
       id: 'test_mock_' + Date.now(),
@@ -1780,32 +1908,106 @@ const App = {
     const answers = { ...(session.answers || {}) };
     window._takeAnswers = answers;
 
+    const qIdOf = (g, pidx = 0) => {
+      if (g.kind === 'passage') {
+        const list = g.questions && g.questions.length ? g.questions : [g.passage];
+        return list[pidx]?.id;
+      }
+      return g.question?.id;
+    };
+    const isAnswered = (qid) => {
+      if (!qid) return true;
+      const v = answers[qid];
+      if (v === undefined || v === null || v === '') return false;
+      if (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length) return false;
+      if (Array.isArray(v) && !v.length) return false;
+      return true;
+    };
+    const allAnswered = () => groups.every((g, idx) => {
+      if (g.kind === 'passage') {
+        const list = g.questions && g.questions.length ? g.questions : [g.passage];
+        return list.every(q => isAnswered(q.id));
+      }
+      return isAnswered(g.question?.id);
+    });
+    const findNextUnanswered = (fromGi, fromPi) => {
+      for (let i = fromGi; i < groups.length; i++) {
+        const g = groups[i];
+        if (g.kind === 'passage') {
+          const list = g.questions && g.questions.length ? g.questions : [g.passage];
+          const startP = (i === fromGi) ? fromPi + 1 : 0;
+          for (let p = startP; p < list.length; p++) {
+            if (!isAnswered(list[p].id)) return { gi: i, pi: p };
+          }
+        } else if (!isAnswered(g.question?.id)) {
+          if (i > fromGi || fromPi >= 0) return { gi: i, pi: 0 };
+        }
+      }
+      for (let i = 0; i <= fromGi; i++) {
+        const g = groups[i];
+        if (g.kind === 'passage') {
+          const list = g.questions && g.questions.length ? g.questions : [g.passage];
+          for (let p = 0; p < list.length; p++) {
+            if (!isAnswered(list[p].id)) return { gi: i, pi: p };
+          }
+        } else if (!isAnswered(g.question?.id)) return { gi: i, pi: 0 };
+      }
+      return null;
+    };
+
+    const renderMcKahoot = (q) => {
+      const opts = q.options || [];
+      const multi = q.multiCorrect === true;
+      const val = answers[q.id];
+      const cards = opts.map((o, i) => {
+        const selected = multi
+          ? (Array.isArray(val) && (val.includes(i) || val.includes(String(i))))
+          : (val == i || val === String(i));
+        const label = (o && String(o).trim()) ? String(o).trim() : ('Choice ' + (i + 1));
+        return `<button type="button" class="take-opt c${i % 4} ${selected ? 'selected' : ''}" data-opt="${i}" data-multi="${multi ? 1 : 0}">${escapeHtml(label)}</button>`;
+      }).join('');
+      return `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(q.prompt || q.statement || 'Question')}</div>
+        <div class="take-options-grid ${opts.length > 4 ? 'stack' : ''}" id="take-q-box" data-qid="${q.id}">${cards}</div>`;
+    };
+
     const renderTake = () => {
       if (gi >= groups.length) {
-        this.finishRegularTake(session, answers, 'manual');
-        return;
+        const next = findNextUnanswered(0, -1);
+        if (next) { gi = next.gi; pi = next.pi; }
+        else {
+          this.finishRegularTake(session, answers, 'manual');
+          return;
+        }
       }
       const g = groups[gi];
-      const progress = Math.round((gi / groups.length) * 100);
+      const progress = Math.round((gi / Math.max(groups.length, 1)) * 100);
       let body = '';
+      let currentQ = null;
       if (g.kind === 'passage') {
         const list = g.questions && g.questions.length ? g.questions : [g.passage];
         if (pi >= list.length) pi = list.length - 1;
-        const pq = list[pi];
+        currentQ = list[pi];
         const passageHtml = (g.passage.passages || []).map(pp =>
           `<div class="passage-doc"><h4>${escapeHtml(pp.title || 'Passage')}</h4>${pp.html || ''}</div>`
         ).join('') || `<div class="passage-doc">${escapeHtml(g.passage.prompt || '')}</div>`;
-        body = `<div class="take-passage">
-          <div class="take-passage-left">${passageHtml}</div>
-          <div class="take-passage-right" id="take-q-box">${Regular.renderStudentQuestion(pq, answers[pq.id])}</div>
-        </div>`;
+        const qPart = (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf')
+          ? renderMcKahoot(currentQ)
+          : `<div id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
+        body = `<div class="take-passage"><div class="take-passage-left">${passageHtml}</div><div class="take-passage-right">${qPart}</div></div>`;
       } else {
-        const q = g.question;
-        body = `<div class="take-single" id="take-q-box">${Regular.renderStudentQuestion(q, answers[q.id])}</div>`;
+        currentQ = g.question;
+        if (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf') {
+          body = renderMcKahoot(currentQ);
+        } else {
+          body = `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(currentQ.prompt || 'Question')}</div>
+            <div class="take-single" id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
+        }
       }
 
-      this.renderShell(`
-        <div class="exam-take-wrap">
+      const showSkip = !allAnswered();
+      // Full-screen take: replace entire app chrome
+      document.getElementById('app').innerHTML = `
+        <div class="exam-take-wrap take-fullscreen">
           <div class="take-topbar">
             <div class="take-progress"><div class="take-progress-bar" style="width:${progress}%"></div></div>
             <div class="take-topbar-meta">
@@ -1817,48 +2019,75 @@ const App = {
           <div class="take-stage">${body}</div>
           <div class="take-nav">
             ${g.kind === 'passage' ? '<button type="button" class="btn btn-ghost" id="take-skip-passage">Skip passage</button>' : ''}
-            <button type="button" class="btn btn-ghost" id="take-skip">Skip</button>
-            <button type="button" class="btn btn-primary" id="take-next">${gi >= groups.length - 1 && (g.kind !== 'passage' || pi >= (g.questions||[1]).length - 1) ? 'Submit' : 'Next'}</button>
+            ${showSkip ? '<button type="button" class="btn btn-ghost" id="take-skip">Skip</button>' : ''}
+            <button type="button" class="btn btn-primary" id="take-next">${(!showSkip && gi >= groups.length - 1) ? 'Submit' : 'Next'}</button>
           </div>
-        </div>
-      `, 'exam');
+        </div>`;
 
       const box = document.getElementById('take-q-box');
       const save = () => {
-        Object.assign(answers, Regular.collectAnswers(box));
+        if (!box) return;
+        if (box.classList.contains('take-options-grid')) {
+          const qid = box.getAttribute('data-qid');
+          const multi = box.querySelector('.take-opt')?.getAttribute('data-multi') === '1';
+          const selected = [...box.querySelectorAll('.take-opt.selected')].map(b => Number(b.dataset.opt));
+          if (multi) answers[qid] = selected;
+          else if (selected.length) answers[qid] = selected[0];
+        } else {
+          Object.assign(answers, Regular.collectAnswers(box));
+        }
         window._takeAnswers = answers;
         if (!String(session.id).startsWith('test_')) {
           Exam.updateSessionAnswers(session.id, answers).catch(() => {});
         }
       };
-      Regular.bindStudentMC(box, save);
-      box.querySelectorAll('input, textarea, select').forEach(el => {
-        el.addEventListener('change', save);
-        el.addEventListener('input', save);
-      });
 
-      const advance = (skipWholePassage) => {
+      if (box?.classList.contains('take-options-grid')) {
+        box.querySelectorAll('.take-opt').forEach(btn => {
+          btn.onclick = () => {
+            const multi = btn.getAttribute('data-multi') === '1';
+            if (!multi) {
+              box.querySelectorAll('.take-opt').forEach(b => b.classList.remove('selected'));
+              btn.classList.add('selected');
+            } else {
+              btn.classList.toggle('selected');
+            }
+            save();
+          };
+        });
+      } else if (box) {
+        Regular.bindStudentMC(box, save);
+        box.querySelectorAll('input, textarea, select').forEach(el => {
+          el.addEventListener('change', save);
+          el.addEventListener('input', save);
+        });
+      }
+
+      const goNext = (skipPassage = false, isSkip = false) => {
         save();
-        if (g.kind === 'passage' && !skipWholePassage) {
+        if (isSkip) {
+          const n = findNextUnanswered(gi, g.kind === 'passage' ? pi : -1);
+          if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
+          // none left
+          document.getElementById('take-skip')?.remove();
+          return;
+        }
+        if (g.kind === 'passage' && !skipPassage) {
           const list = g.questions && g.questions.length ? g.questions : [g.passage];
-          if (pi < list.length - 1) {
-            pi += 1;
-            renderTake();
-            return;
-          }
+          if (pi < list.length - 1) { pi += 1; renderTake(); return; }
         }
         gi += 1;
         pi = 0;
         if (gi >= groups.length) {
+          const n = findNextUnanswered(0, -1);
+          if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
           this.finishRegularTake(session, answers, 'manual');
-        } else {
-          renderTake();
-        }
+        } else renderTake();
       };
 
-      document.getElementById('take-next').onclick = () => advance(false);
-      document.getElementById('take-skip').onclick = () => advance(false);
-      document.getElementById('take-skip-passage')?.addEventListener('click', () => advance(true));
+      document.getElementById('take-next').onclick = () => goNext(false, false);
+      document.getElementById('take-skip')?.addEventListener('click', () => goNext(false, true));
+      document.getElementById('take-skip-passage')?.addEventListener('click', () => goNext(true, false));
       document.getElementById('take-end-btn').onclick = async () => {
         const ok = await UI.confirm(
           'End this assessment now? Confirming will automatically submit your answers and end the assessment.',
@@ -1868,7 +2097,6 @@ const App = {
         save();
         await this.finishRegularTake(session, answers, 'manual');
       };
-
       this.injectTestModeBar();
       if (!String(session.id).startsWith('test_')) this.injectStudentChatFab(session.id);
     };

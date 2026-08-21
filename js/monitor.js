@@ -198,6 +198,19 @@ const Monitor = {
     if (!screenThumb) screenThumb = await this.captureUi(0.3, 0.35);
     const cameraThumb = this.frameFromVideo(this.cameraVideo, 320, 0.4);
 
+    let pingMs = null;
+    try {
+      const t0 = performance.now();
+      await window.db.collection('sessions').doc(this.sessionId).get();
+      pingMs = Math.round(performance.now() - t0);
+    } catch (_) { pingMs = 9999; }
+    const connectionQuality = (pingMs != null && pingMs > 800) ? 'bad' : 'ok';
+    if (connectionQuality === 'bad' && !this._connFlagged) {
+      this._connFlagged = true;
+      this.recordViolation('connection-loss', true);
+    }
+    if (connectionQuality === 'ok') this._connFlagged = false;
+
     const payload = {
       deviceType: this.deviceType,
       screenThumb: screenThumb || null,
@@ -206,6 +219,8 @@ const Monitor = {
       isWindowFocused: document.hasFocus(),
       isFullscreen: this.isFullscreen(),
       violationCount: this.violationCount,
+      pingMs,
+      connectionQuality,
       lastHeartbeat: firebase.firestore.FieldValue.serverTimestamp(),
       lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
     };
@@ -251,7 +266,8 @@ const Monitor = {
       } catch (_) {}
     }
     try {
-      await Exam.logEvent(this.sessionId, type, `Violation #${this.violationCount}`, extra);
+      const detail = type === 'connection-loss' ? 'Left due to loss of connection / poor network' : `Violation #${this.violationCount}`;
+      await Exam.logEvent(this.sessionId, type, detail, extra);
     } catch (_) {}
     // bump session fields
     try {
