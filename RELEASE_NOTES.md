@@ -80,3 +80,12 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - History: row click, mock checkboxes on demand, separate Mock History page
 - Full-screen gamified take UI; skip loops to unanswered
 - Manage / Monitor / Share equal actions; direct edit state
+
+## v1.5.2
+- Sidebar shell (logo/version/user in menu), Segoe UI, white minimal icons, settings popover theme switch
+- Dark mode primary buttons #F2A240; collapsible nav; mobile logo hamburger
+- Agreement text without camera/evidence; no camera capture
+- Fluid equal assessment action buttons; test-as-student role glitch fixed
+- Integrity PDF + HQ image export with dated filenames; Excel CSV newline fix
+- Student History renamed Assessments; layout grid; results top performers
+- Take UI: centered nav, submit confirm on last unanswered, FAB z-index

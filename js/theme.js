@@ -1,5 +1,5 @@
 /**
- * Light / Dark theme — permanent preference (localStorage + Firestore profile)
+ * Light / Dark theme — permanent preference
  */
 const Theme = {
   KEY: 'lvcc_theme',
@@ -36,41 +36,67 @@ const Theme = {
         { theme, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
         { merge: true }
       );
-    } catch (e) {
-      console.warn('theme save', e);
-    }
+    } catch (e) { console.warn('theme save', e); }
   },
 
   async loadFromProfile() {
     try {
       if (!window.auth?.currentUser || !window.db) return;
       const snap = await window.db.collection('users').doc(window.auth.currentUser.uid).get();
-      if (snap.exists && snap.data().theme) {
-        this.apply(snap.data().theme, true);
-      }
-    } catch (e) {
-      console.warn('theme load', e);
-    }
+      if (snap.exists && snap.data().theme) this.apply(snap.data().theme, true);
+    } catch (e) { console.warn('theme load', e); }
   },
 
-  icon() {
-    return this.current() === 'dark' ? '☀️' : '🌙';
-  },
+  icon() { return this.current() === 'dark' ? '☀️' : '🌙'; },
 
   syncButtons() {
-    const icon = this.icon();
     document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
-      btn.textContent = icon;
+      btn.textContent = this.icon();
       btn.setAttribute('aria-label', this.current() === 'dark' ? 'Switch to light' : 'Switch to dark');
-      btn.title = this.current() === 'dark' ? 'Light mode' : 'Dark mode';
+    });
+    document.querySelectorAll('[data-theme-switch]').forEach(sw => {
+      sw.classList.toggle('on', this.current() === 'dark');
+      sw.setAttribute('aria-checked', this.current() === 'dark' ? 'true' : 'false');
+      const lab = sw.querySelector('.theme-switch-label');
+      if (lab) lab.textContent = this.current() === 'dark' ? 'Dark' : 'Light';
     });
   },
 
   buttonHtml() {
     return `<button type="button" class="theme-toggle-icon" data-theme-toggle onclick="Theme.toggle()" aria-label="Switch theme">${this.icon()}</button>`;
+  },
+
+  settingsSwitchHtml() {
+    const on = this.current() === 'dark';
+    return `<div class="theme-switch-row">
+      <span>Theme</span>
+      <button type="button" class="theme-switch ${on ? 'on' : ''}" data-theme-switch role="switch"
+        aria-checked="${on}" onclick="Theme.toggle()">
+        <span class="theme-switch-track">
+          <span class="theme-switch-knob">${on ? '🌙' : '☀️'}</span>
+        </span>
+        <span class="theme-switch-label">${on ? 'Dark' : 'Light'}</span>
+      </button>
+    </div>`;
+  },
+
+  openSettings() {
+    document.getElementById('settings-popover')?.remove();
+    document.getElementById('user-popover')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'settings-popover';
+    overlay.className = 'popover-overlay';
+    overlay.innerHTML = `<div class="popover-card settings-card">
+      <h3>Settings</h3>
+      ${this.settingsSwitchHtml()}
+      <p class="text-muted" style="font-size:0.8rem;margin-top:0.75rem">More settings can be added here later.</p>
+      <button class="btn btn-ghost w-full mt-1" onclick="document.getElementById('settings-popover')?.remove()">Close</button>
+    </div>`;
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+    this.syncButtons();
   }
 };
-
 window.Theme = Theme;
 try {
   const t = localStorage.getItem('lvcc_theme') || 'light';

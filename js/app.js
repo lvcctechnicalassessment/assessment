@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.1</div>
+          <div class="app-version">Build v1.5.2</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -144,67 +144,125 @@ const App = {
 
   renderShell(contentHtml, activeNav = '') {
     const role = Auth.userProfile.role;
-    const name = Auth.userProfile.name || Auth.userProfile.email;
+    const name = Auth.userProfile.name || Auth.userProfile.email || '';
     const email = Auth.userProfile.email || '';
+    const photo = Auth.userProfile.photoURL || Auth.currentUser?.photoURL || '';
+    const initials = (name || email || '?').split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase();
+
     let navItems = '';
     if (role === 'superadmin') {
       navItems = `
-        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.toggleMobileNav()">📊 Dashboard</div>
-        <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin();App.toggleMobileNav()">👥 Instructors</div>
-        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Assessments</div>`;
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
+          <span class="nav-ico">▣</span><span>Dashboard</span></div>
+        <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin();App.closeNav()">
+          <span class="nav-ico">◎</span><span>Instructors</span></div>
+        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.closeNav()">
+          <span class="nav-ico">☰</span><span>My Assessments</span></div>`;
     } else if (role === 'teacher') {
       navItems = `
-        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.toggleMobileNav()">📊 Dashboard</div>
-        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.toggleMobileNav()">📝 My Assessments</div>`;
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
+          <span class="nav-ico">▣</span><span>Dashboard</span></div>
+        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.closeNav()">
+          <span class="nav-ico">☰</span><span>My Assessments</span></div>`;
     } else if (role === 'proctor') {
       navItems = `
-        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.toggleMobileNav()">📊 Dashboard</div>
-        <div class="nav-item ${activeNav==='proctor'?'active':''}" onclick="App.showProctorHome();App.toggleMobileNav()">👁 Proctor</div>`;
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
+          <span class="nav-ico">▣</span><span>Dashboard</span></div>
+        <div class="nav-item ${activeNav==='proctor'?'active':''}" onclick="App.showProctorHome();App.closeNav()">
+          <span class="nav-ico">◉</span><span>Proctor</span></div>`;
     } else {
       navItems = `
-        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.toggleMobileNav()">📊 Dashboard</div>
-        <div class="nav-item ${activeNav==='student'?'active':''}" onclick="App.showStudentHome();App.toggleMobileNav()">🏠 Assessments</div>
-        <div class="nav-item ${activeNav==='history'?'active':''}" onclick="App.showStudentHistory();App.toggleMobileNav()">📚 History</div>
-        <div class="nav-item ${activeNav==='mock'?'active':''}" onclick="App.showMockHistory();App.toggleMobileNav()">🎲 Mock History</div>`;
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
+          <span class="nav-ico">▣</span><span>Dashboard</span></div>
+        <div class="nav-item ${activeNav==='history'?'active':''}" onclick="App.showStudentHistory();App.closeNav()">
+          <span class="nav-ico">☰</span><span>Assessments</span></div>
+        <div class="nav-item ${activeNav==='mock'?'active':''}" onclick="App.showMockHistory();App.closeNav()">
+          <span class="nav-ico">◐</span><span>Mock History</span></div>`;
     }
 
+    const avatar = photo
+      ? `<img class="user-avatar" src="${photo}" alt="" />`
+      : `<span class="user-avatar user-avatar-fallback">${escapeHtml(initials)}</span>`;
+
     document.getElementById('app').innerHTML = `
-      <header class="app-header">
-        <div class="header-left">
-          <div class="logo" style="cursor:pointer" onclick="App.showDashboard()" title="Dashboard">
-            <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
-            <span class="logo-text">LVCC Assessment Portal</span><span class="app-version">v1.5.1</span>
-          </div>
-        </div>
-        <div class="header-right">
-          <div class="header-user-desktop header-role-row">
-            <span class="role-badge ${role}">${role}</span>
-            ${Theme.buttonHtml()}
-          </div>
-          <div class="header-user-mobile">
-            <span class="user-name">${escapeHtml(name)}</span>
-            <span class="user-email">${escapeHtml(email)}</span>
-            <div class="header-role-row">
-              <span class="role-badge ${role}">${role}</span>
-              ${Theme.buttonHtml()}
-            </div>
-          </div>
-          <button class="btn btn-ghost btn-sm menu-toggle" onclick="App.toggleMobileNav()" aria-label="Menu">☰</button>
-        </div>
-      </header>
-      <div id="nav-backdrop" class="nav-backdrop" onclick="App.toggleMobileNav()"></div>
-      <div class="dashboard">
+      <div class="shell ${document.body.classList.contains('nav-collapsed') ? 'nav-collapsed' : ''}">
+        <div id="nav-backdrop" class="nav-backdrop" onclick="App.closeNav()"></div>
         <aside class="sidebar" id="sidebar">
-          <h3>Menu</h3>
-          ${navItems}
+          <div class="sidebar-brand">
+            <button type="button" class="brand-toggle" onclick="App.toggleNav()" aria-label="Toggle menu">
+              <img src="assets/lvcc-logo.png" alt="LVCC" class="header-logo" width="36" height="36" />
+            </button>
+            <div class="brand-text">
+              <div class="logo-text">LVCC Assessment Portal</div>
+              <div class="app-version">v1.5.2</div>
+            </div>
+            <button type="button" class="nav-collapse-btn" onclick="App.toggleNav()" aria-label="Collapse">‹</button>
+          </div>
+          <nav class="sidebar-nav">${navItems}</nav>
           <div class="sidebar-user">
-            <div style="font-weight:600;word-break:break-word">${escapeHtml(name)}</div>
-            <div class="text-muted" style="font-size:0.8rem;word-break:break-all">${escapeHtml(email)}</div>
-            <button class="btn btn-sm btn-logout w-full mt-1" onclick="App.logout()">Logout</button>
+            <button type="button" class="user-row" id="user-menu-btn" onclick="App.toggleUserPopover(event)">
+              ${avatar}
+              <div class="user-row-text">
+                <div class="user-row-name">${escapeHtml(name)} <span class="role-badge ${role}">${role}</span></div>
+                <div class="user-row-email">${escapeHtml(email)}</div>
+              </div>
+            </button>
           </div>
         </aside>
-        <main class="main-content" id="main-content">${contentHtml}</main>
+        <div class="shell-main">
+          <header class="thin-bar">
+            <button type="button" class="mobile-brand-btn" onclick="App.toggleNav()" aria-label="Menu">
+              <img src="assets/lvcc-logo.png" alt="Menu" width="32" height="32" />
+            </button>
+            <span class="thin-bar-title">LVCC Assessment Portal</span>
+          </header>
+          <main class="main-content" id="main-content">${contentHtml}</main>
+        </div>
       </div>`;
+  },
+
+  toggleNav() {
+    if (window.innerWidth > 900) {
+      document.querySelector('.shell')?.classList.toggle('nav-collapsed');
+      document.body.classList.toggle('nav-collapsed');
+    } else {
+      document.body.classList.toggle('nav-open');
+      document.querySelector('.shell')?.classList.toggle('nav-open');
+    }
+  },
+
+  closeNav() {
+    document.body.classList.remove('nav-open');
+    document.querySelector('.shell')?.classList.remove('nav-open');
+  },
+
+  toggleUserPopover(ev) {
+    ev?.stopPropagation?.();
+    const existing = document.getElementById('user-popover');
+    if (existing) { existing.remove(); return; }
+    const btn = document.getElementById('user-menu-btn');
+    const rect = btn?.getBoundingClientRect();
+    const pop = document.createElement('div');
+    pop.id = 'user-popover';
+    pop.className = 'user-popover';
+    pop.innerHTML = `
+      <button type="button" class="popover-item" onclick="Theme.openSettings();document.getElementById('user-popover')?.remove()">Settings</button>
+      <button type="button" class="popover-item danger" onclick="App.logout()">Logout</button>`;
+    if (rect) {
+      pop.style.position = 'fixed';
+      pop.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+      pop.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+    }
+    document.body.appendChild(pop);
+    setTimeout(() => {
+      const close = (e) => {
+        if (!pop.contains(e.target) && e.target !== btn) {
+          pop.remove();
+          document.removeEventListener('click', close);
+        }
+      };
+      document.addEventListener('click', close);
+    }, 0);
   },
 
   async showDashboard() {
@@ -255,8 +313,8 @@ const App = {
       </div>
       <div class="card mt-2">
         <div class="action-btns">
-          <button class="btn btn-primary" onclick="App.showStudentHome()">Available assessments</button>
-          <button class="btn btn-ghost" onclick="App.showStudentHistory()">History</button>
+          <button class="btn btn-primary" onclick="App.showStudentHistory()">Assessments</button>
+          <button class="btn btn-ghost" onclick="App.showMockHistory()">Mock History</button>
         </div>
       </div>
     `, 'dashboard');
@@ -1159,24 +1217,24 @@ const App = {
     this.renderShell(`
       <h2 class="page-title">Assessment History</h2>
       <div class="hist-section">
-        <div class="hist-section-head">
-          <h3>Code assessments</h3>
-          <div class="hist-toolbar">
+        <div class="hist-head-grid">
+          <h3 style="margin:0">Code assessments</h3>
+          <div class="hist-filter-row" style="display:contents">
             <input type="search" id="hist-filter-code" class="form-control" placeholder="Filter code assessments..." />
             <button type="button" class="btn btn-primary" id="mock-from-code">Create mock exam</button>
           </div>
         </div>
-        <div id="hist-code" class="table-wrap">Loading...</div>
+        <div id="hist-code" class="table-wrap mt-2">Loading...</div>
       </div>
       <div class="hist-section mt-2">
-        <div class="hist-section-head">
-          <h3>Regular assessments</h3>
-          <div class="hist-toolbar">
+        <div class="hist-head-grid">
+          <h3 style="margin:0">Regular assessments</h3>
+          <div class="hist-filter-row" style="display:contents">
             <input type="search" id="hist-filter-reg" class="form-control" placeholder="Filter regular assessments..." />
             <button type="button" class="btn btn-primary" id="mock-from-reg">Create mock exam</button>
           </div>
         </div>
-        <div id="hist-reg" class="table-wrap">Loading...</div>
+        <div id="hist-reg" class="table-wrap mt-2">Loading...</div>
       </div>
     `, 'history');
 
@@ -1626,10 +1684,14 @@ const App = {
 
 
   async testAsStudent(examId) {
+    // Always open preview in a new tab so instructor UI stays intact
     const url = new URL(window.location.href);
     url.searchParams.set('exam', examId);
     url.searchParams.set('test', '1');
-    window.open(url.toString(), '_blank', 'noopener');
+    const w = window.open(url.toString(), '_blank', 'noopener');
+    if (!w) {
+      await UI.alert('Please allow pop-ups to open Test as student in a new tab.', 'Pop-up blocked');
+    }
   },
 
   async startStudentExam(examId, opts = {}) {
@@ -2020,7 +2082,7 @@ const App = {
           <div class="take-nav">
             ${g.kind === 'passage' ? '<button type="button" class="btn btn-ghost" id="take-skip-passage">Skip passage</button>' : ''}
             ${showSkip ? '<button type="button" class="btn btn-ghost" id="take-skip">Skip</button>' : ''}
-            <button type="button" class="btn btn-primary" id="take-next">${(!showSkip && gi >= groups.length - 1) ? 'Submit' : 'Next'}</button>
+            <button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>
           </div>
         </div>`;
 
@@ -2063,13 +2125,17 @@ const App = {
         });
       }
 
-      const goNext = (skipPassage = false, isSkip = false) => {
+      const goNext = async (skipPassage = false, isSkip = false) => {
         save();
         if (isSkip) {
           const n = findNextUnanswered(gi, g.kind === 'passage' ? pi : -1);
           if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
-          // none left
-          document.getElementById('take-skip')?.remove();
+          return;
+        }
+        if (!showSkip) {
+          const ok = await UI.confirm('Submit this assessment? You will not be able to change answers after submitting.', 'Submit assessment');
+          if (!ok) return;
+          await this.finishRegularTake(session, answers, 'manual');
           return;
         }
         if (g.kind === 'passage' && !skipPassage) {
@@ -2081,7 +2147,9 @@ const App = {
         if (gi >= groups.length) {
           const n = findNextUnanswered(0, -1);
           if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
-          this.finishRegularTake(session, answers, 'manual');
+          const ok = await UI.confirm('Submit this assessment? You will not be able to change answers after submitting.', 'Submit assessment');
+          if (!ok) return;
+          await this.finishRegularTake(session, answers, 'manual');
         } else renderTake();
       };
 
@@ -2113,7 +2181,8 @@ const App = {
   async finishRegularTake(session, answers, reason = 'manual') {
     try { if (window.Monitor) Monitor.markSubmitting(); } catch (_) {}
     try { CodeEditor.beginSubmit(); } catch (_) {}
-    if (!String(session.id).startsWith('test_')) {
+    const isTest = !!(session._testMode || window._testMode || String(session.id).startsWith('test_'));
+    if (!isTest) {
       try {
         await Exam.updateSessionAnswers(session.id, answers || {});
         await Exam.submitSession(session.id, reason === 'time-up' ? 'time-up' : 'manual');
@@ -2122,13 +2191,28 @@ const App = {
     this.clearExamQuery();
     document.getElementById('student-chat-fab')?.remove();
     document.getElementById('test-mode-bar')?.remove();
+    window._testMode = false;
+    if (isTest) {
+      // Instructor preview tab: close or return to instructor dashboard
+      this.renderShell(`
+        <div class="card empty-state times-up-card">
+          <h2>Preview ended</h2>
+          <p>Test as student session finished. This did not count as a real submission.</p>
+          <div class="action-btns" style="justify-content:center">
+            <button class="btn btn-primary" onclick="window.close()">Close tab</button>
+            <button class="btn btn-ghost" onclick="App.showDashboard()">Back to dashboard</button>
+          </div>
+        </div>
+      `, 'dashboard');
+      return;
+    }
     this.renderShell(`
       <div class="card empty-state times-up-card">
         <h2>${reason === 'time-up' ? "Time's up!" : 'Assessment submitted'}</h2>
         <p>Your answers were submitted${reason === 'time-up' ? ' automatically' : ''}.</p>
         <div class="action-btns" style="justify-content:center">
           <button class="btn btn-primary" onclick="App.showStudentHistory()">View results</button>
-          <button class="btn btn-ghost" onclick="App.showStudentHome()">Back to home</button>
+          <button class="btn btn-ghost" onclick="App.showDashboard()">Back to home</button>
         </div>
       </div>
     `, 'history');
@@ -2328,30 +2412,56 @@ const App = {
     document.getElementById('integrity-filter-page').oninput = render;
     document.getElementById('btn-export-integrity-pdf').onclick = () => {
       const rows = window._integrityExportRows || all;
-      const body = rows.map(n => {
-        const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
-          : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
-        const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb;
-        return `<tr>
-          <td>${thumb ? `<img src="${thumb}" style="width:80px;height:auto;border-radius:4px"/>` : '—'}</td>
-          <td>${escapeHtml(n.studentName||'')}</td><td>${escapeHtml(n.studentEmail||'')}</td>
-          <td>${escapeHtml(n.type||'')}</td><td>${escapeHtml(n.details||'')}</td><td>${time}</td></tr>`;
-      }).join('');
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Integrity</title>
-        <style>body{font-family:system-ui;padding:24px}table{border-collapse:collapse;width:100%}
-        th,td{border:1px solid #ccc;padding:8px;font-size:12px;vertical-align:top}th{background:#eee}
-        img{max-width:100px}</style></head><body>
-        <h1>Integrity issues — ${escapeHtml(exam?.title||'')}</h1>
-        <table><thead><tr><th>Screenshot</th><th>Name</th><th>Email</th><th>Issue</th><th>Details</th><th>Date</th></tr></thead>
-        <tbody>${body}</tbody></table></body></html>`;
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'integrity-' + examId + '.html';
-      link.click();
-      URL.revokeObjectURL(link.href);
-      UI.alert('Downloaded. Open the file and use Print → Save as PDF if needed.', 'Export');
+      const title = exam?.title || 'Assessment';
+      const stamp = fileStamp();
+      if (window.jspdf && window.jspdf.jsPDF) {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+        let y = 40;
+        doc.setFontSize(14);
+        doc.text('Integrity issues — ' + title, 40, y); y += 24;
+        doc.setFontSize(10);
+        rows.forEach((n, i) => {
+          const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
+            : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
+          const line = `${n.studentName || ''} | ${n.studentEmail || ''} | ${n.type || ''} | ${n.details || ''} | ${time}`;
+          const lines = doc.splitTextToSize(line, 520);
+          if (y + lines.length * 12 > 780) { doc.addPage(); y = 40; }
+          doc.text(lines, 40, y);
+          y += lines.length * 12 + 8;
+          const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb;
+          if (thumb && String(thumb).startsWith('data:image')) {
+            try {
+              if (y > 640) { doc.addPage(); y = 40; }
+              doc.addImage(thumb, 'JPEG', 40, y, 120, 80);
+              y += 90;
+            } catch (_) {}
+          }
+        });
+        doc.save(safeFilePart(title) + '-' + stamp + '.pdf');
+        UI.alert('PDF downloaded.', 'Export');
+        return;
+      }
+      UI.alert('PDF library not loaded. Refresh and try again.', 'Export');
     };
+    document.getElementById('btn-export-integrity-hq').onclick = () => {
+      const rows = window._integrityExportRows || all;
+      const stamp = fileStamp();
+      let n = 0;
+      rows.forEach(row => {
+        const thumb = row.screenshot || row.extra?.screenshot || row.screenThumb || row.extra?.cameraScreenshot;
+        if (!thumb || !String(thumb).startsWith('data:')) return;
+        const nameParts = String(row.studentName || row.studentEmail || 'student').trim().split(/\s+/);
+        const last = nameParts.slice(-1)[0] || 'student';
+        const first = nameParts[0] || '';
+        const issue = safeFilePart(row.type || 'issue');
+        const fname = `${safeFilePart(last)}${safeFilePart(first)}-${issue}-${stamp}.jpg`;
+        downloadDataUrl(thumb, fname);
+        n++;
+      });
+      UI.alert(n ? (`Downloaded ${n} image(s).`) : 'No HQ images in the current filter.', 'Export HQ');
+    };
+
   },
 
   async gradeSession(sessionId, examId) {
@@ -2429,6 +2539,22 @@ const App = {
     });
     const hardest = Object.values(wrongCount).sort((a, b) => b.wrong - a.wrong).slice(0, 5);
 
+    const topPerformers = sessions.map(s => {
+      const g = gradeMap[s.id] || {};
+      const submittedAt = s.submittedAt?.toMillis?.() || s.submittedAt || 0;
+      const startedAt = s.startedAt?.toMillis?.() || s.createdAt?.toMillis?.() || 0;
+      const duration = (submittedAt && startedAt) ? Math.max(0, submittedAt - startedAt) : (s.durationMs || 0);
+      return {
+        name: s.studentName || s.studentEmail || 'Student',
+        email: s.studentEmail || '',
+        percent: Number(g.percent) || 0,
+        score: g.score,
+        duration
+      };
+    }).filter(p => p.percent > 0 || p.score != null)
+      .sort((a, b) => (b.percent - a.percent) || (a.duration - b.duration))
+      .slice(0, 5);
+
     const pieTotal = hardest.reduce((a, h) => a + h.wrong, 0) || 1;
     const colors = ['#2563eb','#8b5cf6','#14b8a6','#f59e0b','#f43f5e'];
     let ang = 0;
@@ -2445,6 +2571,10 @@ const App = {
       `<div class="pie-legend-item"><span class="pie-swatch" style="background:${colors[i%colors.length]}"></span>${escapeHtml(h.prompt).slice(0,48)} (${h.wrong})</div>`
     ).join('') || '<div class="text-muted">No data</div>';
 
+    const topList = (typeof topPerformers !== 'undefined' ? topPerformers : []).map((p, i) =>
+      `<div class="pie-legend-item"><strong>#${i+1}</strong> ${escapeHtml(p.name)} — ${p.percent}%${p.duration ? (' · ' + Math.round(p.duration/60000) + ' min') : ''}</div>`
+    ).join('') || '<div class="text-muted">No data</div>';
+
     document.getElementById('results-stats').innerHTML = `
       <div class="results-stats-row">
         <div class="stats-grid stats-4">
@@ -2459,6 +2589,10 @@ const App = {
             <svg viewBox="0 0 100 100" class="pie-svg">${slices}</svg>
             <div class="pie-legend">${legend}</div>
           </div>
+        </div>
+        <div class="stat-card pie-card">
+          <div class="stat-label">Top performing students</div>
+          <div class="pie-legend" style="margin-top:0.75rem">${topList}</div>
         </div>
       </div>`;
 
@@ -2485,17 +2619,17 @@ const App = {
         const g = gradeMap[s.id];
         rows.push([s.studentName||'', s.studentEmail||'', s.status||'', g?.score??'', g?.maxScore??'', g?.percent??'']);
       });
-      rows.push([]);
+      rows.push(['']);
       rows.push(['Summary']);
       rows.push(['Students', studentCount]);
       rows.push(['Total items', totalItems]);
       rows.push(['Average %', avg.toFixed(1)]);
       rows.push(['Perfect scores', perfect]);
-      hardest.forEach((h, i) => rows.push(['Hardest Q'+(i+1), h.prompt, h.wrong + ' wrong']));
-      const csv = rows.map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\\n');
-      // Excel-friendly CSV
-      downloadText(`results-${examId}.csv`, '\uFEFF' + csv);
-      UI.alert('Exported results as CSV (opens in Excel).', 'Export');
+      hardest.forEach((h, i) => rows.push(['Hardest Q'+(i+1), String(h.prompt||'').replace(/\r?\n/g, ' '), (h.wrong) + ' wrong']));
+      const csv = rows.map(r => r.map(c => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(',')).join('\r\n');
+      const stamp = fileStamp();
+      downloadText(safeFilePart(exam.title || 'results') + '-summary-' + stamp + '.csv', '\uFEFF' + csv);
+      UI.alert('Excel CSV downloaded.', 'Export');
     };
   },
 
@@ -2549,6 +2683,23 @@ const App = {
       <button class="btn btn-primary" onclick="location.reload()">Reload</button></div>`;
   }
 };
+
+
+function fileStamp(d = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`;
+}
+function safeFilePart(s) {
+  return String(s || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80);
+}
+function downloadDataUrl(dataUrl, filename) {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 function downloadText(filename, content) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });

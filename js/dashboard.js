@@ -89,16 +89,17 @@ const Dashboard = {
               </div>
               <div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">${start} → ${end}</div>
             </div>
-            <div class="assess-actions-row">
-              <button class="btn btn-primary" onclick="App.openManageMenu('${ex.id}')">Manage</button>
-              <button class="btn btn-primary" onclick="App.openMonitorMenu('${ex.id}', ${!!live})">Monitor</button>
-              <button class="btn btn-primary" onclick="App.openShareMenu('${ex.id}')">Share</button>
-            </div>
-            <div class="action-btns mt-1" style="flex-wrap:wrap;gap:0.35rem">
+            <div class="assess-actions-fluid">
               <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
-              ${live ? `<button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : ''}
+              ${live ? `<button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : `<button class="btn btn-sm btn-ghost" disabled>Live</button>`}
               <button class="btn btn-sm btn-ghost" onclick="App.testAsStudent('${ex.id}')">Test</button>
-              ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : ''}
+              <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity</button>
+              <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
+              <button class="btn btn-sm btn-ghost" onclick="App.showSharePanel('${ex.id}')">Share</button>
+              <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
+              <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
+              ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : `<button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>`}
+              <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
             </div>
           </div>`;
       });

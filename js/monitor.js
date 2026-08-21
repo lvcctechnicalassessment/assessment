@@ -63,8 +63,8 @@ const Monitor = {
           <h1 class="monitor-gate-title">Assessment integrity rules</h1>
           <div class="monitor-gate-body">
             <p>Full screen is required for the entire assessment on desktop devices.</p>
-            <p>Your screen and camera may be monitored so instructors can protect exam integrity. Do not exit full screen, switch tabs, or open other windows.</p>
-            <p>Violations are logged in real time. Camera and screen stills are captured for monitoring; high-quality evidence is saved when a violation is detected.</p>
+            <p>Your screen may be monitored so instructors can protect exam integrity. Do not exit full screen, switch tabs, or open other windows.</p>
+            <p>Violations are logged in real time. Screen stills may be captured for monitoring when a violation is detected.</p>
             <p>By continuing, you agree to these rules and to remain in the assessment environment until you submit or time expires.</p>
           </div>
           <p class="monitor-gate-device">Device detected: <strong>${this.deviceType}</strong></p>
@@ -92,17 +92,7 @@ const Monitor = {
           await this.requestFullscreen();
         }
 
-        // Camera permission (optional soft-fail with warning)
-        const camOk = await this.startCamera();
-        if (!camOk && window.UI) {
-          const cont = await UI.confirm('Camera access was not granted. Continue without camera monitoring?', 'Camera');
-          if (!cont) {
-            btn.disabled = false;
-            btn.textContent = 'Accept Rules & Start Exam';
-            return;
-          }
-        }
-
+        // Screen share only (no camera)
         if (this.deviceType === 'desktop') {
           await this.startDesktopCapture();
         }
@@ -196,7 +186,7 @@ const Monitor = {
     if (this.submitting || !this.sessionId || String(this.sessionId).startsWith('test_')) return;
     let screenThumb = this.frameFromVideo(this.video, 480, 0.35);
     if (!screenThumb) screenThumb = await this.captureUi(0.3, 0.35);
-    const cameraThumb = this.frameFromVideo(this.cameraVideo, 320, 0.4);
+    const cameraThumb = null;
 
     let pingMs = null;
     try {
