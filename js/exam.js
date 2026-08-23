@@ -25,8 +25,16 @@ const Exam = {
     const startMs = startAt ? new Date(startAt).getTime() : Date.now();
     const endMs = endAt ? new Date(endAt).getTime() : (startMs + (Number(durationMinutes) || 60) * 60000);
 
+    // Unique 8-digit assessment code
+    let assessmentCode = '';
+    for (let attempt = 0; attempt < 8; attempt++) {
+      assessmentCode = String(Math.floor(10000000 + Math.random() * 90000000));
+      const exists = await window.db.collection('exams').where('assessmentCode', '==', assessmentCode).limit(1).get();
+      if (exists.empty) break;
+    }
     const examRef = window.db.collection('exams').doc();
     const data = {
+      assessmentCode,
       title: (title || '').trim(),
       instructions: (instructions || '').trim(),
       starterCode: starterCode || (examType === 'code'

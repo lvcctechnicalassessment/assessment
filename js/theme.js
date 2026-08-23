@@ -4,16 +4,13 @@
 const Theme = {
   KEY: 'lvcc_theme',
   DEFAULT: 'light',
-
   init() {
     const saved = localStorage.getItem(this.KEY) || this.DEFAULT;
     this.apply(saved, false);
   },
-
   current() {
     return document.documentElement.getAttribute('data-theme') || this.DEFAULT;
   },
-
   apply(theme, persist = true) {
     const t = theme === 'light' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', t);
@@ -24,11 +21,9 @@ const Theme = {
     }
     this.syncButtons();
   },
-
   toggle() {
     this.apply(this.current() === 'dark' ? 'light' : 'dark', true);
   },
-
   async saveToProfile(theme) {
     try {
       if (!window.auth?.currentUser || !window.db) return;
@@ -38,7 +33,6 @@ const Theme = {
       );
     } catch (e) { console.warn('theme save', e); }
   },
-
   async loadFromProfile() {
     try {
       if (!window.auth?.currentUser || !window.db) return;
@@ -46,26 +40,23 @@ const Theme = {
       if (snap.exists && snap.data().theme) this.apply(snap.data().theme, true);
     } catch (e) { console.warn('theme load', e); }
   },
-
   icon() { return this.current() === 'dark' ? '☀️' : '🌙'; },
-
   syncButtons() {
     document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
       btn.textContent = this.icon();
-      btn.setAttribute('aria-label', this.current() === 'dark' ? 'Switch to light' : 'Switch to dark');
     });
     document.querySelectorAll('[data-theme-switch]').forEach(sw => {
       sw.classList.toggle('on', this.current() === 'dark');
       sw.setAttribute('aria-checked', this.current() === 'dark' ? 'true' : 'false');
       const lab = sw.querySelector('.theme-switch-label');
       if (lab) lab.textContent = this.current() === 'dark' ? 'Dark' : 'Light';
+      const knob = sw.querySelector('.theme-switch-knob');
+      if (knob) knob.textContent = this.current() === 'dark' ? '🌙' : '☀️';
     });
   },
-
   buttonHtml() {
     return `<button type="button" class="theme-toggle-icon" data-theme-toggle onclick="Theme.toggle()" aria-label="Switch theme">${this.icon()}</button>`;
   },
-
   settingsSwitchHtml() {
     const on = this.current() === 'dark';
     return `<div class="theme-switch-row">
@@ -79,7 +70,6 @@ const Theme = {
       </button>
     </div>`;
   },
-
   openSettings() {
     document.getElementById('settings-popover')?.remove();
     document.getElementById('user-popover')?.remove();
@@ -89,8 +79,6 @@ const Theme = {
     overlay.innerHTML = `<div class="popover-card settings-card">
       <h3>Settings</h3>
       ${this.settingsSwitchHtml()}
-      <p class="text-muted" style="font-size:0.8rem;margin-top:0.75rem">More settings can be added here later.</p>
-      <button class="btn btn-ghost w-full mt-1" onclick="document.getElementById('settings-popover')?.remove()">Close</button>
     </div>`;
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);

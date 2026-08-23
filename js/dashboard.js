@@ -89,17 +89,34 @@ const Dashboard = {
               </div>
               <div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">${start} → ${end}</div>
             </div>
-            <div class="assess-actions-fluid">
-              <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
-              ${live ? `<button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : `<button class="btn btn-sm btn-ghost" disabled>Live</button>`}
-              <button class="btn btn-sm btn-ghost" onclick="App.testAsStudent('${ex.id}')">Test</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.showSharePanel('${ex.id}')">Share</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
-              <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
-              ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : `<button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>`}
-              <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
+            <div class="assess-cat-grid">
+              <div class="action-group-box">
+                <span class="action-label">Manage</span>
+                <div class="btn-row">
+                  <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
+                  <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
+                  ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : `<button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>`}
+                  <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
+                </div>
+              </div>
+              <div class="action-group-box">
+                <span class="action-label">Monitor</span>
+                <div class="btn-row">
+                  ${live ? `<button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : `<button class="btn btn-sm btn-ghost" disabled>Live</button>`}
+                  <button class="btn btn-sm btn-ghost" onclick="App.testAsStudent('${ex.id}')">Test</button>
+                  <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity</button>
+                  <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
+                </div>
+              </div>
+              <div class="action-group-box">
+                <span class="action-label">Share</span>
+                <div class="btn-row">
+                  <button class="btn btn-sm btn-ghost" onclick="App.showSharePanel('${ex.id}')">Link / QR</button>
+                  <button class="btn btn-sm btn-ghost" onclick="App.showExamInvites('${ex.id}')">Invite</button>
+                  <button class="btn btn-sm btn-ghost" onclick="App.shareToCoTeacher('${ex.id}')">Share to Co-Instructor</button>
+                  <button class="btn btn-sm btn-ghost" onclick="App.showProctors('${ex.id}')">Add Proctor</button>
+                </div>
+              </div>
             </div>
           </div>`;
       });

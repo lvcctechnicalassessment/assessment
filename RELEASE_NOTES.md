@@ -89,3 +89,11 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Integrity PDF + HQ image export with dated filenames; Excel CSV newline fix
 - Student History renamed Assessments; layout grid; results top performers
 - Take UI: centered nav, submit confirm on last unanswered, FAB z-index
+
+## v1.5.3
+- Student join code screen; Join Assessment on dashboard; 8-digit assessment ID
+- Take UI theme bg, full-width question, choice colors, FAB fix, browser fullscreen
+- Draft save + remote autosave; Publish schedule + share ID/QR
+- My Assessments Manage/Monitor/Share groups; Co-Instructor + Proctor
+- Mock history persist; history left align; teacher dashboard stats
+- Shell: mobile avatar menu; desktop user row; settings theme only
