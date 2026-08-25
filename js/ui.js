@@ -9,7 +9,6 @@ const UI = {
       el.id = 'ui-modal-root';
       document.body.appendChild(el);
     }
-    el.style.cssText = 'position:fixed;inset:0;z-index:50000;pointer-events:none';
     return el;
   },
 
@@ -17,16 +16,39 @@ const UI = {
     const root = document.getElementById('ui-modal-root');
     if (root) {
       root.innerHTML = '';
-      root.style.pointerEvents = 'none';
+      root.style.cssText = '';
+      root.onclick = null;
     }
+  },
+
+  _show(html) {
+    const root = this._root();
+    root.style.cssText = 'position:fixed;inset:0;z-index:50000;pointer-events:auto;';
+    root.innerHTML = html;
+    // Click on backdrop only (not modal) — optional dismiss not default for confirm
+    const overlay = root.querySelector('.ui-modal-overlay, .modal-overlay');
+    if (overlay) {
+      overlay.style.cssText = (overlay.getAttribute('style') || '') + ';position:fixed;inset:0;z-index:50000;pointer-events:auto;display:flex;align-items:center;justify-content:center;';
+      // stop clicks from reaching page behind
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          // do not auto-close; just block
+          e.stopPropagation();
+        }
+      }, true);
+    }
+    const modal = root.querySelector('.ui-modal, .modal');
+    if (modal) {
+      modal.style.pointerEvents = 'auto';
+      modal.addEventListener('click', (e) => e.stopPropagation());
+    }
+    return root;
   },
 
   alert(message, title = 'Notice') {
     return new Promise((resolve) => {
-      const root = this._root();
-      root.style.pointerEvents = 'auto';
-      root.innerHTML = `
-        <div class="modal-overlay ui-modal-overlay" style="z-index:50000;pointer-events:auto">
+      this._show(`
+        <div class="modal-overlay ui-modal-overlay">
           <div class="modal ui-modal">
             <h2>${escapeHtml(title)}</h2>
             <p class="ui-modal-body">${escapeHtml(message)}</p>
@@ -34,17 +56,15 @@ const UI = {
               <button class="btn btn-primary" id="ui-ok">OK</button>
             </div>
           </div>
-        </div>`;
+        </div>`);
       document.getElementById('ui-ok').onclick = () => { this.close(); resolve(); };
     });
   },
 
   confirm(message, title = 'Confirm') {
     return new Promise((resolve) => {
-      const root = this._root();
-      root.style.pointerEvents = 'auto';
-      root.innerHTML = `
-        <div class="modal-overlay ui-modal-overlay" style="z-index:50000;pointer-events:auto">
+      this._show(`
+        <div class="modal-overlay ui-modal-overlay">
           <div class="modal ui-modal">
             <h2>${escapeHtml(title)}</h2>
             <p class="ui-modal-body">${escapeHtml(message)}</p>
@@ -53,7 +73,7 @@ const UI = {
               <button class="btn btn-primary" id="ui-ok">Confirm</button>
             </div>
           </div>
-        </div>`;
+        </div>`);
       document.getElementById('ui-cancel').onclick = () => { this.close(); resolve(false); };
       document.getElementById('ui-ok').onclick = () => { this.close(); resolve(true); };
     });
@@ -61,11 +81,9 @@ const UI = {
 
   prompt(message, defaultValue = '', title = 'Input', placeholder = '') {
     return new Promise((resolve) => {
-      const ph = placeholder || (defaultValue ? '' : '');
-      const root = this._root();
-      root.style.pointerEvents = 'auto';
-      root.innerHTML = `
-        <div class="modal-overlay ui-modal-overlay" style="z-index:50000;pointer-events:auto">
+      const ph = placeholder || '';
+      this._show(`
+        <div class="modal-overlay ui-modal-overlay">
           <div class="modal ui-modal">
             <h2>${escapeHtml(title)}</h2>
             <p class="ui-modal-body">${escapeHtml(message)}</p>
@@ -75,7 +93,7 @@ const UI = {
               <button class="btn btn-primary" id="ui-ok">OK</button>
             </div>
           </div>
-        </div>`;
+        </div>`);
       const input = document.getElementById('ui-input');
       input.focus();
       if (defaultValue) input.select();
@@ -88,12 +106,9 @@ const UI = {
     });
   },
 
-  /** Show image maximized */
   showImage(src, title = 'Screenshot') {
-    const root = this._root();
-    root.style.pointerEvents = 'auto';
-    root.innerHTML = `
-      <div class="modal-overlay ui-modal-overlay" id="ui-img-overlay" style="z-index:50000;pointer-events:auto">
+    this._show(`
+      <div class="modal-overlay ui-modal-overlay" id="ui-img-overlay">
         <div class="modal ui-modal modal-wide">
           <h2>${escapeHtml(title)}</h2>
           <img src="${src}" alt="screenshot" style="max-width:100%;border-radius:8px;background:#000" />
@@ -101,9 +116,8 @@ const UI = {
             <button class="btn btn-primary" id="ui-ok">Close</button>
           </div>
         </div>
-      </div>`;
+      </div>`);
     document.getElementById('ui-ok').onclick = () => this.close();
   }
 };
-
 window.UI = UI;

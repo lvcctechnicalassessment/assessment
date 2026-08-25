@@ -77,6 +77,18 @@ const Regular = {
         };
       case 'essay':
         return { ...base, maxChars: 1000, correct: '' };
+      case 'wordbox':
+        return {
+          ...base,
+          prompt: 'Choose your answer from the word bank and place it in the blank for each item.',
+          wordBankRows: 4,
+          wordBankCols: 3,
+          wordBank: ['', '', '', '', '', '', '', '', '', '', '', ''],
+          items: [
+            { id: 'wb1', text: '', correct: '', alternatives: [] },
+            { id: 'wb2', text: '', correct: '', alternatives: [] }
+          ]
+        };
       case 'dropdown':
         return { ...base, options: ['Option A', 'Option B'], correct: 0 };
       case 'table':
@@ -145,6 +157,44 @@ const Regular = {
       </div>`;
   },
 
+
+  renderBuilderWordBox(q, index) {
+    const rows = Number(q.wordBankRows) || 4;
+    const cols = Number(q.wordBankCols) || 3;
+    const bank = q.wordBank || [];
+    while (bank.length < rows * cols) bank.push('');
+    let cells = '';
+    for (let i = 0; i < rows * cols; i++) {
+      cells += `<input class="form-control wb-cell" data-wb-bank="${index}:${i}" value="${escapeHtml(bank[i] || '')}" placeholder="Word ${i+1}" />`;
+    }
+    const items = (q.items || []).map((it, ii) => `
+      <div class="wb-item-row card mt-1" style="padding:0.75rem">
+        <label>Item ${ii + 1}</label>
+        <textarea class="form-control" data-wb-item-text="${index}:${ii}" rows="2" placeholder="Question / definition">${escapeHtml(it.text || '')}</textarea>
+        <label class="mt-1">Correct word (must match a bank word)</label>
+        <input class="form-control" data-wb-item-correct="${index}:${ii}" value="${escapeHtml(it.correct || '')}" placeholder="Correct answer from bank" />
+        <label class="mt-1">Alternatives (comma-separated)</label>
+        <input class="form-control" data-wb-item-alt="${index}:${ii}" value="${escapeHtml((it.alternatives || []).join(', '))}" />
+        <button type="button" class="btn btn-sm btn-danger mt-1" data-wb-del-item="${index}:${ii}">Remove item</button>
+      </div>`).join('');
+    return `<div class="builder-wordbox" data-gidx="${index}">
+      <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions for students">${escapeHtml(q.prompt || '')}</textarea>
+      <div class="form-group mt-1" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end">
+        <label>Rows <input type="number" min="1" max="10" class="form-control" style="width:70px" data-wb-rows="${index}" value="${rows}" /></label>
+        <label>Columns <input type="number" min="1" max="6" class="form-control" style="width:70px" data-wb-cols="${index}" value="${cols}" /></label>
+        <button type="button" class="btn btn-sm btn-ghost" data-wb-resize="${index}">Apply grid size</button>
+      </div>
+      <label class="mt-1">Word bank</label>
+      <div class="wb-bank-grid" style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:0.4rem">${cells}</div>
+      <div class="mt-2"><strong>Items (fill-in from bank)</strong></div>
+      ${items}
+      <button type="button" class="btn btn-sm btn-primary mt-1" data-wb-add-item="${index}">+ Add item</button>
+      <div class="points-row mt-1">
+        <label>Points per item <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+      </div>
+    </div>`;
+  },
+
   renderBuilderTF(q, index) {
     const isMod = q.type === 'modified_tf' || q.tfCategory === 'modified';
     return `
@@ -180,7 +230,32 @@ const Regular = {
       </div>`;
   },
 
+  renderStudentWordBox(q, answer) {
+    const bank = (q.wordBank || []).filter(w => String(w || '').trim());
+    const items = q.items || [];
+    const ans = (answer && typeof answer === 'object') ? answer : {};
+    const bankHtml = bank.map((w, i) =>
+      `<div class="wb-chip" draggable="true" data-word="${escapeHtml(w)}" id="wb-chip-${q.id}-${i}">${escapeHtml(w)}</div>`
+    ).join('');
+    const itemsHtml = items.map((it, ii) => {
+      const filled = ans[it.id] || '';
+      return `<div class="wb-drop-row">
+        <div class="wb-drop-zone ${filled ? 'filled' : ''}" data-qid="${q.id}" data-item="${it.id}"
+          ondragover="event.preventDefault()" data-drop="1">
+          ${filled ? `<span class="wb-placed" draggable="true" data-word="${escapeHtml(filled)}">${escapeHtml(filled)}</span>` : '<span class="wb-placeholder">Drop word here</span>'}
+        </div>
+        <div class="wb-item-text">${ii + 1}. ${escapeHtml(it.text || '')}</div>
+      </div>`;
+    }).join('');
+    return `<div class="wb-student" data-qid="${q.id}">
+      <p class="wb-instructions">${escapeHtml(q.prompt || 'Drag a word from the bank into each blank.')}</p>
+      <div class="wb-bank-student">${bankHtml || '<span class="text-muted">No words in bank</span>'}</div>
+      <div class="wb-items-student">${itemsHtml}</div>
+    </div>`;
+  },
+
   renderStudentQuestion(q, answer) {
+    if (q.type === 'wordbox') return this.renderStudentWordBox(q, answer);
     const val = answer !== undefined ? answer : null;
 
     if (q.type === 'multiple') {
@@ -400,6 +475,19 @@ const Regular = {
       const a = answers?.[q.id];
       if (a === undefined || a === null || a === '') return;
       let ok = false;
+      if (q.type === 'wordbox') {
+        const items = q.items || [];
+        const itemPts = items.length ? (pts / items.length) : pts;
+        total -= pts; // recalc per item
+        items.forEach(it => {
+          total += itemPts;
+          const got = String((a && a[it.id]) || '').trim().toLowerCase();
+          if (!got) return;
+          const okList = [it.correct, ...(it.alternatives || [])].map(x => String(x || '').trim().toLowerCase()).filter(Boolean);
+          if (okList.includes(got)) { earned += itemPts; }
+        });
+        return;
+      }
       if (q.type === 'multiple' || q.type === 'dropdown') {
         if (q.multiCorrect) {
           const ca = Array.isArray(q.correct) ? [...q.correct].map(Number).sort() : [];
@@ -465,6 +553,71 @@ const Regular = {
       });
     }
     return groups;
+  },
+
+  collectAnswers(container) {
+    const answers = {};
+    if (!container) return answers;
+    const wb = container.querySelector('.wb-student');
+    if (wb) {
+      const qid = wb.getAttribute('data-qid');
+      const map = {};
+      wb.querySelectorAll('.wb-drop-zone').forEach(z => {
+        const item = z.getAttribute('data-item');
+        const placed = z.querySelector('.wb-placed');
+        if (item) map[item] = placed ? (placed.getAttribute('data-word') || placed.textContent || '').trim() : '';
+      });
+      if (qid) answers[qid] = map;
+      return answers;
+    }
+    container.querySelectorAll('textarea[data-qid], input[data-qid], select[data-qid]').forEach(el => {
+      const qid = el.getAttribute('data-qid');
+      if (qid) answers[qid] = el.value;
+    });
+    return answers;
+  },
+
+  bindWordBoxDrag(root, onChange) {
+    if (!root) return;
+    root.querySelectorAll('.wb-chip, .wb-placed').forEach(chip => {
+      chip.setAttribute('draggable', 'true');
+      chip.addEventListener('dragstart', (e) => {
+        const word = chip.getAttribute('data-word') || chip.textContent || '';
+        e.dataTransfer.setData('text/plain', word);
+      });
+    });
+    root.querySelectorAll('.wb-drop-zone').forEach(zone => {
+      zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        const word = (e.dataTransfer.getData('text/plain') || '').trim();
+        if (!word) return;
+        zone.classList.add('filled');
+        const span = document.createElement('span');
+        span.className = 'wb-placed';
+        span.draggable = true;
+        span.setAttribute('data-word', word);
+        span.textContent = word;
+        span.addEventListener('dragstart', (ev) => ev.dataTransfer.setData('text/plain', word));
+        zone.innerHTML = '';
+        zone.appendChild(span);
+        onChange && onChange();
+      });
+      zone.addEventListener('dblclick', () => {
+        zone.classList.remove('filled');
+        zone.innerHTML = '<span class="wb-placeholder">Drop word here</span>';
+        onChange && onChange();
+      });
+    });
+  },
+
+  bindStudentMC(box, onChange) {
+    if (!box || !onChange) return;
+    box.querySelectorAll('.gq-student, .take-opt').forEach(btn => {
+      btn.addEventListener('click', () => onChange());
+    });
   }
 };
 

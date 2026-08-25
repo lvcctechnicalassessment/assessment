@@ -2302,3 +2302,57 @@ body.nav-open .nav-backdrop { display: block; }
   .take-fullscreen .take-options-grid { grid-template-columns: 1fr; }
   .take-fullscreen .take-opt { max-height: 14vh; }
 }
+
+/* v1.5.10 */
+#ui-modal-root:not(:empty) {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 50000 !important;
+  pointer-events: auto !important;
+}
+.ui-modal-overlay {
+  background: rgba(0,0,0,0.55) !important;
+}
+.take-fullscreen .take-q-banner {
+  min-height: 28vh;
+  max-height: 42vh;
+}
+.take-fullscreen .take-options-grid {
+  flex: 1 1 auto;
+  min-height: 35vh;
+}
+.take-fullscreen .take-opt {
+  max-height: none;
+  min-height: 12vh;
+}
+.wb-bank-grid input { min-width: 0; }
+.wb-bank-student {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+  padding: 0.75rem; margin: 0.5rem 0;
+  background: var(--surface-2); border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.wb-chip {
+  padding: 0.45rem 0.75rem; background: var(--primary); color: #fff;
+  border-radius: 999px; cursor: grab; font-size: 0.9rem; user-select: none;
+}
+.wb-drop-row {
+  display: grid; grid-template-columns: minmax(120px, 28%) 1fr;
+  gap: 0.75rem; align-items: center; margin: 0.5rem 0;
+}
+.wb-drop-zone {
+  min-height: 44px; border: 2px dashed var(--border); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); padding: 0.35rem;
+}
+.wb-drop-zone.drag-over { border-color: var(--primary); background: rgba(64,133,201,0.12); }
+.wb-drop-zone.filled { border-style: solid; }
+.wb-placeholder { color: var(--text-muted); font-size: 0.85rem; }
+.wb-placed {
+  padding: 0.35rem 0.65rem; background: var(--primary); color: #fff;
+  border-radius: 999px; cursor: grab;
+}
+.wb-item-text { text-align: left; }
+@media (max-width: 700px) {
+  .wb-drop-row { grid-template-columns: 1fr; }
+}

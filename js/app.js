@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.9</div>
+          <div class="app-version">Build v1.5.10</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.9</div>
+              <div class="app-version">v1.5.10</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -711,6 +711,10 @@ const App = {
             return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${Regular.renderBuilderTF(q, globalIdx)}
               <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
+          if (q.type === 'wordbox') {
+            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${Regular.renderBuilderWordBox(q, globalIdx)}
+              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+          }
           return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">
             <textarea class="form-control q-prompt" data-gidx="${globalIdx}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
             <input class="form-control mt-1" data-correct-text="${globalIdx}" value="${escapeHtml(String(q.correct ?? ''))}" placeholder="Correct answer" />
@@ -836,6 +840,74 @@ const App = {
       box.querySelectorAll('[data-correct-text]').forEach(el => {
         el.oninput = () => { const q = flat[Number(el.dataset.correctText)]; if (q) q.correct = el.value; };
       });
+
+      // Word box builder handlers
+      box.querySelectorAll('[data-wb-bank]').forEach(el => {
+        el.oninput = () => {
+          const [gi, bi] = el.dataset.wbBank.split(':').map(Number);
+          const q = flat[gi];
+          if (!q) return;
+          q.wordBank = q.wordBank || [];
+          q.wordBank[bi] = el.value;
+        };
+      });
+      box.querySelectorAll('[data-wb-rows], [data-wb-cols]').forEach(el => {
+        el.onchange = () => {};
+      });
+      box.querySelectorAll('[data-wb-resize]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.wbResize);
+          const q = flat[gi];
+          if (!q) return;
+          const rows = Number(box.querySelector(`[data-wb-rows="${gi}"]`)?.value) || 4;
+          const cols = Number(box.querySelector(`[data-wb-cols="${gi}"]`)?.value) || 3;
+          q.wordBankRows = rows;
+          q.wordBankCols = cols;
+          const need = rows * cols;
+          q.wordBank = q.wordBank || [];
+          while (q.wordBank.length < need) q.wordBank.push('');
+          q.wordBank = q.wordBank.slice(0, need);
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-wb-item-text]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ii] = el.dataset.wbItemText.split(':').map(Number);
+          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].text = el.value;
+        };
+      });
+      box.querySelectorAll('[data-wb-item-correct]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ii] = el.dataset.wbItemCorrect.split(':').map(Number);
+          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].correct = el.value;
+        };
+      });
+      box.querySelectorAll('[data-wb-item-alt]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ii] = el.dataset.wbItemAlt.split(':').map(Number);
+          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].alternatives = el.value.split(',').map(s => s.trim()).filter(Boolean);
+        };
+      });
+      box.querySelectorAll('[data-wb-add-item]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.wbAddItem);
+          const q = flat[gi];
+          if (!q) return;
+          q.items = q.items || [];
+          q.items.push({ id: 'wb' + Date.now(), text: '', correct: '', alternatives: [] });
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-wb-del-item]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ii] = el.dataset.wbDelItem.split(':').map(Number);
+          if (flat[gi]?.items) {
+            flat[gi].items.splice(ii, 1);
+            syncFlat(); renderBuilder();
+          }
+        };
+      });
+
     };
 
     const defaultSectionInstructions = (type) => ({
@@ -1158,44 +1230,79 @@ const App = {
 
       // Trigger builder re-render (showCreateExam defined renderBuilder in closure — call via Add Question path)
       // Expose last renderBuilder
-      if (typeof window._renderAssessmentBuilder === 'function') {
-        window._renderAssessmentBuilder();
-      } else {
-        // Fallback: click path - re-open create is not enough; inject HTML summary
-        const box = document.getElementById('questions-builder');
-        if (box) {
-          box.innerHTML = window._builderQuestions.length
-            ? `<p class="text-muted">${window._builderQuestions.length} question(s) loaded. Use Add Question to continue editing, then Save draft or Publish.</p>` +
-              window._builderQuestions.map((q, i) =>
-                `<div class="card mt-1"><strong>Q${i+1} (${escapeHtml(q.type||'')})</strong><div>${escapeHtml(q.prompt||'')}</div></div>`
-              ).join('')
-            : '<p class="text-muted">No questions yet</p>';
+      const tryRender = (attempt) => {
+        if (typeof window._renderAssessmentBuilder === 'function') {
+          window._renderAssessmentBuilder();
+          return true;
         }
-      }
+        if (attempt < 8) {
+          setTimeout(() => tryRender(attempt + 1), 80);
+          return false;
+        }
+        const box = document.getElementById('questions-builder');
+        if (box && window._builderQuestions.length) {
+          box.innerHTML = window._builderQuestions.map((q, i) =>
+            `<div class="card mt-1"><strong>Q${i+1} (${escapeHtml(q.type||'')})</strong><div>${escapeHtml(q.prompt||q.statement||'')}</div></div>`
+          ).join('');
+        }
+        return false;
+      };
+      tryRender(0);
 
       const titleEl = document.querySelector('.page-title');
       if (titleEl) titleEl.textContent = 'Edit Assessment';
 
-      // Ensure buttons still use unified save (showCreateExam already wired them)
       const draftBtn = document.getElementById('draft-exam-btn');
       const pubBtn = document.getElementById('create-exam-btn');
-      if (draftBtn) draftBtn.textContent = 'Save draft';
+      if (draftBtn) draftBtn.textContent = 'Save as Draft';
       if (pubBtn) pubBtn.textContent = exam.status === 'published' ? 'Save & Publish' : 'Publish';
     };
-    setTimeout(apply, 100);
+    setTimeout(apply, 150);
+    setTimeout(apply, 400);
   },
 
-  async toggleExamActiveduplicateExam(examId) {
-    if (!(await UI.confirm('Duplicate this assessment? You can set a new schedule next.', 'Duplicate'))) return;
-    const start = await UI.prompt('New start (YYYY-MM-DDTHH:MM) or leave blank for now:', '', 'Duplicate');
-    const mins = await UI.prompt('Duration in minutes:', '60', 'Duplicate');
-    const startAt = start || new Date().toISOString();
-    const endAt = new Date(new Date(startAt).getTime() + (Number(mins) || 60) * 60000).toISOString();
+  async toggleExamActive(examId, active) {
+    if (!(await UI.confirm(active ? 'Reopen this assessment?' : 'Close this assessment?', 'Confirm'))) return;
     try {
-      const exam = await Exam.duplicateExam(examId, { startAt, endAt, durationMinutes: Number(mins) || 60 });
-      await UI.alert('Duplicated: ' + exam.title);
+      await Exam.updateExam(examId, { active: !!active });
+      if (!active) {
+        try { await Exam.deactivateProctorsForExam(examId); } catch (_) {}
+      }
+      await UI.alert(active ? 'Assessment reopened.' : 'Assessment closed.', 'Done');
       this.showTeacherHome();
-    } catch (e) { await UI.alert(e.message || String(e), 'Error'); }
+    } catch (e) {
+      await UI.alert(e.message || String(e), 'Error');
+    }
+  },
+
+  async duplicateExam(examId) {
+    if (!(await UI.confirm('Duplicate this assessment? A new draft copy will be created for you to edit.', 'Duplicate'))) return;
+    try {
+      const src = await Exam.getExam(examId);
+      if (!src) throw new Error('Assessment not found');
+      const copy = await Exam.duplicateExam(examId, {
+        title: (src.title || 'Assessment') + ' (Copy)',
+        status: 'draft',
+        active: false,
+        startAt: Date.now(),
+        endAt: Date.now() + 3600000,
+        durationMinutes: src.durationMinutes || 60
+      });
+      // Ensure sections/questions copied
+      if (src.sections || src.questions) {
+        await Exam.updateExam(copy.id, {
+          sections: src.sections || [],
+          questions: src.questions || [],
+          status: 'draft',
+          active: false
+        });
+      }
+      await UI.alert('Duplicated as draft: ' + (copy.title || 'Copy'), 'Duplicated');
+      this.showTeacherHome();
+    } catch (e) {
+      console.error(e);
+      await UI.alert(e.message || String(e), 'Error');
+    }
   },
 
   openLiveDashboard(examId) {
@@ -2346,6 +2453,8 @@ const App = {
         currentQ = g.question;
         if (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf') {
           body = renderMcKahoot(currentQ);
+        } else if (currentQ.type === 'wordbox') {
+          body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentWordBox(currentQ, answers[currentQ.id])}</div>`;
         } else {
           body = `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(currentQ.prompt || 'Question')}</div>
             <div class="take-single" id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
@@ -2409,7 +2518,14 @@ const App = {
           el.addEventListener('change', save);
           el.addEventListener('input', save);
         });
+        if (box.querySelector('.wb-student') || document.querySelector('.wb-student')) {
+          const root = box.querySelector('.wb-student') || document.querySelector('.wb-student');
+          Regular.bindWordBoxDrag(root, save);
+        }
       }
+      // Word box may be outside take-q-box
+      const wbRoot = document.querySelector('.wb-student');
+      if (wbRoot) Regular.bindWordBoxDrag(wbRoot, save);
 
       const goNext = async (skipPassage = false, isSkip = false) => {
         save();
