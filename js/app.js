@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.12</div>
+          <div class="app-version">Build v1.5.13</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.12</div>
+              <div class="app-version">v1.5.13</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -580,13 +580,16 @@ const App = {
     // Strip undefined (Firestore rejects undefined)
     Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
 
-    let examId = window._editingExamId;
+    let examId = window._editingExamId || sessionStorage.getItem('lvcc_editing_exam') || null;
     if (examId) {
       await Exam.updateExam(examId, payload);
+      window._editingExamId = examId;
+      try { sessionStorage.setItem('lvcc_editing_exam', examId); } catch (_) {}
     } else {
       const created = await Exam.createExam(payload);
       examId = created.id;
       window._editingExamId = examId;
+      try { sessionStorage.setItem('lvcc_editing_exam', examId); } catch (_) {}
     }
     this.clearAutosave();
     return examId;
@@ -594,7 +597,13 @@ const App = {
 
   async showCreateExam(opts = {}) {
     // opts.keepEditing = true when called from editExam
-    if (!opts.keepEditing) window._editingExamId = null;
+    if (!opts.keepEditing) {
+      window._editingExamId = null;
+      try { sessionStorage.removeItem('lvcc_editing_exam'); } catch (_) {}
+    } else {
+      // Preserve edit id
+      window._editingExamId = window._editingExamId || sessionStorage.getItem('lvcc_editing_exam');
+    }
     window._builderSections = window._builderSections || [];
     if (!opts.keepEditing) {
       window._builderSections = [];
@@ -703,8 +712,7 @@ const App = {
       const sections = window._builderSections || [];
       if (!sections.length) {
         box.innerHTML = '<p class="text-muted">No sections yet. Choose a question type below to start a section.</p>';
-        return;
-      }
+      } else {
       box.innerHTML = sections.map((sec, si) => {
         const qs = sec.questions || [];
         const qHtml = qs.map((q, qi) => {
@@ -952,6 +960,7 @@ const App = {
     }[type] || 'Read the instructions and answer carefully.');
 
     const openTypePicker = async () => {
+      /* picker */
       const labels = QUESTION_TYPES.map(x => x.label + ' (' + x.id + ')').join('\n');
       // Themed modal with type buttons
       return new Promise((resolve) => {
@@ -993,13 +1002,15 @@ const App = {
       }
       renderBuilder();
     };
+    window._lvccOpenTypePicker = openTypePicker;
+    window._lvccAddSectionOfType = addSectionOfType;
 
-    // Fresh create by default — no restore prompt
-    if (!window._editingExamId) {
-      window._builderSections = [];
-      window._builderQuestions = [];
-      this.clearAutosave();
-    }
+
+    // (builder sections already initialized at top of showCreateExam)
+    // Expose for footer handlers (avoids nested-scope issues)
+    if (typeof openTypePicker === 'function') window._lvccOpenTypePicker = openTypePicker;
+    if (typeof addSectionOfType === 'function') window._lvccAddSectionOfType = addSectionOfType;
+
     clearInterval(window._autosaveIv);
     window._autosaveIv = setInterval(() => this.saveAutosave(), 4000);
     window.addEventListener('beforeunload', () => this.saveAutosave());
@@ -1239,9 +1250,23 @@ const App = {
         };
       });
 
+      } // end sections.length else
+
       document.getElementById('add-question-footer-btn').onclick = async () => {
-      const type = await openTypePicker();
-      addSectionOfType(type);
+      try {
+        if (typeof openTypePicker === 'function' && typeof addSectionOfType === 'function') {
+          const type = await openTypePicker();
+          if (type) addSectionOfType(type);
+        } else if (typeof window._lvccOpenTypePicker === 'function') {
+          const type = await window._lvccOpenTypePicker();
+          if (type) window._lvccAddSectionOfType(type);
+        } else {
+          await UI.alert('Question picker is still loading. Wait a moment and try again.', 'Please wait');
+        }
+      } catch (err) {
+        console.error(err);
+        await UI.alert(err.message || String(err), 'Error');
+      }
     };
 
 
@@ -1266,6 +1291,7 @@ const App = {
         const id = await this.saveAssessment('draft');
         await UI.alert('Assessment has been saved as draft.', 'Draft saved');
         window._editingExamId = null;
+        try { sessionStorage.removeItem('lvcc_editing_exam'); } catch (_) {}
         this.showTeacherHome();
       } catch (err) {
         console.error(err);
@@ -1294,6 +1320,7 @@ const App = {
         if (draft) draft.disabled = true;
         const id = await this.saveAssessment('published', sched);
         window._editingExamId = null;
+        try { sessionStorage.removeItem('lvcc_editing_exam'); } catch (_) {}
         await UI.alert('Assessment published.', 'Published');
         this.showSharePanel(id);
       } catch (err) {
@@ -1460,6 +1487,7 @@ const App = {
 
   async editExam(examId) {
     window._editingExamId = examId;
+    try { sessionStorage.setItem('lvcc_editing_exam', examId); } catch (_) {}
     const exam = await Exam.getExam(examId);
     if (!exam) { await UI.alert('Assessment not found.', 'Error'); return; }
 
@@ -3207,13 +3235,20 @@ const App = {
           if (y + lines.length * 12 > 780) { doc.addPage(); y = 40; }
           doc.text(lines, 40, y);
           y += lines.length * 12 + 8;
-          const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb;
+          const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb || n.extra?.screenThumb || n.hqScreenshot;
           if (thumb && String(thumb).startsWith('data:image')) {
             try {
-              if (y > 640) { doc.addPage(); y = 40; }
-              doc.addImage(thumb, 'JPEG', 40, y, 120, 80);
-              y += 90;
-            } catch (_) {}
+              if (y > 600) { doc.addPage(); y = 40; }
+              const fmt = String(thumb).includes('image/png') ? 'PNG' : 'JPEG';
+              // strip nothing — jsPDF accepts data URL
+              doc.addImage(thumb, fmt, 40, y, 160, 100);
+              y += 110;
+            } catch (imgErr) {
+              try {
+                // fallback: re-encode as JPEG via canvas if needed
+                console.warn('addImage failed', imgErr);
+              } catch (_) {}
+            }
           }
         });
         doc.save(safeFilePart(title) + '-' + stamp + '.pdf');
@@ -3227,11 +3262,14 @@ const App = {
           const stamp = typeof fileStamp === 'function' ? fileStamp() : Date.now();
           const body = `<h1>Integrity issues — ${String(title).replace(/</g,'')}</h1>
             <p class="muted">Exported ${new Date().toLocaleString()}</p>
-            <table><thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>Date</th></tr></thead><tbody>
+            <table><thead><tr><th>Thumb</th><th>Name</th><th>Email</th><th>Issue</th><th>Date</th></tr></thead><tbody>
             ${rows.map(n => {
               const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
                 : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
-              return `<tr><td>${String(n.studentName||'').replace(/</g,'')}</td>
+              const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb || '';
+              const img = (thumb && String(thumb).startsWith('data:image'))
+                ? `<img src="${thumb}" style="width:120px;height:auto;border-radius:4px" />` : '';
+              return `<tr><td>${img}</td><td>${String(n.studentName||'').replace(/</g,'')}</td>
                 <td>${String(n.studentEmail||'').replace(/</g,'')}</td>
                 <td>${String(n.type||n.details||'').replace(/</g,'')}</td>
                 <td>${String(time).replace(/</g,'')}</td></tr>`;

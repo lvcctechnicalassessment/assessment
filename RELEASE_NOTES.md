@@ -157,3 +157,8 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Categorize dual-panel categories/items + student drag sort
 - History shows sentence + readable answers
 - Take UI locked to 100vh with side padding; ~3/4 question area
+
+## v1.5.13
+- Edit updates existing assessment (persistent edit id); no longer creates a new one
+- Config buttons (Add Question / Save / Publish) fixed — picker no longer nested incorrectly
+- Integrity Export PDF embeds violation screenshots (JPEG/PNG)
