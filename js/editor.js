@@ -310,30 +310,39 @@ const CodeEditor = {
   async _studentPasteWarn() {
     this._pasteWarnCount = (this._pasteWarnCount || 0) + 1;
     const n = this._pasteWarnCount;
-    if (n === 1) {
-      if (window.UI) await UI.alert('You have been detected copy-pasting. This is your warning #1 of 3.', 'Integrity warning');
-      return;
-    }
-    const studentMsg = await UI.prompt(
-      `You have been detected copy-pasting. This is your warning #${n} of 3.\n\nSend a message to your instructor:`,
-      '',
-      'Message instructor',
-      'Talk to instructor'
-    );
-    const text = (studentMsg == null || !String(studentMsg).trim()) ? '(No message)' : String(studentMsg).trim();
-    if (this.sessionId && !String(this.sessionId).startsWith('test_')) {
-      await Exam.logEvent(this.sessionId, n >= 3 ? 'paste-critical' : 'paste-message',
-        n >= 3 ? 'Student reached 3 paste warnings' : 'Student paste warning with message',
-        { pasteWarnings: n, studentMessage: text }
-      ).catch(() => {});
-      // also store last student chat
-      try {
-        await window.db.collection('sessions').doc(this.sessionId).update({
-          lastStudentMessage: text,
-          lastStudentMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
-          chatPing: Date.now()
-        });
-      } catch (_) {}
+    try {
+      if (n === 1) {
+        if (window.UI) await UI.alert('You have been detected copy-pasting. This is your warning #1 of 3.', 'Integrity warning');
+        return;
+      }
+      // Never lock the exam UI — always allow continuing after 3+
+      const studentMsg = await UI.prompt(
+        n >= 3
+          ? `Copy-paste warning #${n}. Further pastes are still logged.\n\nOptional message to instructor:`
+          : `You have been detected copy-pasting. This is your warning #${n} of 3.\n\nSend a message to your instructor:`,
+        '',
+        'Integrity warning',
+        'Talk to instructor'
+      );
+      const text = (studentMsg == null || !String(studentMsg).trim()) ? '(No message)' : String(studentMsg).trim();
+      if (this.sessionId && !String(this.sessionId).startsWith('test_')) {
+        await Exam.logEvent(this.sessionId, n >= 3 ? 'paste-critical' : 'paste-message',
+          n >= 3 ? ('Student paste warning #' + n) : 'Student paste warning with message',
+          { pasteWarnings: n, studentMessage: text }
+        ).catch(() => {});
+        try {
+          await window.db.collection('sessions').doc(this.sessionId).update({
+            lastStudentMessage: text,
+            lastStudentMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+            chatPing: Date.now()
+          });
+        } catch (_) {}
+      }
+    } finally {
+      try { if (window.UI) UI.close(); } catch (_) {}
+      // Ensure take buttons stay usable
+      this.isLocked = false;
+      this.isSubmitting = false;
     }
   },
 

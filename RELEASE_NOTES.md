@@ -118,3 +118,10 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Take UI: question ~3/4 height, selected choice black border, green Skip, centered timer
 - End / Submit / floating message / instructor message fixes
 - History + PDF: Total / Correct / Incorrect / Unattempted + accuracy
+
+## v1.5.7
+- Modals above take UI (z-index) so Message / End / Confirm work
+- Reshare then force fullscreen; paste warnings no longer freeze buttons
+- Integrity list chronological by time; PDF export loads jsPDF if needed
+- Live: End assessment per student + End all assessments
+- Take layout fits device height/width with less scrolling

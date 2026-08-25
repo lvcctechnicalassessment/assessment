@@ -161,8 +161,8 @@ const Monitor = {
       this.stream.getVideoTracks()[0].addEventListener('ended', () => {
         if (this.submitting) return;
         this.recordViolation('screen-share-stopped', true);
-        this.showLockOverlay('Screen sharing stopped. Share your screen again to continue.');
         this.stream = null;
+        this.showLockOverlay('Screen sharing stopped. Share your screen again to continue. Full screen is required.');
       });
       return true;
     } catch (e) {
@@ -341,8 +341,11 @@ const Monitor = {
       const lines = text ? text.split(/\r?\n/).length : 1;
       this.recordViolation('paste', true);
       try {
-        if (window.CodeEditor && CodeEditor._studentPasteWarn) CodeEditor._studentPasteWarn();
-        else if (window.UI) UI.alert('You have been detected copy-pasting. This is logged as an integrity issue.', 'Integrity warning');
+        if (window.CodeEditor && CodeEditor._studentPasteWarn) {
+          Promise.resolve(CodeEditor._studentPasteWarn()).catch(() => {});
+        } else if (window.UI) {
+          Promise.resolve(UI.alert('You have been detected copy-pasting. This is logged as an integrity issue.', 'Integrity warning')).catch(() => {});
+        }
       } catch (_) {}
     }, true);
 
@@ -405,11 +408,26 @@ const Monitor = {
       </div>`;
     el.classList.remove('hidden');
     document.getElementById('monitor-return-fs').onclick = async () => {
-      await this.requestFullscreen();
-      if (this.deviceType === 'desktop' && !this.isFullscreen()) return;
-      if (this.deviceType === 'desktop' && !this.stream) await this.startDesktopCapture();
-      el.classList.add('hidden');
-      this.pushLiveThumbs();
+      const btn = document.getElementById('monitor-return-fs');
+      if (btn) { btn.disabled = true; btn.textContent = 'Please wait…'; }
+      try {
+        if (this.deviceType === 'desktop' && !this.stream) {
+          const ok = await this.startDesktopCapture();
+          if (!ok) {
+            if (window.UI) await UI.alert('Screen share is required to continue.', 'Screen share');
+            if (btn) { btn.disabled = false; btn.textContent = 'Return to Fullscreen'; }
+            return;
+          }
+        }
+        await this.requestFullscreen();
+        if (this.deviceType === 'desktop' && !this.isFullscreen()) {
+          await this.requestFullscreen();
+        }
+        el.classList.add('hidden');
+        this.pushLiveThumbs().catch(() => {});
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Return to Fullscreen'; }
+      }
     };
   },
 

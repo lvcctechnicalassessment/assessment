@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.6</div>
+          <div class="app-version">Build v1.5.7</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.6</div>
+              <div class="app-version">v1.5.7</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -1563,6 +1563,22 @@ const App = {
 
 
 
+
+  async ensureJsPdf() {
+    if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
+    if (window.jsPDF) return window.jsPDF;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load PDF library'));
+      document.head.appendChild(s);
+    });
+    if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
+    if (window.jsPDF) return window.jsPDF;
+    throw new Error('PDF library not available');
+  },
+
   computeAttemptStats(session, exam) {
     if (session && session.totalQuestions != null && session.correctCount != null) {
       const total = Number(session.totalQuestions) || 0;
@@ -1754,11 +1770,10 @@ const App = {
     };
   },
 
-  downloadAttemptPdf(session, exam, rows) {
+  async downloadAttemptPdf(session, exam, rows) {
     const title = session.examTitle || exam?.title || 'Attempt';
-    // Prefer jsPDF if loaded
-    if (window.jspdf && window.jspdf.jsPDF) {
-      const { jsPDF } = window.jspdf;
+    try {
+      const jsPDF = await this.ensureJsPdf();
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
       const margin = 40;
       let y = margin;
@@ -1781,34 +1796,12 @@ const App = {
         y += lines.length * 12 + 10;
       });
       doc.save(`attempt-${session.id || 'export'}.pdf`);
-      UI.alert('PDF downloaded.', 'Export');
-      return;
+      await UI.alert('PDF downloaded.', 'Export');
+    } catch (e) {
+      console.error(e);
+      await UI.alert(e.message || 'Could not export PDF. Check your connection and try again.', 'Export');
     }
-    // Fallback: print-to-pdf via hidden iframe
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${escapeHtml(title)}</title>
-      <style>body{font-family:system-ui;padding:24px}h1{font-size:18px}
-      .q{margin:12px 0;padding:10px;border:1px solid #ddd;border-radius:8px}
-      .label{font-weight:600;font-size:12px;color:#555}</style></head><body>
-      <h1>${escapeHtml(title)}</h1>
-      <p>${escapeHtml(session.studentName || '')} · ${escapeHtml(session.studentEmail || '')}</p>
-      ${rows.map((r, i) => `<div class="q"><div><strong>Q${i + 1}.</strong> ${escapeHtml(r.prompt)}</div>
-        <div class="label">Your response</div><div>${escapeHtml(r.response)}</div>
-        <div class="label">Correct answer</div><div>${escapeHtml(r.correct)}</div></div>`).join('')}
-      </body></html>`;
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    document.body.appendChild(iframe);
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
-    doc.open(); doc.write(html); doc.close();
-    setTimeout(() => {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-      setTimeout(() => iframe.remove(), 1000);
-    }, 300);
-    UI.alert('Use the print dialog → Save as PDF.', 'Export');
   },
-
-
 
   async startMockFromSelection(type, subject) {
     const boxes = [...document.querySelectorAll(`.mock-pick[data-type="${type}"][data-subject="${CSS.escape(subject)}"]:checked`)];
@@ -2703,18 +2696,18 @@ const App = {
     } catch (_) {}
 
     document.getElementById('integrity-filter-page').oninput = render;
-    document.getElementById('btn-export-integrity-pdf').onclick = () => {
+    document.getElementById('btn-export-integrity-pdf').onclick = async () => {
       const rows = window._integrityExportRows || all;
       const title = exam?.title || 'Assessment';
       const stamp = fileStamp();
-      if (window.jspdf && window.jspdf.jsPDF) {
-        const { jsPDF } = window.jspdf;
+      try {
+        const jsPDF = await this.ensureJsPdf();
         const doc = new jsPDF({ unit: 'pt', format: 'a4' });
         let y = 40;
         doc.setFontSize(14);
         doc.text('Integrity issues — ' + title, 40, y); y += 24;
         doc.setFontSize(10);
-        rows.forEach((n, i) => {
+        rows.forEach((n) => {
           const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
             : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
           const line = `${n.studentName || ''} | ${n.studentEmail || ''} | ${n.type || ''} | ${n.details || ''} | ${time}`;
@@ -2732,10 +2725,11 @@ const App = {
           }
         });
         doc.save(safeFilePart(title) + '-' + stamp + '.pdf');
-        UI.alert('PDF downloaded.', 'Export');
-        return;
+        await UI.alert('PDF downloaded.', 'Export');
+      } catch (e) {
+        console.error(e);
+        await UI.alert(e.message || 'Could not export PDF.', 'Export');
       }
-      UI.alert('PDF library not loaded. Refresh and try again.', 'Export');
     };
     document.getElementById('btn-export-integrity-hq').onclick = () => {
       const rows = window._integrityExportRows || all;

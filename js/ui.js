@@ -9,18 +9,24 @@ const UI = {
       el.id = 'ui-modal-root';
       document.body.appendChild(el);
     }
+    el.style.cssText = 'position:fixed;inset:0;z-index:50000;pointer-events:none';
     return el;
   },
 
   close() {
     const root = document.getElementById('ui-modal-root');
-    if (root) root.innerHTML = '';
+    if (root) {
+      root.innerHTML = '';
+      root.style.pointerEvents = 'none';
+    }
   },
 
   alert(message, title = 'Notice') {
     return new Promise((resolve) => {
-      this._root().innerHTML = `
-        <div class="modal-overlay ui-modal-overlay">
+      const root = this._root();
+      root.style.pointerEvents = 'auto';
+      root.innerHTML = `
+        <div class="modal-overlay ui-modal-overlay" style="z-index:50000;pointer-events:auto">
           <div class="modal ui-modal">
             <h2>${escapeHtml(title)}</h2>
             <p class="ui-modal-body">${escapeHtml(message)}</p>
@@ -35,8 +41,10 @@ const UI = {
 
   confirm(message, title = 'Confirm') {
     return new Promise((resolve) => {
-      this._root().innerHTML = `
-        <div class="modal-overlay ui-modal-overlay">
+      const root = this._root();
+      root.style.pointerEvents = 'auto';
+      root.innerHTML = `
+        <div class="modal-overlay ui-modal-overlay" style="z-index:50000;pointer-events:auto">
           <div class="modal ui-modal">
             <h2>${escapeHtml(title)}</h2>
             <p class="ui-modal-body">${escapeHtml(message)}</p>
@@ -54,8 +62,10 @@ const UI = {
   prompt(message, defaultValue = '', title = 'Input', placeholder = '') {
     return new Promise((resolve) => {
       const ph = placeholder || (defaultValue ? '' : '');
-      this._root().innerHTML = `
-        <div class="modal-overlay ui-modal-overlay">
+      const root = this._root();
+      root.style.pointerEvents = 'auto';
+      root.innerHTML = `
+        <div class="modal-overlay ui-modal-overlay" style="z-index:50000;pointer-events:auto">
           <div class="modal ui-modal">
             <h2>${escapeHtml(title)}</h2>
             <p class="ui-modal-body">${escapeHtml(message)}</p>
@@ -80,8 +90,10 @@ const UI = {
 
   /** Show image maximized */
   showImage(src, title = 'Screenshot') {
-    this._root().innerHTML = `
-      <div class="modal-overlay ui-modal-overlay" id="ui-img-overlay">
+    const root = this._root();
+    root.style.pointerEvents = 'auto';
+    root.innerHTML = `
+      <div class="modal-overlay ui-modal-overlay" id="ui-img-overlay" style="z-index:50000;pointer-events:auto">
         <div class="modal ui-modal modal-wide">
           <h2>${escapeHtml(title)}</h2>
           <img src="${src}" alt="screenshot" style="max-width:100%;border-radius:8px;background:#000" />

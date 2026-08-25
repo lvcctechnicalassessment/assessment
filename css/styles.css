@@ -547,6 +547,7 @@ textarea.form-control {
 
 /* Modal */
 .modal-overlay {
+  z-index: 50000;
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.6);
@@ -2224,4 +2225,80 @@ body.nav-open .nav-backdrop { display: block; }
 @media (max-width: 700px) {
   .attempt-stats { grid-template-columns: repeat(2, 1fr); }
   .take-fullscreen .take-q-banner { min-height: 30vh; }
+}
+
+/* v1.5.7 critical stacking */
+#ui-modal-root,
+#integrity-modal-root {
+  position: relative;
+  z-index: 50000;
+}
+.ui-modal-overlay,
+.modal-overlay.ui-modal-overlay,
+.popover-overlay {
+  z-index: 50000 !important;
+}
+.fab-msg {
+  z-index: 50001 !important;
+  position: fixed !important;
+  pointer-events: auto !important;
+}
+.monitor-lock {
+  z-index: 40000 !important;
+}
+.exam-take-wrap.take-fullscreen {
+  z-index: 9000;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem;
+  box-sizing: border-box;
+}
+.take-fullscreen .take-topbar { flex: 0 0 auto; }
+.take-fullscreen .take-nav { flex: 0 0 auto; padding: 0.5rem 0; }
+.take-fullscreen .take-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.take-fullscreen .take-q-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+.take-fullscreen .take-q-banner {
+  flex: 0 1 auto;
+  max-height: 40vh;
+  min-height: 0;
+  overflow: auto;
+  margin: 0.25rem 0;
+  padding: 0.75rem 1rem;
+  font-size: clamp(0.95rem, 2.2vw, 1.35rem);
+}
+.take-fullscreen .take-options-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  margin: 0.25rem 0;
+  align-content: stretch;
+  min-height: 0;
+}
+.take-fullscreen .take-opt {
+  min-height: 0;
+  height: 100%;
+  max-height: 22vh;
+  font-size: clamp(0.85rem, 1.8vw, 1.1rem);
+  padding: 0.65rem;
+}
+@media (max-width: 700px) {
+  .take-fullscreen .take-options-grid { grid-template-columns: 1fr; }
+  .take-fullscreen .take-opt { max-height: 14vh; }
 }

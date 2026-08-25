@@ -168,6 +168,7 @@ const Dashboard = {
         </div>
         <div class="action-btns">
           ${!isProctor ? `<button class="btn btn-primary" id="btn-extend-all">⏱ Extend all</button>` : ''}
+          ${!isProctor ? `<button class="btn btn-danger" id="btn-end-all">End all assessments</button>` : ''}
           <button class="btn btn-ghost" onclick="App.showTeacherHome()">← Back</button>
         </div>
       </div>
@@ -193,6 +194,8 @@ const Dashboard = {
 
     const extBtn = document.getElementById('btn-extend-all');
     if (extBtn) extBtn.onclick = () => this.promptExtendAll(examId);
+    const endAllBtn = document.getElementById('btn-end-all');
+    if (endAllBtn) endAllBtn.onclick = () => this.endAllAssessments(examId);
 
     document.getElementById('session-screen-filter').oninput = (e) => {
       this._sessionScreenFilter = e.target.value;
@@ -304,7 +307,8 @@ const Dashboard = {
       if (n.type === 'tabswitch' || n.type === 'blur' || n.type === 'exited-fullscreen') return 1;
       return 5;
     };
-    items.sort((a, b) => rank(a) - rank(b) || ((b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)));
+    // Newest first by time only (no paste-on-top)
+    items.sort((a, b) => (b.createdAt?.toMillis?.() || Date.parse(b.timestamp||0) || 0) - (a.createdAt?.toMillis?.() || Date.parse(a.timestamp||0) || 0));
     if (!items.length) {
       list.innerHTML = '<p class="text-muted">No matching integrity events.</p>';
       return;
@@ -595,7 +599,7 @@ const Dashboard = {
       grid.innerHTML = '<div class="empty-state">Waiting for students...</div>';
       return;
     }
-    // Sort: paste/copy violations first, then other alerts, then clean
+    // Sort by violation count then name (no forced paste-on-top)
     const severity = (s) => {
       const ev = (s.events || []).map(e => e.type);
       if (ev.includes('paste') || ev.includes('paste-key') || ev.includes('paste-critical') || ev.includes('paste-message')) return 0;
@@ -604,7 +608,7 @@ const Dashboard = {
       if (s.lastStudentMessage) return 3;
       return 9;
     };
-    list.sort((a, b) => severity(a) - severity(b) || String(a.studentName||'').localeCompare(String(b.studentName||'')));
+    list.sort((a, b) => (b.violationCount||0) - (a.violationCount||0) || String(a.studentName||'').localeCompare(String(b.studentName||'')));
     const isRegular = exam?.examType === 'regular';
 
     grid.innerHTML = list.map(s => {
@@ -662,6 +666,7 @@ const Dashboard = {
             <button class="btn btn-sm btn-ghost" onclick="Dashboard.openStudentDetail('${s.id}')">Details</button>
             <button class="btn btn-sm btn-ghost" onclick="Dashboard.messageStudent('${s.id}')">Message student</button>
             <button class="btn btn-sm btn-primary" onclick="Dashboard.promptExtend('${s.id}')">⏱ Extend</button>
+            <button class="btn btn-sm btn-danger" onclick="Dashboard.endStudentAssessment('${s.id}')">End assessment</button>
             <button class="btn btn-sm btn-primary" onclick="App.gradeSession('${s.id}', '${s.examId}')">Grade</button>
           </div>
         </div>`;
