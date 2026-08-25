@@ -131,3 +131,7 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - PDF export: multi-CDN jsPDF loader
 - Student "Talk to instructor" pops up on instructor live view with reply
 - End assessment (per student + all) fixed with direct Firestore update
+
+## v1.5.9
+- PDF export: local jsPDF vendor (js/vendor/jspdf.umd.min.js) — no CDN required
+- Fallback printable HTML export if jsPDF still fails

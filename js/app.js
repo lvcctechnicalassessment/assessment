@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.8</div>
+          <div class="app-version">Build v1.5.9</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.8</div>
+              <div class="app-version">v1.5.9</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -1568,31 +1568,69 @@ const App = {
     const pick = () => {
       if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
       if (window.jspdf && typeof window.jspdf === 'function') return window.jspdf;
-      if (window.jsPDF) return window.jsPDF;
+      if (typeof window.jsPDF === 'function') return window.jsPDF;
+      if (window.jsPDF && window.jsPDF.jsPDF) return window.jsPDF.jsPDF;
       return null;
     };
     let Ctor = pick();
     if (Ctor) return Ctor;
     const urls = [
+      'js/vendor/jspdf.umd.min.js',
+      './js/vendor/jspdf.umd.min.js',
       'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
-      'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',
-      'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js'
+      'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'
     ];
     for (const url of urls) {
       try {
         await new Promise((resolve, reject) => {
+          const existing = document.querySelector('script[data-jspdf="1"]');
+          if (existing && pick()) { resolve(); return; }
           const s = document.createElement('script');
           s.src = url;
           s.async = true;
+          s.dataset.jspdf = '1';
           s.onload = () => resolve();
           s.onerror = () => reject(new Error('load fail'));
           document.head.appendChild(s);
         });
+        // small delay for UMD to attach
+        await new Promise(r => setTimeout(r, 50));
         Ctor = pick();
         if (Ctor) return Ctor;
       } catch (_) {}
     }
     throw new Error('PDF library not available');
+  },
+
+  /** Always-works export: download printable HTML (Save as PDF from print dialog) */
+  exportHtmlAsPdf(filename, title, bodyHtml) {
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+      <title>${String(title || 'Export').replace(/</g,'')}</title>
+      <style>
+        body{font-family:"Segoe UI",system-ui,sans-serif;padding:24px;color:#111;line-height:1.45}
+        h1{font-size:18px;margin:0 0 8px} h2{font-size:14px;margin:16px 0 8px}
+        table{border-collapse:collapse;width:100%;font-size:12px}
+        th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
+        th{background:#f3f4f6} .muted{color:#555;font-size:12px}
+        img{max-width:160px;height:auto}
+        @media print{body{padding:0} .no-print{display:none}}
+      </style></head><body>
+      ${bodyHtml}
+      <p class="no-print muted">Tip: Use your browser Print → Save as PDF.</p>
+      <script>setTimeout(function(){try{window.print()}catch(e){}},400)</script>
+      </body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (filename || 'export').replace(/\.pdf$/i, '') + '.html';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // also open print window
+    const w = window.open(url, '_blank');
+    if (w) setTimeout(() => { try { w.print(); } catch (_) {} }, 600);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   },
 
   computeAttemptStats(session, exam) {
@@ -1815,7 +1853,21 @@ const App = {
       await UI.alert('PDF downloaded.', 'Export');
     } catch (e) {
       console.error(e);
-      await UI.alert(e.message || 'Could not export PDF. Check your connection and try again.', 'Export');
+      try {
+        const st = this.computeAttemptStats(session, exam);
+        const body = `<h1>${String(title).replace(/</g,'')}</h1>
+          <p class="muted">${String(session.studentName||'').replace(/</g,'')} · ${String(session.studentEmail||'').replace(/</g,'')}</p>
+          <p>Total: ${st.total} · Correct: ${st.correct} · Incorrect: ${st.incorrect} · Unattempted: ${st.unattempted} · Accuracy: ${st.accuracy}%</p>
+          ${rows.map((r,i) => `<div style="margin:12px 0;padding:10px;border:1px solid #ddd;border-radius:8px">
+            <strong>Q${i+1}.</strong> ${String(r.prompt||'').replace(/</g,'')}<br/>
+            <span class="muted">Your response</span><br/>${String(r.response||'').replace(/</g,'')}<br/>
+            <span class="muted">Correct answer</span><br/>${String(r.correct||'').replace(/</g,'')}
+          </div>`).join('')}`;
+        this.exportHtmlAsPdf('attempt-' + (session.id || 'export'), title, body);
+        await UI.alert('Opened printable export (use Print → Save as PDF).', 'Export');
+      } catch (e2) {
+        await UI.alert(e.message || 'Could not export PDF.', 'Export');
+      }
     }
   },
 
@@ -2758,7 +2810,28 @@ const App = {
         await UI.alert('PDF downloaded.', 'Export');
       } catch (e) {
         console.error(e);
-        await UI.alert(e.message || 'Could not export PDF.', 'Export');
+        // Fallback without jsPDF
+        try {
+          const rows = window._integrityExportRows || [];
+          const title = exam?.title || 'Assessment';
+          const stamp = typeof fileStamp === 'function' ? fileStamp() : Date.now();
+          const body = `<h1>Integrity issues — ${String(title).replace(/</g,'')}</h1>
+            <p class="muted">Exported ${new Date().toLocaleString()}</p>
+            <table><thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>Date</th></tr></thead><tbody>
+            ${rows.map(n => {
+              const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
+                : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
+              return `<tr><td>${String(n.studentName||'').replace(/</g,'')}</td>
+                <td>${String(n.studentEmail||'').replace(/</g,'')}</td>
+                <td>${String(n.type||n.details||'').replace(/</g,'')}</td>
+                <td>${String(time).replace(/</g,'')}</td></tr>`;
+            }).join('')}
+            </tbody></table>`;
+          this.exportHtmlAsPdf(safeFilePart(title) + '-' + stamp, 'Integrity — ' + title, body);
+          await UI.alert('Opened printable export (use Print → Save as PDF).', 'Export');
+        } catch (e2) {
+          await UI.alert((e && e.message) || 'Could not export PDF.', 'Export');
+        }
       }
     };
     document.getElementById('btn-export-integrity-hq').onclick = () => {
