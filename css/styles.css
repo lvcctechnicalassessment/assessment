@@ -2462,3 +2462,162 @@ body.nav-open .nav-backdrop { display: block; }
   padding: 0.55rem 1rem;
 }
 .wb-chip.wb-used { opacity: 0.45; }
+
+/* v1.5.12 */
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+#app {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.shell-main, .main-content, .content-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.exam-take-wrap.take-fullscreen {
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  padding: 0.75rem 1.25rem !important;
+  box-sizing: border-box;
+}
+.take-fullscreen .take-stage {
+  overflow: hidden;
+  padding: 0 0.5rem;
+}
+.take-fullscreen .take-q-banner {
+  min-height: 28vh;
+  max-height: 38vh;
+  padding: 1rem 1.5rem;
+}
+.take-fullscreen .take-options-grid {
+  min-height: 30vh;
+  max-height: 42vh;
+  padding: 0 0.25rem;
+}
+.q-num-badge {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+  color: var(--primary);
+}
+.wb-cfg-preview {
+  background: #1e1b4b;
+  color: #fff;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  line-height: 1.8;
+  font-size: 1.05rem;
+  margin-bottom: 0.5rem;
+}
+.wb-cfg-blank {
+  display: inline-block;
+  min-width: 5.5rem;
+  min-height: 1.85rem;
+  margin: 0 0.2rem;
+  padding: 0.15rem 0.55rem;
+  border: 2px dashed rgba(255,255,255,0.6);
+  border-radius: 8px;
+  vertical-align: middle;
+  text-align: center;
+  background: rgba(255,255,255,0.08);
+}
+.wb-cfg-blank.filled {
+  border-style: solid;
+  background: #fff;
+  color: #111;
+}
+.wb-cfg-blank.drag-over { border-color: #FFCE5C; background: rgba(255,206,92,0.3); }
+.wb-cfg-bank .wb-cfg-chip { cursor: grab; }
+.wb-fill-input {
+  display: inline-block;
+  min-width: 6rem;
+  margin: 0 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-bottom: 2px solid #fff;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border-radius: 4px;
+  text-align: center;
+  font-size: inherit;
+}
+.passage-dual, .categorize-dual {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  max-height: 70vh;
+}
+.passage-dual-left, .passage-dual-right {
+  min-height: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.5rem;
+  background: var(--surface);
+}
+.rte-toolbar {
+  display: flex; flex-wrap: wrap; gap: 0.25rem;
+  margin-bottom: 0.5rem; position: sticky; top: 0; background: var(--surface); z-index: 2;
+}
+.rte-toolbar button {
+  border: 1px solid var(--border); background: var(--surface-2);
+  border-radius: 6px; padding: 0.25rem 0.45rem; cursor: pointer;
+}
+.rte-editor {
+  min-height: 200px; padding: 0.75rem;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: #fff; color: #111;
+}
+.cat-board {
+  display: flex; gap: 0.5rem; flex-wrap: wrap;
+}
+.cat-col {
+  flex: 1; min-width: 140px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+.cat-col-head {
+  color: #fff; padding: 0.4rem; display: flex; gap: 0.35rem; align-items: center;
+}
+.cat-col-drop {
+  min-height: 100px; padding: 0.5rem; background: rgba(0,0,0,0.04);
+}
+.cat-col-drop.drag-over { outline: 2px dashed var(--primary); }
+.cat-student-layout {
+  display: grid;
+  grid-template-columns: minmax(140px, 28%) 1fr;
+  gap: 0.75rem;
+  height: min(55vh, 420px);
+}
+.cat-options-panel {
+  overflow-y: auto; background: var(--surface); border-radius: 10px;
+  padding: 0.5rem; border: 1px solid var(--border);
+}
+.cat-options-title { font-weight: 600; margin-bottom: 0.5rem; }
+.cat-item-chip {
+  background: #fff; color: #222; border-radius: 8px; padding: 0.45rem 0.65rem;
+  margin: 0.35rem 0; cursor: grab; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.cat-student .cat-board {
+  display: flex; gap: 0.5rem; overflow-x: auto; overflow-y: hidden;
+  height: 100%;
+}
+.cat-student .cat-col { height: 100%; display: flex; flex-direction: column; }
+.cat-student .cat-col-drop { flex: 1; overflow-y: auto; }
+@media (max-width: 800px) {
+  .passage-dual, .categorize-dual, .cat-student-layout {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+  .passage-dual-left, .passage-dual-right {
+    max-height: 40vh;
+  }
+}

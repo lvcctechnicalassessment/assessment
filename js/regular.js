@@ -72,8 +72,8 @@ const Regular = {
       case 'fill':
         return {
           ...base,
-          template: 'The capital of France is {{blank}}.',
-          blanks: [{ id: 'b1', correct: ['Paris'], alternatives: [] }]
+          sentence: 'The capital of France is {{1}}.',
+          blanks: [{ id: '1', correct: 'Paris', alternatives: [] }]
         };
       case 'essay':
         return { ...base, maxChars: 1000, correct: '' };
@@ -159,31 +159,178 @@ const Regular = {
 
 
   renderBuilderWordBox(q, index) {
-    const sentence = q.sentence || q.prompt || '';
-    const bank = q.wordBank || [];
-    const blanks = q.blanks || [];
-    const bankInputs = bank.map((w, i) =>
-      `<input class="form-control" data-wb-bank="${index}:${i}" value="${escapeHtml(w || '')}" placeholder="Word ${i+1}" style="margin-bottom:0.35rem" />`
-    ).join('');
-    const blankRows = blanks.map((b, bi) => `
-      <div class="card mt-1" style="padding:0.65rem">
-        <strong>Blank {{${escapeHtml(String(b.id || (bi+1)))}}}</strong>
-        <input class="form-control mt-1" data-wb-blank-correct="${index}:${bi}" value="${escapeHtml(b.correct || '')}" placeholder="Correct word from bank" />
-        <input class="form-control mt-1" data-wb-blank-alt="${index}:${bi}" value="${escapeHtml((b.alternatives||[]).join(', '))}" placeholder="Alternatives (comma-separated)" />
-        <button type="button" class="btn btn-sm btn-danger mt-1" data-wb-del-blank="${index}:${bi}">Remove blank</button>
+    const sentence = q.sentence || '';
+    const rows = Number(q.wordBankRows) || 2;
+    const cols = Number(q.wordBankCols) || 2;
+    let bank = q.wordBank || [];
+    while (bank.length < rows * cols) bank.push('');
+    bank = bank.slice(0, rows * cols);
+    // Visual sentence with rectangle blanks
+    let vis = '';
+    let last = 0;
+    const re = /\{\{(\d+)\}\}/g;
+    let m;
+    while ((m = re.exec(sentence)) !== null) {
+      if (m.index > last) vis += `<span class="wb-cfg-text">${escapeHtml(sentence.slice(last, m.index))}</span>`;
+      const bid = m[1];
+      const blank = (q.blanks || []).find(b => String(b.id) === String(bid));
+      const filled = blank && blank.correct ? escapeHtml(blank.correct) : '';
+      vis += `<span class="wb-cfg-blank ${filled ? 'filled' : ''}" data-wb-drop-blank="${index}:${bid}" data-blank-id="${bid}">${filled || '&nbsp;'}</span>`;
+      last = m.index + m[0].length;
+    }
+    if (last < sentence.length) vis += `<span class="wb-cfg-text">${escapeHtml(sentence.slice(last))}</span>`;
+    if (!sentence) vis = '<span class="text-muted">Type the sentence below, then use Insert blank</span>';
+
+    let cells = '';
+    for (let i = 0; i < rows * cols; i++) {
+      cells += `<div class="wb-cfg-chip" draggable="true" data-wb-chip="${index}:${i}" data-word="${escapeHtml(bank[i] || '')}">
+        <input class="form-control" data-wb-bank="${index}:${i}" value="${escapeHtml(bank[i] || '')}" placeholder="Word ${i+1}" onclick="event.stopPropagation()" />
+      </div>`;
+    }
+    const blankCfg = (q.blanks || []).map((b, bi) => `
+      <div class="mt-1" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+        <span class="text-muted">Blank {{${escapeHtml(String(b.id))}}}</span>
+        <input class="form-control" style="max-width:180px" data-wb-blank-correct="${index}:${bi}" value="${escapeHtml(b.correct||'')}" placeholder="Correct" />
+        <input class="form-control" style="max-width:200px" data-wb-blank-alt="${index}:${bi}" value="${escapeHtml((b.alternatives||[]).join(', '))}" placeholder="Alternatives" />
+        <button type="button" class="btn btn-sm btn-danger" data-wb-del-blank="${index}:${bi}">×</button>
       </div>`).join('');
+
     return `<div class="builder-wordbox" data-gidx="${index}">
-      <p class="text-muted" style="font-size:0.85rem">Write the sentence and insert blanks as <code>{{1}}</code>, <code>{{2}}</code>, etc. Students drag words into those blanks.</p>
-      <label>Sentence (use {{1}}, {{2}}… for blanks)</label>
-      <textarea class="form-control" data-wb-sentence="${index}" rows="3" placeholder="Leaves have green pigment called {{1}} that helps with {{2}}.">${escapeHtml(sentence)}</textarea>
+      <div class="wb-cfg-preview">${vis}</div>
+      <label class="mt-1">Sentence text (blanks appear as boxes above)</label>
+      <textarea class="form-control" data-wb-sentence="${index}" rows="2">${escapeHtml(sentence)}</textarea>
       <div class="action-btns mt-1">
-        <button type="button" class="btn btn-sm btn-ghost" data-wb-insert-blank="${index}">+ Insert blank at end</button>
+        <button type="button" class="btn btn-sm btn-primary" data-wb-insert-blank="${index}">+ Insert blank</button>
       </div>
-      <label class="mt-1">Word bank (tiles students can drag)</label>
-      <div id="wb-bank-list-${index}">${bankInputs || '<p class="text-muted">No words yet</p>'}</div>
-      <button type="button" class="btn btn-sm btn-primary mt-1" data-wb-add-word="${index}">+ Add word</button>
-      <div class="mt-2"><strong>Blank answers</strong></div>
-      ${blankRows || '<p class="text-muted">Add {{1}} in the sentence, then set correct answers here.</p>'}
+      <div class="form-group mt-1" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end">
+        <label>Rows <input type="number" min="1" max="8" class="form-control" style="width:70px" data-wb-rows="${index}" value="${rows}" /></label>
+        <label>Columns <input type="number" min="1" max="6" class="form-control" style="width:70px" data-wb-cols="${index}" value="${cols}" /></label>
+        <button type="button" class="btn btn-sm btn-ghost" data-wb-resize="${index}">Apply grid</button>
+      </div>
+      <label>Word bank — drag a word onto a blank above</label>
+      <div class="wb-cfg-bank" style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:0.4rem">${cells}</div>
+      <div class="mt-1"><strong>Blank answers</strong></div>
+      ${blankCfg || '<p class="text-muted">Insert blanks first</p>'}
+      <div class="points-row mt-1">
+        <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+      </div>
+    </div>`;
+  },
+
+  renderBuilderFill(q, index) {
+    const sentence = q.sentence || q.template || '';
+    let vis = '';
+    let last = 0;
+    const re = /\{\{(\d+)\}\}/g;
+    let m;
+    while ((m = re.exec(sentence)) !== null) {
+      if (m.index > last) vis += `<span class="wb-cfg-text">${escapeHtml(sentence.slice(last, m.index))}</span>`;
+      const bid = m[1];
+      const blank = (q.blanks || []).find(b => String(b.id) === String(bid));
+      const filled = blank && blank.correct ? escapeHtml(String(Array.isArray(blank.correct) ? blank.correct[0] : blank.correct)) : '';
+      vis += `<span class="wb-cfg-blank fill-blank ${filled ? 'filled' : ''}">${filled || '____'}</span>`;
+      last = m.index + m[0].length;
+    }
+    if (last < sentence.length) vis += `<span class="wb-cfg-text">${escapeHtml(sentence.slice(last))}</span>`;
+    const blankCfg = (q.blanks || []).map((b, bi) => {
+      const corr = Array.isArray(b.correct) ? b.correct[0] : (b.correct || '');
+      const alts = Array.isArray(b.correct) && b.correct.length > 1 ? b.correct.slice(1) : (b.alternatives || []);
+      return `<div class="mt-1" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+        <span class="text-muted">Blank {{${escapeHtml(String(b.id))}}}</span>
+        <input class="form-control" style="max-width:180px" data-fill-correct="${index}:${bi}" value="${escapeHtml(String(corr))}" placeholder="Correct answer" />
+        <input class="form-control" style="max-width:200px" data-fill-alt="${index}:${bi}" value="${escapeHtml((alts||[]).join(', '))}" placeholder="Alternatives" />
+        <button type="button" class="btn btn-sm btn-danger" data-fill-del="${index}:${bi}">×</button>
+      </div>`;
+    }).join('');
+    return `<div class="builder-fill" data-gidx="${index}">
+      <div class="wb-cfg-preview">${vis || '<span class="text-muted">Type sentence with blanks</span>'}</div>
+      <label>Sentence (use Insert blank for open-ended blanks — no word bank)</label>
+      <textarea class="form-control" data-fill-sentence="${index}" rows="2">${escapeHtml(sentence)}</textarea>
+      <button type="button" class="btn btn-sm btn-primary mt-1" data-fill-insert="${index}">+ Insert blank</button>
+      <div class="mt-1"><strong>Correct answers</strong></div>
+      ${blankCfg || '<p class="text-muted">Insert blanks first</p>'}
+      <div class="points-row mt-1">
+        <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+      </div>
+    </div>`;
+  },
+
+  renderBuilderPassage(q, index) {
+    const html = q.passageHtml || q.prompt || '';
+    const kids = q.questions || [];
+    const qCards = kids.map((kq, ki) => {
+      const isMc = kq.type === 'multiple';
+      const opts = (kq.options || ['', '', '', '']).map((o, oi) => `
+        <div style="display:flex;gap:0.35rem;align-items:center;margin:0.25rem 0">
+          <input type="radio" name="pass-correct-${index}-${ki}" data-pass-correct="${index}:${ki}:${oi}" ${Number(kq.correct)===oi?'checked':''} />
+          <input class="form-control" data-pass-opt="${index}:${ki}:${oi}" value="${escapeHtml(o)}" placeholder="Option ${String.fromCharCode(65+oi)}" />
+          <button type="button" class="btn btn-sm btn-danger" data-pass-del-opt="${index}:${ki}:${oi}">×</button>
+        </div>`).join('');
+      return `<div class="card mt-1" style="padding:0.75rem">
+        <input class="form-control" data-pass-q-prompt="${index}:${ki}" value="${escapeHtml(kq.prompt||'')}" placeholder="Question prompt" />
+        <select class="form-control mt-1" data-pass-q-type="${index}:${ki}">
+          <option value="multiple" ${isMc?'selected':''}>Multiple Choice</option>
+          <option value="essay" ${kq.type==='essay'?'selected':''}>Open-Ended Text</option>
+        </select>
+        ${isMc ? `<div class="mt-1">${opts}<button type="button" class="btn btn-sm btn-ghost" data-pass-add-opt="${index}:${ki}">+ Add Option</button></div>`
+          : `<textarea class="form-control mt-1" data-pass-rubric="${index}:${ki}" rows="2" placeholder="Suggested answer / rubric">${escapeHtml(kq.correct||kq.rubric||'')}</textarea>`}
+        <button type="button" class="btn btn-sm btn-danger mt-1" data-pass-del-q="${index}:${ki}">Delete Question</button>
+      </div>`;
+    }).join('');
+    return `<div class="passage-dual" data-gidx="${index}">
+      <div class="passage-dual-left">
+        <div class="rte-toolbar">
+          <button type="button" data-rte="${index}:bold"><b>B</b></button>
+          <button type="button" data-rte="${index}:italic"><i>I</i></button>
+          <button type="button" data-rte="${index}:underline"><u>U</u></button>
+          <button type="button" data-rte="${index}:h2">H2</button>
+          <button type="button" data-rte="${index}:h3">H3</button>
+          <button type="button" data-rte="${index}:left">Left</button>
+          <button type="button" data-rte="${index}:center">Center</button>
+          <button type="button" data-rte="${index}:right">Right</button>
+          <button type="button" data-rte="${index}:justify">Justify</button>
+          <button type="button" data-rte="${index}:image">Image</button>
+        </div>
+        <div class="rte-editor" contenteditable="true" data-pass-html="${index}">${html}</div>
+      </div>
+      <div class="passage-dual-right">
+        <button type="button" class="btn btn-primary" data-pass-add-q="${index}">+ Add New Question</button>
+        <div class="pass-q-list">${qCards}</div>
+      </div>
+    </div>`;
+  },
+
+  renderBuilderCategorize(q, index) {
+    const cats = q.categories || [];
+    const items = q.items || [];
+    const catCols = cats.map((c, ci) => `
+      <div class="cat-col" data-cat="${c.id}">
+        <div class="cat-col-head" style="background:${['#3b82f6','#14b8a6','#f59e0b','#ef4444','#8b5cf6'][ci%5]}">
+          <input class="form-control" data-cat-name="${index}:${ci}" value="${escapeHtml(c.name||'')}" placeholder="Category name" />
+          <button type="button" class="btn btn-sm btn-danger" data-cat-del="${index}:${ci}">×</button>
+        </div>
+        <div class="cat-col-body text-muted" style="font-size:0.8rem;padding:0.5rem">Items assigned via answer key below</div>
+      </div>`).join('');
+    const itemRows = items.map((it, ii) => `
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin:0.35rem 0">
+        <input class="form-control" style="max-width:160px" data-cat-item-name="${index}:${ii}" value="${escapeHtml(it.name||'')}" placeholder="Item name" />
+        <select class="form-control" style="max-width:160px" data-cat-item-cat="${index}:${ii}">
+          ${cats.map(c => `<option value="${escapeHtml(c.id)}" ${it.category===c.id?'selected':''}>${escapeHtml(c.name||c.id)}</option>`).join('')}
+        </select>
+        <button type="button" class="btn btn-sm btn-danger" data-cat-item-del="${index}:${ii}">×</button>
+      </div>`).join('');
+    return `<div class="categorize-dual" data-gidx="${index}">
+      <div class="form-group">
+        <label>Prompt</label>
+        <input class="form-control q-prompt" data-gidx="${index}" value="${escapeHtml(q.prompt||'')}" placeholder="Organize these items into the right categories." />
+      </div>
+      <div class="cat-board">${catCols || '<p class="text-muted">Add categories</p>'}</div>
+      <div class="action-btns mt-1">
+        <button type="button" class="btn btn-sm btn-primary" data-cat-add="${index}">+ Add Category</button>
+        <button type="button" class="btn btn-sm btn-primary" data-cat-add-item="${index}">+ Add Item</button>
+      </div>
+      <div class="mt-1"><strong>Items & answer key</strong></div>
+      ${itemRows || '<p class="text-muted">Add items and assign each to a category</p>'}
       <div class="points-row mt-1">
         <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
       </div>
@@ -225,6 +372,55 @@ const Regular = {
       </div>`;
   },
 
+  renderStudentFill(q, answer) {
+    const sentence = q.sentence || q.template || '';
+    const ans = (answer && typeof answer === 'object') ? answer : {};
+    let parts = [];
+    let last = 0;
+    const re = /\{\{(\d+)\}\}/g;
+    let m;
+    while ((m = re.exec(sentence)) !== null) {
+      if (m.index > last) parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last, m.index))}</span>`);
+      const bid = m[1];
+      const val = ans[bid] || '';
+      parts.push(`<input class="wb-fill-input" data-qid="${q.id}" data-blank="${bid}" value="${escapeHtml(val)}" placeholder="…" />`);
+      last = m.index + m[0].length;
+    }
+    if (last < sentence.length) parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last))}</span>`);
+    return `<div class="wb-student wb-inline fill-student" data-qid="${q.id}">
+      <div class="wb-sentence-bar">${parts.join('')}</div>
+    </div>`;
+  },
+
+  renderStudentCategorize(q, answer) {
+    const cats = q.categories || [];
+    const items = q.items || [];
+    const ans = (answer && typeof answer === 'object') ? answer : {};
+    // placed item ids per category
+    const placed = new Set(Object.keys(ans));
+    const leftItems = items.filter(it => !placed.has(it.id) && !placed.has(it.name));
+    const bank = leftItems.map(it =>
+      `<div class="cat-item-chip" draggable="true" data-item-id="${escapeHtml(it.id)}" data-item-name="${escapeHtml(it.name||'')}">${escapeHtml(it.name||'')}</div>`
+    ).join('');
+    const cols = cats.map((c, ci) => {
+      const inCat = items.filter(it => ans[it.id] === c.id || ans[it.name] === c.id || ans[it.id] === c.name);
+      const cells = inCat.map(it =>
+        `<div class="cat-item-chip placed" draggable="true" data-item-id="${escapeHtml(it.id)}" data-item-name="${escapeHtml(it.name||'')}">${escapeHtml(it.name||'')}</div>`
+      ).join('');
+      return `<div class="cat-col" data-cat-id="${escapeHtml(c.id)}">
+        <div class="cat-col-head" style="background:${['#3b82f6','#14b8a6','#f59e0b','#ef4444','#8b5cf6'][ci%5]}">${escapeHtml(c.name||'')}</div>
+        <div class="cat-col-drop" data-cat-id="${escapeHtml(c.id)}">${cells || ''}</div>
+      </div>`;
+    }).join('');
+    return `<div class="cat-student" data-qid="${q.id}">
+      <p class="take-q-banner" style="margin-bottom:0.75rem">${escapeHtml(q.prompt||'')}</p>
+      <div class="cat-student-layout">
+        <div class="cat-options-panel"><div class="cat-options-title">Options (${leftItems.length})</div>${bank}</div>
+        <div class="cat-board">${cols}</div>
+      </div>
+    </div>`;
+  },
+
   renderStudentWordBox(q, answer) {
     const sentence = q.sentence || q.prompt || '';
     const bank = (q.wordBank || []).filter(w => String(w || '').trim());
@@ -263,6 +459,8 @@ const Regular = {
 
   renderStudentQuestion(q, answer) {
     if (q.type === 'wordbox') return this.renderStudentWordBox(q, answer);
+    if (q.type === 'fill') return this.renderStudentFill(q, answer);
+    if (q.type === 'categorize') return this.renderStudentCategorize(q, answer);
     const val = answer !== undefined ? answer : null;
 
     if (q.type === 'multiple') {
@@ -482,7 +680,7 @@ const Regular = {
       const a = answers?.[q.id];
       if (a === undefined || a === null || a === '') return;
       let ok = false;
-      if (q.type === 'wordbox') {
+      if (q.type === 'wordbox' || q.type === 'fill') {
         const blanks = q.blanks || [];
         const n = blanks.length || 1;
         const itemPts = pts / n;
@@ -491,8 +689,23 @@ const Regular = {
           total += itemPts;
           const got = String((a && (a[b.id] || a['b'+b.id])) || '').trim().toLowerCase();
           if (!got) return;
-          const okList = [b.correct, ...(b.alternatives || [])].map(x => String(x || '').trim().toLowerCase()).filter(Boolean);
+          let corrects = [];
+          if (Array.isArray(b.correct)) corrects = b.correct;
+          else corrects = [b.correct, ...(b.alternatives || [])];
+          const okList = corrects.map(x => String(x || '').trim().toLowerCase()).filter(Boolean);
           if (okList.includes(got)) earned += itemPts;
+        });
+        return;
+      }
+      if (q.type === 'categorize') {
+        const items = q.items || [];
+        const n = items.length || 1;
+        const itemPts = pts / n;
+        total -= pts;
+        items.forEach(it => {
+          total += itemPts;
+          const got = a && (a[it.id] || a[it.name]);
+          if (got && (got === it.category || got === (q.categories||[]).find(c=>c.id===it.category)?.name)) earned += itemPts;
         });
         return;
       }
@@ -575,6 +788,22 @@ const Regular = {
         const placed = z.querySelector('.wb-placed');
         if (item) map[item] = placed ? (placed.getAttribute('data-word') || placed.textContent || '').trim() : '';
       });
+      wb.querySelectorAll('.wb-fill-input').forEach(inp => {
+        const item = inp.getAttribute('data-blank');
+        if (item) map[item] = (inp.value || '').trim();
+      });
+      if (qid) answers[qid] = map;
+      return answers;
+    }
+    const cat = container.querySelector('.cat-student');
+    if (cat) {
+      const qid = cat.getAttribute('data-qid');
+      const map = {};
+      cat.querySelectorAll('.cat-col-drop .cat-item-chip').forEach(chip => {
+        const id = chip.getAttribute('data-item-id');
+        const catId = chip.closest('[data-cat-id]')?.getAttribute('data-cat-id');
+        if (id && catId) map[id] = catId;
+      });
       if (qid) answers[qid] = map;
       return answers;
     }
@@ -619,6 +848,43 @@ const Regular = {
         onChange && onChange();
       });
     });
+  },
+
+  bindCategorizeDrag(root, onChange) {
+    if (!root) return;
+    let dragId = '', dragName = '';
+    root.querySelectorAll('.cat-item-chip').forEach(chip => {
+      chip.setAttribute('draggable', 'true');
+      chip.addEventListener('dragstart', (e) => {
+        dragId = chip.getAttribute('data-item-id') || '';
+        dragName = chip.getAttribute('data-item-name') || chip.textContent || '';
+        e.dataTransfer.setData('text/plain', dragId);
+      });
+    });
+    root.querySelectorAll('.cat-col-drop').forEach(zone => {
+      zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        const id = e.dataTransfer.getData('text/plain') || dragId;
+        if (!id) return;
+        const chip = root.querySelector(`.cat-item-chip[data-item-id="${CSS.escape(id)}"]`);
+        if (chip) zone.appendChild(chip);
+        onChange && onChange();
+      });
+    });
+    const bank = root.querySelector('.cat-options-panel');
+    if (bank) {
+      bank.addEventListener('dragover', (e) => e.preventDefault());
+      bank.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const id = e.dataTransfer.getData('text/plain') || dragId;
+        const chip = root.querySelector(`.cat-item-chip[data-item-id="${CSS.escape(id)}"]`);
+        if (chip) bank.appendChild(chip);
+        onChange && onChange();
+      });
+    }
   },
 
   bindStudentMC(box, onChange) {

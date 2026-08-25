@@ -147,3 +147,13 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Edit assessment shows full question editors (options/correct answers) immediately
 - Word Box: sentence with {{n}} blanks + drag tiles (Wayground-style)
 - Restored ~3/4 question box layout on take screen
+
+## v1.5.12
+- Q numbering per section in builder
+- Edit loads full question editors immediately
+- Word Box: visual blank boxes, word grid, drag answers in config
+- Fill-in-the-blank: multi blanks open-ended (no bank)
+- Passage dual-panel RTE + question builder
+- Categorize dual-panel categories/items + student drag sort
+- History shows sentence + readable answers
+- Take UI locked to 100vh with side padding; ~3/4 question area

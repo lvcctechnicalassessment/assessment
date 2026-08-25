@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.11</div>
+          <div class="app-version">Build v1.5.12</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.11</div>
+              <div class="app-version">v1.5.12</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -695,7 +695,9 @@ const App = {
       window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
     };
 
-    const renderBuilder = () => {
+    const renderBuilder = function renderBuilder() {
+      window._renderAssessmentBuilder = renderBuilder;
+      window._lvccRenderBuilder = renderBuilder;
       const box = document.getElementById('questions-builder');
       if (!box) return;
       const sections = window._builderSections || [];
@@ -709,19 +711,32 @@ const App = {
           // global index in flat list
           const globalIdx = sections.slice(0, si).reduce((a, s) => a + (s.questions || []).length, 0) + qi;
           const typeSel = ''; // type fixed per section
+          const numLabel = `<div class="q-num-badge">Q${qi + 1}</div>`;
           if (q.type === 'multiple' || q.type === 'multiselect') {
-            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${Regular.renderBuilderMC(q, globalIdx)}
+            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderMC(q, globalIdx)}
               <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'truefalse' || q.type === 'modified_tf') {
-            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${Regular.renderBuilderTF(q, globalIdx)}
+            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderTF(q, globalIdx)}
               <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'wordbox') {
-            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${Regular.renderBuilderWordBox(q, globalIdx)}
+            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderWordBox(q, globalIdx)}
               <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
-          return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">
+          if (q.type === 'fill') {
+            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderFill(q, globalIdx)}
+              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+          }
+          if (q.type === 'passage' || q.isPassageSet) {
+            return `<div class="card q-in-section passage-builder-wrap" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderPassage(q, globalIdx)}
+              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+          }
+          if (q.type === 'categorize') {
+            return `<div class="card q-in-section categorize-builder-wrap" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderCategorize(q, globalIdx)}
+              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+          }
+          return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}
             <textarea class="form-control q-prompt" data-gidx="${globalIdx}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
             <input class="form-control mt-1" data-correct-text="${globalIdx}" value="${escapeHtml(String(q.correct ?? ''))}" placeholder="Correct answer" />
             <label class="mt-1">Points <input type="number" class="form-control" style="width:80px;display:inline-block" data-points="${globalIdx}" value="${q.points??1}" /></label>
@@ -989,7 +1004,242 @@ const App = {
     window._autosaveIv = setInterval(() => this.saveAutosave(), 4000);
     window.addEventListener('beforeunload', () => this.saveAutosave());
 
-    document.getElementById('add-question-footer-btn').onclick = async () => {
+    
+      box.querySelectorAll('[data-wb-resize]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.wbResize);
+          const q = flat[gi];
+          if (!q) return;
+          const rows = Number(box.querySelector(`[data-wb-rows="${gi}"]`)?.value) || 2;
+          const cols = Number(box.querySelector(`[data-wb-cols="${gi}"]`)?.value) || 2;
+          q.wordBankRows = rows; q.wordBankCols = cols;
+          q.wordBank = q.wordBank || [];
+          while (q.wordBank.length < rows * cols) q.wordBank.push('');
+          q.wordBank = q.wordBank.slice(0, rows * cols);
+          syncFlat(); renderBuilder();
+        };
+      });
+      // Config: drag word chip onto blank rectangle
+      box.querySelectorAll('[data-wb-chip]').forEach(chip => {
+        chip.addEventListener('dragstart', (e) => {
+          const inp = chip.querySelector('input');
+          const word = (inp && inp.value) || chip.getAttribute('data-word') || '';
+          e.dataTransfer.setData('text/plain', word);
+        });
+      });
+      box.querySelectorAll('[data-wb-drop-blank]').forEach(zone => {
+        zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+        zone.addEventListener('drop', (e) => {
+          e.preventDefault();
+          zone.classList.remove('drag-over');
+          const word = (e.dataTransfer.getData('text/plain') || '').trim();
+          if (!word) return;
+          const [gi, bid] = zone.dataset.wbDropBlank.split(':');
+          const q = flat[Number(gi)];
+          if (!q) return;
+          q.blanks = q.blanks || [];
+          let b = q.blanks.find(x => String(x.id) === String(bid));
+          if (!b) { b = { id: String(bid), correct: '', alternatives: [] }; q.blanks.push(b); }
+          b.correct = word;
+          syncFlat(); renderBuilder();
+        });
+      });
+      // Fill handlers
+      box.querySelectorAll('[data-fill-sentence]').forEach(el => {
+        el.oninput = () => {
+          const gi = Number(el.dataset.fillSentence);
+          const q = flat[gi]; if (!q) return;
+          q.sentence = el.value;
+          const ids = [...el.value.matchAll(/\{\{(\d+)\}\}/g)].map(m => m[1]);
+          q.blanks = q.blanks || [];
+          ids.forEach(id => { if (!q.blanks.some(b => String(b.id) === String(id))) q.blanks.push({ id: String(id), correct: '', alternatives: [] }); });
+        };
+      });
+      box.querySelectorAll('[data-fill-insert]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.fillInsert);
+          const q = flat[gi]; if (!q) return;
+          q.blanks = q.blanks || [];
+          const nextId = String((q.blanks.reduce((m, b) => Math.max(m, Number(b.id) || 0), 0) || 0) + 1);
+          q.sentence = (q.sentence || '') + ' {{' + nextId + '}}';
+          q.blanks.push({ id: nextId, correct: '', alternatives: [] });
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-fill-correct]').forEach(el => {
+        el.oninput = () => {
+          const [gi, bi] = el.dataset.fillCorrect.split(':').map(Number);
+          if (flat[gi]?.blanks?.[bi]) flat[gi].blanks[bi].correct = el.value;
+        };
+      });
+      box.querySelectorAll('[data-fill-alt]').forEach(el => {
+        el.oninput = () => {
+          const [gi, bi] = el.dataset.fillAlt.split(':').map(Number);
+          if (flat[gi]?.blanks?.[bi]) flat[gi].blanks[bi].alternatives = el.value.split(',').map(s => s.trim()).filter(Boolean);
+        };
+      });
+      box.querySelectorAll('[data-fill-del]').forEach(el => {
+        el.onclick = () => {
+          const [gi, bi] = el.dataset.fillDel.split(':').map(Number);
+          const q = flat[gi]; if (!q?.blanks?.[bi]) return;
+          const id = q.blanks[bi].id;
+          q.blanks.splice(bi, 1);
+          q.sentence = (q.sentence || '').replace(new RegExp('\\{\\{' + id + '\\}\\}', 'g'), '');
+          syncFlat(); renderBuilder();
+        };
+      });
+      // Passage
+      box.querySelectorAll('[data-pass-html]').forEach(el => {
+        el.oninput = () => { const q = flat[Number(el.dataset.passHtml)]; if (q) q.passageHtml = el.innerHTML; };
+        el.onblur = () => { const q = flat[Number(el.dataset.passHtml)]; if (q) q.passageHtml = el.innerHTML; };
+      });
+      box.querySelectorAll('[data-rte]').forEach(btn => {
+        btn.onclick = (e) => {
+          e.preventDefault();
+          const [gi, cmd] = btn.dataset.rte.split(':');
+          const ed = box.querySelector(`[data-pass-html="${gi}"]`);
+          if (!ed) return;
+          ed.focus();
+          if (cmd === 'bold') document.execCommand('bold');
+          else if (cmd === 'italic') document.execCommand('italic');
+          else if (cmd === 'underline') document.execCommand('underline');
+          else if (cmd === 'h2') document.execCommand('formatBlock', false, 'h2');
+          else if (cmd === 'h3') document.execCommand('formatBlock', false, 'h3');
+          else if (cmd === 'left') document.execCommand('justifyLeft');
+          else if (cmd === 'center') document.execCommand('justifyCenter');
+          else if (cmd === 'right') document.execCommand('justifyRight');
+          else if (cmd === 'justify') document.execCommand('justifyFull');
+          else if (cmd === 'image') {
+            const url = prompt('Image URL');
+            if (url) document.execCommand('insertImage', false, url);
+          }
+          const q = flat[Number(gi)]; if (q) q.passageHtml = ed.innerHTML;
+        };
+      });
+      box.querySelectorAll('[data-pass-add-q]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.passAddQ);
+          const q = flat[gi]; if (!q) return;
+          q.questions = q.questions || [];
+          q.questions.push({ id: 'pq'+Date.now(), type: 'multiple', prompt: '', options: ['','','',''], correct: 0, points: 1 });
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-pass-q-prompt]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ki] = el.dataset.passQPrompt.split(':').map(Number);
+          if (flat[gi]?.questions?.[ki]) flat[gi].questions[ki].prompt = el.value;
+        };
+      });
+      box.querySelectorAll('[data-pass-q-type]').forEach(el => {
+        el.onchange = () => {
+          const [gi, ki] = el.dataset.passQType.split(':').map(Number);
+          const kq = flat[gi]?.questions?.[ki];
+          if (!kq) return;
+          kq.type = el.value;
+          if (el.value === 'multiple' && !kq.options) kq.options = ['','','',''];
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-pass-opt]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ki, oi] = el.dataset.passOpt.split(':').map(Number);
+          if (flat[gi]?.questions?.[ki]) {
+            flat[gi].questions[ki].options = flat[gi].questions[ki].options || [];
+            flat[gi].questions[ki].options[oi] = el.value;
+          }
+        };
+      });
+      box.querySelectorAll('[data-pass-correct]').forEach(el => {
+        el.onchange = () => {
+          const [gi, ki, oi] = el.dataset.passCorrect.split(':').map(Number);
+          if (flat[gi]?.questions?.[ki]) flat[gi].questions[ki].correct = oi;
+        };
+      });
+      box.querySelectorAll('[data-pass-add-opt]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ki] = el.dataset.passAddOpt.split(':').map(Number);
+          const kq = flat[gi]?.questions?.[ki];
+          if (!kq) return;
+          kq.options = kq.options || [];
+          kq.options.push('');
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-pass-del-opt]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ki, oi] = el.dataset.passDelOpt.split(':').map(Number);
+          const kq = flat[gi]?.questions?.[ki];
+          if (!kq?.options) return;
+          kq.options.splice(oi, 1);
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-pass-rubric]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ki] = el.dataset.passRubric.split(':').map(Number);
+          if (flat[gi]?.questions?.[ki]) flat[gi].questions[ki].correct = el.value;
+        };
+      });
+      box.querySelectorAll('[data-pass-del-q]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ki] = el.dataset.passDelQ.split(':').map(Number);
+          if (flat[gi]?.questions) { flat[gi].questions.splice(ki, 1); syncFlat(); renderBuilder(); }
+        };
+      });
+      // Categorize
+      box.querySelectorAll('[data-cat-add]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.catAdd);
+          const q = flat[gi]; if (!q) return;
+          q.categories = q.categories || [];
+          q.categories.push({ id: 'c'+Date.now(), name: 'Category ' + (q.categories.length + 1) });
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-cat-add-item]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.catAddItem);
+          const q = flat[gi]; if (!q) return;
+          q.items = q.items || [];
+          const firstCat = (q.categories && q.categories[0]?.id) || '';
+          q.items.push({ id: 'i'+Date.now(), name: '', category: firstCat });
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-cat-name]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ci] = el.dataset.catName.split(':').map(Number);
+          if (flat[gi]?.categories?.[ci]) flat[gi].categories[ci].name = el.value;
+        };
+      });
+      box.querySelectorAll('[data-cat-del]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ci] = el.dataset.catDel.split(':').map(Number);
+          if (flat[gi]?.categories) { flat[gi].categories.splice(ci, 1); syncFlat(); renderBuilder(); }
+        };
+      });
+      box.querySelectorAll('[data-cat-item-name]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ii] = el.dataset.catItemName.split(':').map(Number);
+          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].name = el.value;
+        };
+      });
+      box.querySelectorAll('[data-cat-item-cat]').forEach(el => {
+        el.onchange = () => {
+          const [gi, ii] = el.dataset.catItemCat.split(':').map(Number);
+          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].category = el.value;
+        };
+      });
+      box.querySelectorAll('[data-cat-item-del]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ii] = el.dataset.catItemDel.split(':').map(Number);
+          if (flat[gi]?.items) { flat[gi].items.splice(ii, 1); syncFlat(); renderBuilder(); }
+        };
+      });
+
+      document.getElementById('add-question-footer-btn').onclick = async () => {
       const type = await openTypePicker();
       addSectionOfType(type);
     };
@@ -1804,6 +2054,26 @@ const App = {
 
   formatAnswerDisplay(q, value, isCorrectKey = false) {
     if (!q) return '—';
+    if (q.type === 'wordbox' || q.type === 'fill') {
+      if (isCorrectKey) {
+        const blanks = q.blanks || [];
+        return blanks.map(b => String(b.correct || '').trim()).filter(Boolean).join(', ') || '—';
+      }
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const blanks = q.blanks || [];
+        const ordered = blanks.map(b => value[b.id] || value['b'+b.id] || '').filter(Boolean);
+        if (ordered.length) return ordered.join(', ');
+        return Object.values(value).filter(v => v != null && String(v).trim()).map(String).join(', ') || '—';
+      }
+      return value != null && value !== '' ? String(value) : '—';
+    }
+    if (q.type === 'categorize' && value && typeof value === 'object') {
+      if (isCorrectKey) {
+        const items = q.items || [];
+        return items.map(it => `${it.name || it.label} → ${it.category || ''}`).join('; ') || '—';
+      }
+      return Object.entries(value).map(([item, cat]) => `${item} → ${cat}`).join('; ') || '—';
+    }
     const rawOpts = q.options || [];
     const opts = rawOpts.map((o) => (o == null ? '' : String(o).trim()));
     const labelAt = (i) => {
@@ -2473,6 +2743,10 @@ const App = {
           body = renderMcKahoot(currentQ);
         } else if (currentQ.type === 'wordbox') {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentWordBox(currentQ, answers[currentQ.id])}</div>`;
+        } else if (currentQ.type === 'fill') {
+          body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentFill(currentQ, answers[currentQ.id])}</div>`;
+        } else if (currentQ.type === 'categorize') {
+          body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentCategorize(currentQ, answers[currentQ.id])}</div>`;
         } else {
           body = `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(currentQ.prompt || 'Question')}</div>
             <div class="take-single" id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
@@ -2544,6 +2818,8 @@ const App = {
       // Word box may be outside take-q-box
       const wbRoot = document.querySelector('.wb-student');
       if (wbRoot) Regular.bindWordBoxDrag(wbRoot, save);
+      const catRoot = document.querySelector('.cat-student');
+      if (catRoot) Regular.bindCategorizeDrag(catRoot, save);
 
       const goNext = async (skipPassage = false, isSkip = false) => {
         save();
