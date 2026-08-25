@@ -162,3 +162,8 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Edit updates existing assessment (persistent edit id); no longer creates a new one
 - Config buttons (Add Question / Save / Publish) fixed — picker no longer nested incorrectly
 - Integrity Export PDF embeds violation screenshots (JPEG/PNG)
+
+## v1.5.14
+- Question type picker always available (no longer nested under existing sections)
+- Create/Edit assessment: Add Question works with zero questions
+- Initial builder paint wires Save / Publish / Add Question on open

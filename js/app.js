@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.13</div>
+          <div class="app-version">Build v1.5.14</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.13</div>
+              <div class="app-version">v1.5.14</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -704,6 +704,66 @@ const App = {
       window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
     };
 
+    const defaultSectionInstructions = (type) => ({
+      multiple: 'Choose the best answer. Select the correct option.',
+      truefalse: 'Select True or False for each statement.',
+      modified_tf: 'Select True or False. If False, write the correct answer in the text box.',
+      fill: 'Fill in each blank with the correct word or phrase.',
+      essay: 'Write a complete response in the text box (max 1000 characters).',
+      table: 'Fill in the blank cells in the table with the correct values.',
+      passage: 'Read the passage carefully, then answer the related questions.',
+      dropdown: 'Select the correct option from the dropdown.',
+      match: 'Match each item on the left with the correct option on the right.',
+      reorder: 'Put the items in the correct order.',
+      categorize: 'Place each item into the correct category.',
+      wordbox: 'Drag words from the bank into the blanks in the sentence.',
+    }[type] || 'Read the instructions and answer carefully.');
+
+    const openTypePicker = async () => {
+      return new Promise((resolve) => {
+        const root = document.getElementById('ui-modal-root') || (() => {
+          const el = document.createElement('div'); el.id = 'ui-modal-root'; document.body.appendChild(el); return el;
+        })();
+        root.style.cssText = 'position:fixed;inset:0;z-index:50000;pointer-events:auto;';
+        root.innerHTML = `<div class="modal-overlay ui-modal-overlay" style="z-index:50000;pointer-events:auto"><div class="modal ui-modal modal-wide">
+          <h2>Select question type</h2>
+          <div class="type-picker type-picker-modal type-cards type-grid-4x4">${QUESTION_TYPES.map(x =>
+            `<button type="button" class="type-card" data-type="${x.id}"><span class="type-card-label">${escapeHtml(x.label)}</span></button>`
+          ).join('')}</div>
+          <div class="modal-actions"><button class="btn btn-ghost" id="type-cancel">Cancel</button></div>
+        </div></div>`;
+        const cancel = root.querySelector('#type-cancel');
+        if (cancel) cancel.onclick = () => { UI.close(); resolve(null); };
+        root.querySelectorAll('.type-card').forEach(btn => {
+          btn.onclick = () => { UI.close(); resolve(btn.dataset.type); };
+        });
+      });
+    };
+
+    const addSectionOfType = (type) => {
+      if (!type) return;
+      const label = (QUESTION_TYPES.find(x => x.id === type) || { label: type }).label;
+      const sec = Regular.newSection(label);
+      sec.instructions = defaultSectionInstructions(type);
+      const q = Regular.newQuestion(type);
+      if (type === 'essay') {
+        q.caption = q.caption || 'Note: Essay scores may be adjusted by your teacher based on a personal assessment of your response.';
+      }
+      sec.questions.push(q);
+      window._builderSections = window._builderSections || [];
+      window._builderSections.push(sec);
+      window._builderQuestions = window._builderSections.flatMap(s => s.questions || []);
+      if (typeof window._renderAssessmentBuilder === 'function') {
+        window._renderAssessmentBuilder();
+      } else if (typeof renderBuilder === 'function') {
+        renderBuilder();
+      }
+    };
+
+    window._lvccOpenTypePicker = openTypePicker;
+    window._lvccAddSectionOfType = addSectionOfType;
+
+
     const renderBuilder = function renderBuilder() {
       window._renderAssessmentBuilder = renderBuilder;
       window._lvccRenderBuilder = renderBuilder;
@@ -944,66 +1004,6 @@ const App = {
 
     };
 
-    const defaultSectionInstructions = (type) => ({
-      multiple: 'Choose the best answer. Select the correct option.',
-      truefalse: 'Select True or False for each statement.',
-      modified_tf: 'Select True or False. If False, write the correct answer in the text box.',
-      fill: 'Fill in each blank with the correct word or phrase.',
-      essay: 'Write a complete response in the text box (max 1000 characters).',
-      table: 'Fill in the blank cells in the table with the correct values.',
-      passage: 'Read the passage carefully, then answer the related questions.',
-      dropdown: 'Select the correct option from the dropdown.',
-      match: 'Match each item on the left with the correct option on the right.',
-      reorder: 'Put the items in the correct order.',
-      categorize: 'Place each item into the correct category.',
-      wordbox: 'Enter words related to the topic as instructed.',
-    }[type] || 'Read the instructions and answer carefully.');
-
-    const openTypePicker = async () => {
-      /* picker */
-      const labels = QUESTION_TYPES.map(x => x.label + ' (' + x.id + ')').join('\n');
-      // Themed modal with type buttons
-      return new Promise((resolve) => {
-        const root = document.getElementById('ui-modal-root') || (() => {
-          const el = document.createElement('div'); el.id = 'ui-modal-root'; document.body.appendChild(el); return el;
-        })();
-        root.innerHTML = `<div class="modal-overlay ui-modal-overlay"><div class="modal ui-modal modal-wide">
-          <h2>Select question type</h2>
-          <div class="type-picker type-picker-modal type-cards type-grid-4x4">${QUESTION_TYPES.map(x =>
-            `<button type="button" class="type-card" data-type="${x.id}"><span class="type-card-label">${escapeHtml(x.label)}</span></button>`
-          ).join('')}</div>
-          <div class="modal-actions"><button class="btn btn-ghost" id="type-cancel">Cancel</button></div>
-        </div></div>`;
-        root.querySelector('#type-cancel').onclick = () => { UI.close(); resolve(null); };
-        root.querySelectorAll('.type-card, .type-pick').forEach(btn => {
-          btn.onclick = () => { const type = btn.dataset.type; UI.close(); resolve(type); };
-        });
-      });
-    };
-
-    const addSectionOfType = (type) => {
-      if (!type) return;
-      const label = (QUESTION_TYPES.find(x => x.id === type) || { label: type }).label;
-      const sec = Regular.newSection(label);
-      sec.instructions = defaultSectionInstructions(type);
-      const q = Regular.newQuestion(type);
-      if (type === 'essay') {
-        q.caption = q.caption || 'Note: Essay scores may be adjusted by your teacher based on a personal assessment of your response, as essays may not be fully auto-graded.';
-      }
-      sec.questions.push(q);
-      window._builderSections.push(sec);
-      syncFlat();
-      window._renderAssessmentBuilder = renderBuilder;
-      window._lvccRenderBuilder = renderBuilder;
-      // If editing, sections already preloaded — show full editors now
-      if (opts.keepEditing && (window._builderSections || []).length) {
-        const te = document.getElementById('exam-type');
-        if (te) { te.value = te.value || 'regular'; te.dispatchEvent(new Event('change')); }
-      }
-      renderBuilder();
-    };
-    window._lvccOpenTypePicker = openTypePicker;
-    window._lvccAddSectionOfType = addSectionOfType;
 
 
     // (builder sections already initialized at top of showCreateExam)
@@ -1254,15 +1254,14 @@ const App = {
 
       document.getElementById('add-question-footer-btn').onclick = async () => {
       try {
-        if (typeof openTypePicker === 'function' && typeof addSectionOfType === 'function') {
-          const type = await openTypePicker();
-          if (type) addSectionOfType(type);
-        } else if (typeof window._lvccOpenTypePicker === 'function') {
-          const type = await window._lvccOpenTypePicker();
-          if (type) window._lvccAddSectionOfType(type);
-        } else {
-          await UI.alert('Question picker is still loading. Wait a moment and try again.', 'Please wait');
+        const picker = window._lvccOpenTypePicker || openTypePicker;
+        const adder = window._lvccAddSectionOfType || addSectionOfType;
+        if (typeof picker !== 'function' || typeof adder !== 'function') {
+          await UI.alert('Could not open question types. Refresh the page and try again.', 'Error');
+          return;
         }
+        const type = await picker();
+        if (type) adder(type);
       } catch (err) {
         console.error(err);
         await UI.alert(err.message || String(err), 'Error');
@@ -1331,8 +1330,14 @@ const App = {
         if (draft) draft.disabled = false;
       }
     };
-  },
 
+    // Always bind helpers and paint builder once so Add Question / Save work even with 0 sections
+    window._lvccOpenTypePicker = openTypePicker;
+    window._lvccAddSectionOfType = addSectionOfType;
+    window._renderAssessmentBuilder = renderBuilder;
+    window._lvccRenderBuilder = renderBuilder;
+    try { renderBuilder(); } catch (e) { console.error('renderBuilder init', e); }
+  },
   async copyExamLink(examId) {
     const url = `${window.location.origin}${window.location.pathname}?exam=${examId}`;
     try {
