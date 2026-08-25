@@ -2356,3 +2356,109 @@ body.nav-open .nav-backdrop { display: block; }
 @media (max-width: 700px) {
   .wb-drop-row { grid-template-columns: 1fr; }
 }
+
+/* v1.5.11 take 3/4 + wordbox inline */
+.take-fullscreen .take-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+.take-fullscreen .take-q-stack,
+.take-fullscreen .take-q-banner {
+  width: 100%;
+}
+.take-fullscreen .take-q-banner {
+  min-height: 22vh;
+  max-height: 35vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(1.05rem, 2.4vw, 1.65rem);
+  overflow: auto;
+}
+.take-fullscreen .take-options-grid {
+  min-height: 32vh;
+  max-height: 48vh;
+  align-content: stretch;
+}
+.take-fullscreen .take-opt {
+  min-height: 10vh;
+  max-height: 18vh;
+}
+.wb-student.wb-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  width: 100%;
+  padding: 1rem;
+}
+.wb-sentence-bar {
+  width: 100%;
+  max-width: 920px;
+  background: rgba(0,0,0,0.35);
+  color: #fff;
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  font-size: clamp(1.05rem, 2.2vw, 1.45rem);
+  line-height: 1.7;
+  text-align: center;
+}
+[data-theme="light"] .wb-sentence-bar {
+  background: #1e1b4b;
+  color: #fff;
+}
+.wb-text { display: inline; }
+.wb-inline-drop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 7rem;
+  min-height: 2.1rem;
+  margin: 0 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border: 2px dashed rgba(255,255,255,0.55);
+  border-radius: 999px;
+  vertical-align: middle;
+  background: rgba(255,255,255,0.08);
+}
+.wb-inline-drop.filled {
+  border-style: solid;
+  background: #fff;
+  color: #111;
+}
+.wb-inline-drop.filled .wb-placed {
+  background: transparent;
+  color: #111;
+  padding: 0;
+}
+.wb-inline-drop.drag-over {
+  border-color: #FFCE5C;
+  background: rgba(255,206,92,0.25);
+}
+.wb-hint {
+  color: rgba(255,255,255,0.75);
+  font-size: 0.9rem;
+  margin: 0;
+}
+[data-theme="light"] .wb-hint { color: var(--text-muted); }
+.wb-bank-student {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.wb-chip {
+  background: #fff;
+  color: #333;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  padding: 0.55rem 1rem;
+}
+.wb-chip.wb-used { opacity: 0.45; }

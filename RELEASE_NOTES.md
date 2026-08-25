@@ -135,3 +135,15 @@ If features seem missing, replace **all** app files from the zip (not only one J
 ## v1.5.9
 - PDF export: local jsPDF vendor (js/vendor/jspdf.umd.min.js) — no CDN required
 - Fallback printable HTML export if jsPDF still fails
+
+## v1.5.10
+- Modal overlays block background clicks; popups usable again
+- Fixed broken Duplicate / toggleExamActive methods
+- Edit assessment re-renders saved questions without needing Add Question
+- Integrity PDF includes screenshots when available (+ HTML fallback)
+- Take layout larger fit to device; Word Box type with bank grid + drag-drop blanks
+
+## v1.5.11
+- Edit assessment shows full question editors (options/correct answers) immediately
+- Word Box: sentence with {{n}} blanks + drag tiles (Wayground-style)
+- Restored ~3/4 question box layout on take screen

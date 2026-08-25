@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.10</div>
+          <div class="app-version">Build v1.5.11</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.10</div>
+              <div class="app-version">v1.5.11</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -682,16 +682,22 @@ const App = {
     typeEl.onchange = syncType;
     syncType();
 
-    window._builderSections = [];
-    window._builderQuestions = []; // flattened for save
+    // keepEditing: do not wipe sections loaded by editExam
+    if (!opts.keepEditing) {
+      window._builderSections = [];
+      window._builderQuestions = [];
+    } else {
+      window._builderSections = window._builderSections || [];
+      window._builderQuestions = window._builderQuestions || [];
+    }
 
     const syncFlat = () => {
       window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
     };
 
     const renderBuilder = () => {
-      window._renderAssessmentBuilder = renderBuilder;
       const box = document.getElementById('questions-builder');
+      if (!box) return;
       const sections = window._builderSections || [];
       if (!sections.length) {
         box.innerHTML = '<p class="text-muted">No sections yet. Choose a question type below to start a section.</p>';
@@ -841,7 +847,23 @@ const App = {
         el.oninput = () => { const q = flat[Number(el.dataset.correctText)]; if (q) q.correct = el.value; };
       });
 
-      // Word box builder handlers
+      // Word box builder handlers (inline sentence blanks)
+      box.querySelectorAll('[data-wb-sentence]').forEach(el => {
+        el.oninput = () => {
+          const gi = Number(el.dataset.wbSentence);
+          const q = flat[gi];
+          if (!q) return;
+          q.sentence = el.value;
+          // Auto-detect {{n}} markers and ensure blanks exist
+          const ids = [...el.value.matchAll(/\{\{(\d+)\}\}/g)].map(m => m[1]);
+          q.blanks = q.blanks || [];
+          ids.forEach(id => {
+            if (!q.blanks.some(b => String(b.id) === String(id))) {
+              q.blanks.push({ id: String(id), correct: '', alternatives: [] });
+            }
+          });
+        };
+      });
       box.querySelectorAll('[data-wb-bank]').forEach(el => {
         el.oninput = () => {
           const [gi, bi] = el.dataset.wbBank.split(':').map(Number);
@@ -851,60 +873,49 @@ const App = {
           q.wordBank[bi] = el.value;
         };
       });
-      box.querySelectorAll('[data-wb-rows], [data-wb-cols]').forEach(el => {
-        el.onchange = () => {};
-      });
-      box.querySelectorAll('[data-wb-resize]').forEach(el => {
+      box.querySelectorAll('[data-wb-add-word]').forEach(el => {
         el.onclick = () => {
-          const gi = Number(el.dataset.wbResize);
+          const gi = Number(el.dataset.wbAddWord);
           const q = flat[gi];
           if (!q) return;
-          const rows = Number(box.querySelector(`[data-wb-rows="${gi}"]`)?.value) || 4;
-          const cols = Number(box.querySelector(`[data-wb-cols="${gi}"]`)?.value) || 3;
-          q.wordBankRows = rows;
-          q.wordBankCols = cols;
-          const need = rows * cols;
           q.wordBank = q.wordBank || [];
-          while (q.wordBank.length < need) q.wordBank.push('');
-          q.wordBank = q.wordBank.slice(0, need);
+          q.wordBank.push('');
           syncFlat(); renderBuilder();
         };
       });
-      box.querySelectorAll('[data-wb-item-text]').forEach(el => {
-        el.oninput = () => {
-          const [gi, ii] = el.dataset.wbItemText.split(':').map(Number);
-          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].text = el.value;
-        };
-      });
-      box.querySelectorAll('[data-wb-item-correct]').forEach(el => {
-        el.oninput = () => {
-          const [gi, ii] = el.dataset.wbItemCorrect.split(':').map(Number);
-          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].correct = el.value;
-        };
-      });
-      box.querySelectorAll('[data-wb-item-alt]').forEach(el => {
-        el.oninput = () => {
-          const [gi, ii] = el.dataset.wbItemAlt.split(':').map(Number);
-          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].alternatives = el.value.split(',').map(s => s.trim()).filter(Boolean);
-        };
-      });
-      box.querySelectorAll('[data-wb-add-item]').forEach(el => {
+      box.querySelectorAll('[data-wb-insert-blank]').forEach(el => {
         el.onclick = () => {
-          const gi = Number(el.dataset.wbAddItem);
+          const gi = Number(el.dataset.wbInsertBlank);
           const q = flat[gi];
           if (!q) return;
-          q.items = q.items || [];
-          q.items.push({ id: 'wb' + Date.now(), text: '', correct: '', alternatives: [] });
+          q.blanks = q.blanks || [];
+          const nextId = String((q.blanks.reduce((m, b) => Math.max(m, Number(b.id) || 0), 0) || 0) + 1);
+          q.sentence = (q.sentence || '') + ' {{' + nextId + '}}';
+          q.blanks.push({ id: nextId, correct: '', alternatives: [] });
           syncFlat(); renderBuilder();
         };
       });
-      box.querySelectorAll('[data-wb-del-item]').forEach(el => {
+      box.querySelectorAll('[data-wb-blank-correct]').forEach(el => {
+        el.oninput = () => {
+          const [gi, bi] = el.dataset.wbBlankCorrect.split(':').map(Number);
+          if (flat[gi]?.blanks?.[bi]) flat[gi].blanks[bi].correct = el.value;
+        };
+      });
+      box.querySelectorAll('[data-wb-blank-alt]').forEach(el => {
+        el.oninput = () => {
+          const [gi, bi] = el.dataset.wbBlankAlt.split(':').map(Number);
+          if (flat[gi]?.blanks?.[bi]) flat[gi].blanks[bi].alternatives = el.value.split(',').map(s => s.trim()).filter(Boolean);
+        };
+      });
+      box.querySelectorAll('[data-wb-del-blank]').forEach(el => {
         el.onclick = () => {
-          const [gi, ii] = el.dataset.wbDelItem.split(':').map(Number);
-          if (flat[gi]?.items) {
-            flat[gi].items.splice(ii, 1);
-            syncFlat(); renderBuilder();
-          }
+          const [gi, bi] = el.dataset.wbDelBlank.split(':').map(Number);
+          const q = flat[gi];
+          if (!q?.blanks?.[bi]) return;
+          const id = q.blanks[bi].id;
+          q.blanks.splice(bi, 1);
+          q.sentence = (q.sentence || '').replace(new RegExp('\\{\\{' + id + '\\}\\}', 'g'), '');
+          syncFlat(); renderBuilder();
         };
       });
 
@@ -958,6 +969,13 @@ const App = {
       sec.questions.push(q);
       window._builderSections.push(sec);
       syncFlat();
+      window._renderAssessmentBuilder = renderBuilder;
+      window._lvccRenderBuilder = renderBuilder;
+      // If editing, sections already preloaded — show full editors now
+      if (opts.keepEditing && (window._builderSections || []).length) {
+        const te = document.getElementById('exam-type');
+        if (te) { te.value = te.value || 'regular'; te.dispatchEvent(new Event('change')); }
+      }
       renderBuilder();
     };
 
@@ -1195,70 +1213,70 @@ const App = {
     const exam = await Exam.getExam(examId);
     if (!exam) { await UI.alert('Assessment not found.', 'Error'); return; }
 
-    // Open builder UI first
+    // Prefill builder state BEFORE opening UI so first render has questions
+    let sections = [];
+    if (exam.sections && exam.sections.length) {
+      sections = JSON.parse(JSON.stringify(exam.sections));
+    } else if (exam.questions && exam.questions.length) {
+      sections = [{
+        id: 's1',
+        title: 'Questions',
+        instructions: exam.instructions || '',
+        questions: JSON.parse(JSON.stringify(exam.questions))
+      }];
+    }
+    window._builderSections = sections;
+    window._builderQuestions = sections.flatMap(s => s.questions || []);
+    window._pendingEditExam = exam;
+
     await this.showCreateExam({ keepEditing: true });
 
-    // Prefill after DOM is ready
     const apply = () => {
+      const exam2 = window._pendingEditExam || exam;
       const set = (id, val) => {
         const el = document.getElementById(id);
         if (el && val != null) el.value = val;
       };
-      set('exam-title', exam.title || '');
-      set('exam-subject', exam.subject || '');
-      set('exam-type', exam.examType || 'regular');
-      document.getElementById('exam-type')?.dispatchEvent(new Event('change'));
-      set('exam-language', exam.language || 'python');
-      set('exam-starter', exam.starterCode || '');
-      set('exam-answer', exam.answerKey || '');
-      set('exam-maxscore', exam.maxScore != null ? exam.maxScore : 100);
+      set('exam-title', exam2.title || '');
+      set('exam-subject', exam2.subject || '');
+      set('exam-type', exam2.examType || 'regular');
+      set('exam-language', exam2.language || 'python');
+      set('exam-starter', exam2.starterCode || '');
+      set('exam-answer', exam2.answerKey || '');
+      set('exam-maxscore', exam2.maxScore != null ? exam2.maxScore : 100);
 
-      // Load sections / questions into builder state
-      let sections = [];
-      if (exam.sections && exam.sections.length) {
-        sections = JSON.parse(JSON.stringify(exam.sections));
-      } else if (exam.questions && exam.questions.length) {
-        sections = [{
-          id: 's1',
-          title: 'Questions',
-          instructions: exam.instructions || '',
-          questions: JSON.parse(JSON.stringify(exam.questions))
-        }];
+      // Ensure sections still loaded (showCreateExam must not clear when keepEditing)
+      if (!window._builderSections || !window._builderSections.length) {
+        window._builderSections = sections;
+        window._builderQuestions = sections.flatMap(s => s.questions || []);
       }
-      window._builderSections = sections;
-      window._builderQuestions = sections.flatMap(s => s.questions || []);
 
-      // Trigger builder re-render (showCreateExam defined renderBuilder in closure — call via Add Question path)
-      // Expose last renderBuilder
-      const tryRender = (attempt) => {
-        if (typeof window._renderAssessmentBuilder === 'function') {
-          window._renderAssessmentBuilder();
-          return true;
-        }
-        if (attempt < 8) {
-          setTimeout(() => tryRender(attempt + 1), 80);
-          return false;
-        }
-        const box = document.getElementById('questions-builder');
-        if (box && window._builderQuestions.length) {
-          box.innerHTML = window._builderQuestions.map((q, i) =>
-            `<div class="card mt-1"><strong>Q${i+1} (${escapeHtml(q.type||'')})</strong><div>${escapeHtml(q.prompt||q.statement||'')}</div></div>`
-          ).join('');
-        }
-        return false;
-      };
-      tryRender(0);
+      const typeEl = document.getElementById('exam-type');
+      if (typeEl) {
+        typeEl.value = exam2.examType || 'regular';
+        typeEl.dispatchEvent(new Event('change'));
+      }
+
+      if (typeof window._renderAssessmentBuilder === 'function') {
+        window._renderAssessmentBuilder();
+      } else if (typeof window._lvccRenderBuilder === 'function') {
+        window._lvccRenderBuilder();
+      }
 
       const titleEl = document.querySelector('.page-title');
       if (titleEl) titleEl.textContent = 'Edit Assessment';
-
       const draftBtn = document.getElementById('draft-exam-btn');
       const pubBtn = document.getElementById('create-exam-btn');
       if (draftBtn) draftBtn.textContent = 'Save as Draft';
-      if (pubBtn) pubBtn.textContent = exam.status === 'published' ? 'Save & Publish' : 'Publish';
+      if (pubBtn) pubBtn.textContent = exam2.status === 'published' ? 'Save & Publish' : 'Publish';
     };
-    setTimeout(apply, 150);
-    setTimeout(apply, 400);
+
+    // Run after DOM + renderBuilder binding
+    requestAnimationFrame(() => {
+      apply();
+      setTimeout(apply, 50);
+      setTimeout(apply, 200);
+    });
   },
 
   async toggleExamActive(examId, active) {

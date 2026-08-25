@@ -80,13 +80,13 @@ const Regular = {
       case 'wordbox':
         return {
           ...base,
-          prompt: 'Choose your answer from the word bank and place it in the blank for each item.',
-          wordBankRows: 4,
-          wordBankCols: 3,
-          wordBank: ['', '', '', '', '', '', '', '', '', '', '', ''],
-          items: [
-            { id: 'wb1', text: '', correct: '', alternatives: [] },
-            { id: 'wb2', text: '', correct: '', alternatives: [] }
+          prompt: '',
+          // Sentence with {{1}} {{2}} markers for blanks
+          sentence: 'Leaves have green pigment called {{1}} that helps with {{2}}.',
+          wordBank: ['chlorophyll', 'photosynthesis', 'mitosis', 'carbohydrates'],
+          blanks: [
+            { id: '1', correct: 'chlorophyll', alternatives: [] },
+            { id: '2', correct: 'photosynthesis', alternatives: [] }
           ]
         };
       case 'dropdown':
@@ -159,38 +159,33 @@ const Regular = {
 
 
   renderBuilderWordBox(q, index) {
-    const rows = Number(q.wordBankRows) || 4;
-    const cols = Number(q.wordBankCols) || 3;
+    const sentence = q.sentence || q.prompt || '';
     const bank = q.wordBank || [];
-    while (bank.length < rows * cols) bank.push('');
-    let cells = '';
-    for (let i = 0; i < rows * cols; i++) {
-      cells += `<input class="form-control wb-cell" data-wb-bank="${index}:${i}" value="${escapeHtml(bank[i] || '')}" placeholder="Word ${i+1}" />`;
-    }
-    const items = (q.items || []).map((it, ii) => `
-      <div class="wb-item-row card mt-1" style="padding:0.75rem">
-        <label>Item ${ii + 1}</label>
-        <textarea class="form-control" data-wb-item-text="${index}:${ii}" rows="2" placeholder="Question / definition">${escapeHtml(it.text || '')}</textarea>
-        <label class="mt-1">Correct word (must match a bank word)</label>
-        <input class="form-control" data-wb-item-correct="${index}:${ii}" value="${escapeHtml(it.correct || '')}" placeholder="Correct answer from bank" />
-        <label class="mt-1">Alternatives (comma-separated)</label>
-        <input class="form-control" data-wb-item-alt="${index}:${ii}" value="${escapeHtml((it.alternatives || []).join(', '))}" />
-        <button type="button" class="btn btn-sm btn-danger mt-1" data-wb-del-item="${index}:${ii}">Remove item</button>
+    const blanks = q.blanks || [];
+    const bankInputs = bank.map((w, i) =>
+      `<input class="form-control" data-wb-bank="${index}:${i}" value="${escapeHtml(w || '')}" placeholder="Word ${i+1}" style="margin-bottom:0.35rem" />`
+    ).join('');
+    const blankRows = blanks.map((b, bi) => `
+      <div class="card mt-1" style="padding:0.65rem">
+        <strong>Blank {{${escapeHtml(String(b.id || (bi+1)))}}}</strong>
+        <input class="form-control mt-1" data-wb-blank-correct="${index}:${bi}" value="${escapeHtml(b.correct || '')}" placeholder="Correct word from bank" />
+        <input class="form-control mt-1" data-wb-blank-alt="${index}:${bi}" value="${escapeHtml((b.alternatives||[]).join(', '))}" placeholder="Alternatives (comma-separated)" />
+        <button type="button" class="btn btn-sm btn-danger mt-1" data-wb-del-blank="${index}:${bi}">Remove blank</button>
       </div>`).join('');
     return `<div class="builder-wordbox" data-gidx="${index}">
-      <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions for students">${escapeHtml(q.prompt || '')}</textarea>
-      <div class="form-group mt-1" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end">
-        <label>Rows <input type="number" min="1" max="10" class="form-control" style="width:70px" data-wb-rows="${index}" value="${rows}" /></label>
-        <label>Columns <input type="number" min="1" max="6" class="form-control" style="width:70px" data-wb-cols="${index}" value="${cols}" /></label>
-        <button type="button" class="btn btn-sm btn-ghost" data-wb-resize="${index}">Apply grid size</button>
+      <p class="text-muted" style="font-size:0.85rem">Write the sentence and insert blanks as <code>{{1}}</code>, <code>{{2}}</code>, etc. Students drag words into those blanks.</p>
+      <label>Sentence (use {{1}}, {{2}}… for blanks)</label>
+      <textarea class="form-control" data-wb-sentence="${index}" rows="3" placeholder="Leaves have green pigment called {{1}} that helps with {{2}}.">${escapeHtml(sentence)}</textarea>
+      <div class="action-btns mt-1">
+        <button type="button" class="btn btn-sm btn-ghost" data-wb-insert-blank="${index}">+ Insert blank at end</button>
       </div>
-      <label class="mt-1">Word bank</label>
-      <div class="wb-bank-grid" style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:0.4rem">${cells}</div>
-      <div class="mt-2"><strong>Items (fill-in from bank)</strong></div>
-      ${items}
-      <button type="button" class="btn btn-sm btn-primary mt-1" data-wb-add-item="${index}">+ Add item</button>
+      <label class="mt-1">Word bank (tiles students can drag)</label>
+      <div id="wb-bank-list-${index}">${bankInputs || '<p class="text-muted">No words yet</p>'}</div>
+      <button type="button" class="btn btn-sm btn-primary mt-1" data-wb-add-word="${index}">+ Add word</button>
+      <div class="mt-2"><strong>Blank answers</strong></div>
+      ${blankRows || '<p class="text-muted">Add {{1}} in the sentence, then set correct answers here.</p>'}
       <div class="points-row mt-1">
-        <label>Points per item <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+        <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
       </div>
     </div>`;
   },
@@ -231,26 +226,38 @@ const Regular = {
   },
 
   renderStudentWordBox(q, answer) {
+    const sentence = q.sentence || q.prompt || '';
     const bank = (q.wordBank || []).filter(w => String(w || '').trim());
-    const items = q.items || [];
     const ans = (answer && typeof answer === 'object') ? answer : {};
-    const bankHtml = bank.map((w, i) =>
-      `<div class="wb-chip" draggable="true" data-word="${escapeHtml(w)}" id="wb-chip-${q.id}-${i}">${escapeHtml(w)}</div>`
-    ).join('');
-    const itemsHtml = items.map((it, ii) => {
-      const filled = ans[it.id] || '';
-      return `<div class="wb-drop-row">
-        <div class="wb-drop-zone ${filled ? 'filled' : ''}" data-qid="${q.id}" data-item="${it.id}"
-          ondragover="event.preventDefault()" data-drop="1">
-          ${filled ? `<span class="wb-placed" draggable="true" data-word="${escapeHtml(filled)}">${escapeHtml(filled)}</span>` : '<span class="wb-placeholder">Drop word here</span>'}
-        </div>
-        <div class="wb-item-text">${ii + 1}. ${escapeHtml(it.text || '')}</div>
-      </div>`;
+    // Build sentence with drop zones for {{n}}
+    const parts = [];
+    let last = 0;
+    const re = /\{\{(\d+)\}\}/g;
+    let m;
+    while ((m = re.exec(sentence)) !== null) {
+      if (m.index > last) {
+        parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last, m.index))}</span>`);
+      }
+      const bid = m[1];
+      const filled = ans[bid] || ans['b'+bid] || '';
+      parts.push(`<span class="wb-inline-drop ${filled ? 'filled' : ''}" data-qid="${q.id}" data-blank="${bid}" data-drop="1">${
+        filled
+          ? `<span class="wb-placed" draggable="true" data-word="${escapeHtml(filled)}">${escapeHtml(filled)}</span>`
+          : '<span class="wb-placeholder">&nbsp;</span>'
+      }</span>`);
+      last = m.index + m[0].length;
+    }
+    if (last < sentence.length) {
+      parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last))}</span>`);
+    }
+    const bankHtml = bank.map((w, i) => {
+      const used = Object.values(ans).some(v => String(v).toLowerCase() === String(w).toLowerCase());
+      return `<div class="wb-chip ${used ? 'wb-used' : ''}" draggable="true" data-word="${escapeHtml(w)}" id="wb-chip-${q.id}-${i}">${escapeHtml(w)}</div>`;
     }).join('');
-    return `<div class="wb-student" data-qid="${q.id}">
-      <p class="wb-instructions">${escapeHtml(q.prompt || 'Drag a word from the bank into each blank.')}</p>
-      <div class="wb-bank-student">${bankHtml || '<span class="text-muted">No words in bank</span>'}</div>
-      <div class="wb-items-student">${itemsHtml}</div>
+    return `<div class="wb-student wb-inline" data-qid="${q.id}">
+      <div class="wb-sentence-bar">${parts.join('') || escapeHtml(sentence)}</div>
+      <p class="wb-hint">Drag these tiles and drop them in the correct blank above</p>
+      <div class="wb-bank-student">${bankHtml || '<span class="text-muted">No words</span>'}</div>
     </div>`;
   },
 
@@ -476,15 +483,16 @@ const Regular = {
       if (a === undefined || a === null || a === '') return;
       let ok = false;
       if (q.type === 'wordbox') {
-        const items = q.items || [];
-        const itemPts = items.length ? (pts / items.length) : pts;
-        total -= pts; // recalc per item
-        items.forEach(it => {
+        const blanks = q.blanks || [];
+        const n = blanks.length || 1;
+        const itemPts = pts / n;
+        total -= pts;
+        blanks.forEach(b => {
           total += itemPts;
-          const got = String((a && a[it.id]) || '').trim().toLowerCase();
+          const got = String((a && (a[b.id] || a['b'+b.id])) || '').trim().toLowerCase();
           if (!got) return;
-          const okList = [it.correct, ...(it.alternatives || [])].map(x => String(x || '').trim().toLowerCase()).filter(Boolean);
-          if (okList.includes(got)) { earned += itemPts; }
+          const okList = [b.correct, ...(b.alternatives || [])].map(x => String(x || '').trim().toLowerCase()).filter(Boolean);
+          if (okList.includes(got)) earned += itemPts;
         });
         return;
       }
@@ -562,8 +570,8 @@ const Regular = {
     if (wb) {
       const qid = wb.getAttribute('data-qid');
       const map = {};
-      wb.querySelectorAll('.wb-drop-zone').forEach(z => {
-        const item = z.getAttribute('data-item');
+      wb.querySelectorAll('.wb-drop-zone, .wb-inline-drop').forEach(z => {
+        const item = z.getAttribute('data-item') || z.getAttribute('data-blank');
         const placed = z.querySelector('.wb-placed');
         if (item) map[item] = placed ? (placed.getAttribute('data-word') || placed.textContent || '').trim() : '';
       });
@@ -586,7 +594,7 @@ const Regular = {
         e.dataTransfer.setData('text/plain', word);
       });
     });
-    root.querySelectorAll('.wb-drop-zone').forEach(zone => {
+    root.querySelectorAll('.wb-drop-zone, .wb-inline-drop').forEach(zone => {
       zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
       zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
       zone.addEventListener('drop', (e) => {
@@ -607,7 +615,7 @@ const Regular = {
       });
       zone.addEventListener('dblclick', () => {
         zone.classList.remove('filled');
-        zone.innerHTML = '<span class="wb-placeholder">Drop word here</span>';
+        zone.innerHTML = '<span class="wb-placeholder">&nbsp;</span>';
         onChange && onChange();
       });
     });
