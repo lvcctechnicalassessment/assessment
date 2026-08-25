@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.3</div>
+          <div class="app-version">Build v1.5.4</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.3</div>
+              <div class="app-version">v1.5.4</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -270,6 +270,89 @@ const App = {
       };
       document.addEventListener('click', close);
     }, 0);
+  },
+
+
+  showStudentJoinScreen() {
+    document.getElementById('app').innerHTML = `
+      <div class="join-screen">
+        <div class="join-card">
+          <div style="text-align:center;margin-bottom:1.25rem">
+            <img src="assets/lvcc-logo.png" width="56" height="56" alt="LVCC" />
+            <h1 style="font-size:1.25rem;margin-top:0.75rem">LVCC Assessment Portal</h1>
+            <p class="text-muted">Enter your assessment code to begin</p>
+          </div>
+          <div class="join-input-wrap">
+            <input id="join-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="Enter the Assessment Code" />
+            <button type="button" class="btn btn-primary" id="join-code-btn">Join</button>
+          </div>
+          <button type="button" class="btn btn-ghost join-dashboard-btn" id="join-go-dash">Go to my Dashboard</button>
+        </div>
+      </div>`;
+    document.getElementById('join-go-dash').onclick = () => this.showDashboard();
+    document.getElementById('join-code-btn').onclick = () => this.joinByAssessmentCode();
+    const inp = document.getElementById('join-code-input');
+    inp.oninput = () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 8); };
+    inp.onkeydown = (e) => { if (e.key === 'Enter') this.joinByAssessmentCode(); };
+  },
+
+  async joinByAssessmentCode(codeFromArg) {
+    const raw = codeFromArg != null ? codeFromArg : (document.getElementById('join-code-input')?.value || document.getElementById('modal-join-code')?.value || '');
+    const code = String(raw).replace(/\D/g, '').slice(0, 8);
+    if (code.length !== 8) {
+      await UI.alert('Please enter a valid 8-digit assessment code (numbers only).', 'Invalid code');
+      return;
+    }
+    try {
+      const snap = await window.db.collection('exams').where('assessmentCode', '==', code).limit(1).get();
+      if (snap.empty) {
+        await UI.alert('Assessment code not found.', 'Not found');
+        return;
+      }
+      const exam = { id: snap.docs[0].id, ...snap.docs[0].data() };
+      if (exam.status === 'draft' || exam.active === false) {
+        await UI.alert('This assessment is not available.', 'Unavailable');
+        return;
+      }
+      const { startAt, endAt } = Exam.getExamWindow(exam);
+      const now = Date.now();
+      if (now > endAt) {
+        await UI.alert('This assessment has ended.', 'Closed');
+        return;
+      }
+      if (now < startAt) {
+        return this.showExamCountdown(exam, startAt);
+      }
+      return this.startStudentExam(exam.id);
+    } catch (e) {
+      console.error(e);
+      await UI.alert(e.message || 'Could not join assessment.', 'Error');
+    }
+  },
+
+  openJoinCodeModal() {
+    document.getElementById('join-modal')?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'join-modal';
+    wrap.className = 'popover-overlay';
+    wrap.innerHTML = `<div class="popover-card settings-card">
+      <h3>Join Assessment</h3>
+      <div class="join-input-wrap" style="margin-top:0.75rem">
+        <input id="modal-join-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="Enter the Assessment Code" />
+        <button type="button" class="btn btn-primary" id="modal-join-btn">Join</button>
+      </div>
+      <button type="button" class="btn btn-ghost w-full mt-1" id="modal-join-cancel">Cancel</button>
+    </div>`;
+    wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+    document.body.appendChild(wrap);
+    const inp = document.getElementById('modal-join-code');
+    inp.oninput = () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 8); };
+    document.getElementById('modal-join-cancel').onclick = () => wrap.remove();
+    document.getElementById('modal-join-btn').onclick = async () => {
+      const v = inp.value;
+      wrap.remove();
+      await this.joinByAssessmentCode(v);
+    };
   },
 
   async showDashboard() {
@@ -757,24 +840,28 @@ const App = {
     };
 
     document.getElementById('draft-exam-btn').onclick = async () => {
+      window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
       const title = document.getElementById('exam-title').value.trim();
       const subject = document.getElementById('exam-subject').value.trim();
       if (!title || !subject) {
         await UI.alert('Title and Subject are required.', 'Missing fields');
         return;
       }
-      const p = buildPayload('draft');
+      const examType = document.getElementById('exam-type')?.value || 'regular';
       const payload = {
-        ...p,
         title, subject,
-        startAt: p.startAt || new Date().toISOString(),
-        endAt: p.endAt || new Date(Date.now()+3600000).toISOString(),
+        instructions: (document.getElementById('exam-instructions')?.value || '').trim(),
+        examType,
+        language: document.getElementById('exam-language')?.value || 'python',
+        maxScore: examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore')?.value) || 100),
         starterCode: document.getElementById('exam-starter')?.value || '',
         answerKey: document.getElementById('exam-answer')?.value || '',
-        questions: p.examType === 'regular' ? (window._builderQuestions || []) : [],
-        sections: p.examType === 'regular' ? (window._builderSections || []) : [],
+        questions: examType === 'regular' ? (window._builderQuestions || []) : [],
+        sections: examType === 'regular' ? JSON.parse(JSON.stringify(window._builderSections || [])) : [],
         status: 'draft',
-        active: false
+        active: false,
+        startAt: Date.now(),
+        endAt: Date.now() + 3600000
       };
       try {
         if (window._editingExamId) {
@@ -830,48 +917,45 @@ const App = {
     window._scheduleDraftSave = scheduleDraftSave;
 
     document.getElementById('create-exam-btn').onclick = async () => {
+      // Sync questions from builder state
+      window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
       const title = document.getElementById('exam-title').value.trim();
+      const subject = document.getElementById('exam-subject').value.trim();
       const instructions = (document.getElementById('exam-instructions')?.value || '').trim();
       const examType = document.getElementById('exam-type').value;
-      const language = document.getElementById('exam-language').value;
-      const subject = document.getElementById('exam-subject').value.trim() || 'General';
-      const startAt = document.getElementById('exam-start')?.value || '';
-      const endAt = document.getElementById('exam-end')?.value || '';
-      const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore').value) || 100);
+      const language = document.getElementById('exam-language')?.value || 'python';
+      const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore')?.value) || 100);
       if (!title || !subject) { await UI.alert('Title and Subject are required.', 'Missing fields'); return; }
       if (examType === 'regular') {
         const qs = window._builderQuestions || [];
-        const missing = qs.filter(q => q.type !== 'essay' && (q.correct === undefined || q.correct === null || q.correct === ''));
-        if (missing.length) {
-          await UI.alert('Every question except Essay must have a correct answer configured.', 'Correct answers required');
-          return;
-        }
+        if (!qs.length) { await UI.alert('Add at least one question before publishing.', 'No questions'); return; }
       }
-      let pubStart = startAt, pubEnd = endAt;
-      if (!pubStart || !pubEnd) {
-        const sched = await this.pickSchedule();
-        if (!sched) return;
-        pubStart = new Date(sched.startAt).toISOString();
-        pubEnd = new Date(sched.endAt).toISOString();
-      }
-      if (new Date(pubEnd) <= new Date(pubStart)) { await UI.alert('End must be after start.', 'Schedule'); return; }
-      if (new Date(pubStart).getTime() < Date.now() - 60000) {
-        await UI.alert('Start time cannot be before the current date and time.', 'Schedule');
-        return;
-      }
+      const sched = await this.pickSchedule();
+      if (!sched) return;
+      const payload = {
+        title, subject, instructions, examType, language, maxScore,
+        startAt: sched.startAt,
+        endAt: sched.endAt,
+        durationMinutes: sched.durationMinutes || Math.max(1, Math.round((sched.endAt - sched.startAt) / 60000)),
+        starterCode: document.getElementById('exam-starter')?.value || '',
+        answerKey: document.getElementById('exam-answer')?.value || '',
+        questions: examType === 'regular' ? (window._builderQuestions || []) : [],
+        sections: examType === 'regular' ? JSON.parse(JSON.stringify(window._builderSections || [])) : [],
+        status: 'published',
+        active: true
+      };
       try {
-        const exam = await Exam.createExam({
-          title, instructions, examType, language, subject, startAt: pubStart, endAt: pubEnd, maxScore,
-          starterCode: document.getElementById('exam-starter').value,
-          answerKey: document.getElementById('exam-answer').value,
-          questions: examType === 'regular' ? window._builderQuestions : [],
-          sections: examType === 'regular' ? (window._builderSections || []) : [],
-          status: 'published',
-          active: true
-        });
+        let examId = window._editingExamId;
+        if (examId) {
+          await Exam.updateExam(examId, payload);
+        } else {
+          const created = await Exam.createExam(payload);
+          examId = created.id;
+        }
         this.clearAutosave();
-        await UI.alert('Assessment published. Share the link or QR with students.', 'Published');
-        this.showSharePanel(exam.id);
+        window._editingExamId = null;
+        await UI.alert('Assessment published.', 'Published');
+        this.showSharePanel(examId);
       } catch (err) {
         await UI.alert(err.message || String(err), 'Error');
       }
@@ -1147,8 +1231,21 @@ const App = {
   },
 
   openLiveDashboard(examId) {
-    this.renderShell(`<div id="live-container"></div>`, 'exams');
-    Dashboard.renderLiveDashboard(document.getElementById('live-container'), examId, null);
+    this.renderShell(`
+      <div class="card-header page-header-responsive">
+        <h2 class="page-title">Live dashboard</h2>
+        <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+      </div>
+      <div id="live-container"></div>
+    `, 'exams');
+    const el = document.getElementById('live-container');
+    if (!el) { UI.alert('Live container missing.', 'Error'); return; }
+    try {
+      Dashboard.renderLiveDashboard(el, examId, null);
+    } catch (e) {
+      console.error(e);
+      el.innerHTML = `<div class="card"><p style="color:var(--danger)">${escapeHtml(e.message || String(e))}</p></div>`;
+    }
   },
 
   async showExamInvites(examId) {
@@ -1800,17 +1897,19 @@ const App = {
       }
       let session;
       if (isTest) {
-        // Preview session (not graded / not listed as real taker)
+        // Preview: always give a fresh duration from now (ignore past endAt)
+        const durMs = Math.max(5, Number(exam.durationMinutes) || 60) * 60000;
         session = {
           id: 'test_' + Date.now(),
           examId,
-          exam,
+          exam: { ...exam, startAt: Date.now(), endAt: Date.now() + durMs },
           code: exam.starterCode || '',
           answers: {},
           status: 'test',
-          endsAt: endAt,
+          endsAt: Date.now() + durMs,
           studentEmail: Auth.userProfile.email,
-          studentName: (Auth.userProfile.name || '') + ' (Test)'
+          studentName: (Auth.userProfile.name || '') + ' (Test)',
+          _testMode: true
         };
       } else {
         session = await Exam.joinExam(examId);
@@ -1818,7 +1917,12 @@ const App = {
       // Monitor gate handles fullscreen + capture
       session._testMode = isTest;
       window._testMode = isTest;
-      await Monitor.showEntryGate(session.id, exam.id || examId);
+      if (!isTest) {
+        await Monitor.showEntryGate(session.id, exam.id || examId);
+      } else {
+        window._testMode = true;
+        if (window.Monitor) { Monitor.sessionId = session.id; Monitor.examId = exam.id; Monitor.started = true; Monitor.submitting = false; }
+      }
       if ((exam.examType || session.examType) === 'regular') {
         return this.startRegularExam(session);
       }
@@ -2114,8 +2218,10 @@ const App = {
         const label = (o && String(o).trim()) ? String(o).trim() : ('Choice ' + (i + 1));
         return `<button type="button" class="take-opt c${i % 6} ${selected ? 'selected' : ''}" data-opt="${i}" data-multi="${multi ? 1 : 0}">${escapeHtml(label)}</button>`;
       }).join('');
-      return `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(q.prompt || q.statement || 'Question')}</div>
-        <div class="take-options-grid ${opts.length > 4 ? 'stack' : ''}" id="take-q-box" data-qid="${q.id}">${cards}</div>`;
+      return `<div class="take-q-stack" style="display:flex;flex-direction:column;width:100%">
+        <div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(q.prompt || q.statement || 'Question')}</div>
+        <div class="take-options-grid ${opts.length <= 2 ? '' : ''}" id="take-q-box" data-qid="${q.id}">${cards}</div>
+      </div>`;
     };
 
     const renderTake = () => {
@@ -2261,6 +2367,17 @@ const App = {
       const el = document.documentElement;
       if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
       else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } catch (_) {}
+    try {
+      if (window.Monitor) {
+        Monitor.sessionId = session.id;
+        Monitor.examId = session.examId || session.exam?.id;
+        Monitor.submitting = false;
+        Monitor.bindLockListeners();
+        if (!Monitor.timer && !String(session.id).startsWith('test_')) {
+          Monitor.timer = setInterval(() => Monitor.pushLiveThumbs(), 12000);
+        }
+      }
     } catch (_) {}
     renderTake();
     this._runTimer(session, async () => {
@@ -2430,20 +2547,47 @@ const App = {
         return true;
       });
       window._integrityExportRows = deduped;
-      el.innerHTML = `<div class="table-wrap"><table class="table integrity-table">
+      const hideNames = !!window._integrityHideNames;
+      el.innerHTML = `<div class="table-wrap"><div style="margin-bottom:0.5rem">
+        <button type="button" class="integrity-eye-btn" id="toggle-hide-names" title="Hide/show student names">${hideNames ? '👁️' : '👁️‍🗨️'}</button>
+        <span class="text-muted" style="font-size:0.85rem">${hideNames ? 'Names hidden' : 'Names visible'}</span>
+      </div>
+      <table class="table integrity-table">
         <thead><tr><th></th><th>Name</th><th>Email</th><th>Issue</th><th>Date stamp</th></tr></thead>
         <tbody>${deduped.map(n => {
           const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
             : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
-          const thumb = n.screenshot || n.extra?.screenshot || n.screenThumb;
+          const thumb = n.screenshot || n.extra?.screenshot || n.cameraScreenshot || n.extra?.cameraScreenshot || n.screenThumb;
+          const rawName = n.studentName || n.studentEmail || 'Student';
+          const mask = (s) => '•'.repeat(Math.max(6, String(s).length));
+          const nameDisp = hideNames ? mask(rawName) : escapeHtml(rawName);
+          const emailDisp = hideNames ? mask(n.studentEmail || '') : escapeHtml(n.studentEmail || '');
+          const issueLabel = ({
+            'tab-hidden': 'Switching tabs: Leaving the assessment window or browser tab',
+            'window-blur': 'Switching tabs: Leaving the assessment window or browser tab',
+            'paste': 'Copying content: Attempting to copy text or questions',
+            'paste-critical': 'Copying content: Attempting to copy text or questions',
+            'paste-message': 'Copying content: Attempting to copy text or questions',
+            'copy': 'Copying content: Attempting to copy text or questions',
+            'resize': 'Resizing the window: Changing the browser size to break full-screen',
+            'right-click': 'Right-clicking: Opening context menus on the page',
+            'extension-suspect': 'Using web extensions: Unauthorized browser tools',
+            'external-search-suspect': 'Using external search tools: Suspicious resize + right-click pattern',
+            'exited-fullscreen': 'Exiting full-screen mode: Quitting required full-screen view',
+            'connection-loss': 'Left due to loss of connection / poor network'
+          })[n.type] || (n.details || n.type || 'Violation');
           return `<tr>
-            <td data-label="Shot">${thumb ? `<img class="integrity-thumb" src="${thumb}" onclick="UI.showImage(this.src,'Integrity screenshot')" />` : '—'}</td>
-            <td data-label="Name">${escapeHtml(n.studentName || '—')}</td>
-            <td data-label="Email">${escapeHtml(n.studentEmail || '—')}</td>
-            <td data-label="Issue"><span class="chip">${escapeHtml(n.type || '')}</span> ${escapeHtml(n.details || '')}</td>
-            <td data-label="Date">${time}</td>
+            <td data-label="Shot">${thumb && String(thumb).startsWith('data:') ? `<img class="integrity-thumb" src="${thumb}" style="width:72px;height:auto;display:block;margin:0 auto;cursor:pointer" onclick="UI.showImage(this.src,'Integrity screenshot')" />` : '—'}</td>
+            <td data-label="Name" class="${hideNames ? 'integrity-name-masked' : ''}">${nameDisp}</td>
+            <td data-label="Email" class="${hideNames ? 'integrity-name-masked' : ''}">${emailDisp}</td>
+            <td data-label="Issue">${escapeHtml(issueLabel)}</td>
+            <td data-label="Time">${escapeHtml(time)}</td>
           </tr>`;
         }).join('')}</tbody></table></div>`;
+      document.getElementById('toggle-hide-names').onclick = () => {
+        window._integrityHideNames = !window._integrityHideNames;
+        render();
+      };
     };
 
     const merge = (rows) => {

@@ -270,6 +270,11 @@ const Monitor = {
   },
 
   bindLockListeners() {
+    if (this._listenersBound) return;
+    this._listenersBound = true;
+    this._recentRightClick = 0;
+    this._recentResize = 0;
+
     const onFs = () => {
       if (this.submitting) return;
       if (this.deviceType === 'desktop' && !this.isFullscreen()) {
@@ -289,12 +294,61 @@ const Monitor = {
 
     window.addEventListener('blur', () => {
       if (this.submitting) return;
-      // ignore brief blurs
       setTimeout(() => {
         if (this.submitting || document.hasFocus()) return;
         this.recordViolation('window-blur', true);
       }, 400);
     });
+
+    // Copy / paste (regular assessment + global)
+    document.addEventListener('paste', (e) => {
+      if (this.submitting || window._testMode) return;
+      const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+      const lines = text ? text.split(/\r?\n/).length : 1;
+      this.recordViolation('paste', true);
+      try {
+        if (window.CodeEditor && CodeEditor._studentPasteWarn) CodeEditor._studentPasteWarn();
+        else if (window.UI) UI.alert('You have been detected copy-pasting. This is logged as an integrity issue.', 'Integrity warning');
+      } catch (_) {}
+    }, true);
+
+    document.addEventListener('copy', () => {
+      if (this.submitting || window._testMode) return;
+      this.recordViolation('copy', true);
+    }, true);
+
+    document.addEventListener('contextmenu', (e) => {
+      if (this.submitting) return;
+      e.preventDefault();
+      this._recentRightClick = Date.now();
+      this.recordViolation('right-click', true);
+      if (this._recentResize && Date.now() - this._recentResize < 10000) {
+        this.recordViolation('external-search-suspect', true);
+      }
+    }, true);
+
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      if (this.submitting) return;
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        this._recentResize = Date.now();
+        this.recordViolation('resize', true);
+        if (this._recentRightClick && Date.now() - this._recentRightClick < 10000) {
+          this.recordViolation('external-search-suspect', true);
+        }
+      }, 400);
+    });
+
+    // Heuristic: many chrome extension injected nodes (best-effort)
+    try {
+      const observer = new MutationObserver(() => {
+        if (this.submitting) return;
+        const suspicious = document.querySelectorAll('[class*="extension"], [id*="chrome-extension"]').length;
+        if (suspicious > 3) this.recordViolation('extension-suspect', false);
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    } catch (_) {}
   },
 
   showLockOverlay(message) {

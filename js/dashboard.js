@@ -19,9 +19,9 @@ const Dashboard = {
   },
 
   isExamLive(ex) {
-    if (!ex || ex.active === false || ex.status === 'draft') return false;
-    const { endAt } = Exam.getExamWindow(ex);
-    return Date.now() < endAt;
+    // Allow opening Live for any published/active assessment (not only during window)
+    if (!ex || ex.status === 'draft') return false;
+    return true;
   },
 
   async renderMyExams(container) {
@@ -102,7 +102,7 @@ const Dashboard = {
               <div class="action-group-box">
                 <span class="action-label">Monitor</span>
                 <div class="btn-row">
-                  ${live ? `<button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : `<button class="btn btn-sm btn-ghost" disabled>Live</button>`}
+                  <button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>
                   <button class="btn btn-sm btn-ghost" onclick="App.testAsStudent('${ex.id}')">Test</button>
                   <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity</button>
                   <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>

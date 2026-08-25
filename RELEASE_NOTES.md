@@ -97,3 +97,11 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - My Assessments Manage/Monitor/Share groups; Co-Instructor + Proctor
 - Mock history persist; history left align; teacher dashboard stats
 - Shell: mobile avatar menu; desktop user row; settings theme only
+
+## v1.5.4
+- Fix showStudentJoinScreen / join by 8-digit code
+- Desktop sidebar user (avatar, name, email, role) visible
+- Test as student: future timer window, skip gate block
+- Draft/Publish save sections+questions; integrity thumbs + hide names
+- Live dashboard open; paste/copy/resize/right-click/fullscreen violations
+- Take UI: question full width, choices below, theme background

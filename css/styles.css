@@ -1021,7 +1021,7 @@ textarea.form-control {
 .points-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 
 @media (min-width: 901px) {
-  .sidebar-user { display: none !important; }
+  .sidebar-user { display: block !important; }
 }
 @media (max-width: 900px) {
   .live-layout { grid-template-columns: 1fr; }
@@ -2133,3 +2133,13 @@ body.nav-open .nav-backdrop { display: block; }
   background: none; border: none; padding: 0; cursor: pointer;
 }
 .mobile-avatar-btn .user-avatar { width: 34px; height: 34px; }
+
+/* v1.5.4 */
+.shell .sidebar-user { display: flex !important; flex-direction: column; margin-top: auto; }
+.shell.nav-collapsed .user-row { justify-content: center; }
+.shell.nav-collapsed .user-row-text { display: none; }
+.take-stage { display: flex; flex-direction: column; width: 100%; }
+.take-q-banner { width: 100% !important; max-width: none !important; margin: 0.5rem 0 1rem !important; }
+.take-options-grid { width: 100% !important; max-width: none !important; }
+.integrity-name-masked { letter-spacing: 0.15em; font-family: monospace; }
+.integrity-eye-btn { background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 0.25rem; }
