@@ -2143,3 +2143,85 @@ body.nav-open .nav-backdrop { display: block; }
 .take-options-grid { width: 100% !important; max-width: none !important; }
 .integrity-name-masked { letter-spacing: 0.15em; font-family: monospace; }
 .integrity-eye-btn { background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 0.25rem; }
+
+/* v1.5.6 take UI */
+.exam-take-wrap.take-fullscreen {
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.take-fullscreen .take-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.take-fullscreen .take-q-stack,
+.take-fullscreen .take-q-banner {
+  width: 100%;
+  max-width: none;
+}
+@media (min-width: 901px) {
+  .take-fullscreen .take-q-banner {
+    min-height: 55vh;
+    max-height: 75vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(1.15rem, 2.2vw, 1.75rem);
+  }
+  .take-fullscreen .take-stage {
+    max-height: 75vh;
+  }
+}
+.take-opt.selected {
+  box-shadow: 0 0 0 4px #000 !important;
+  outline: 3px solid #000;
+}
+.take-nav #take-skip {
+  background: #16a34a !important;
+  border-color: #16a34a !important;
+  color: #fff !important;
+}
+.take-topbar-meta {
+  justify-content: center !important;
+  position: relative;
+}
+.take-topbar-meta .timer-badge {
+  font-size: 1.25rem;
+  font-weight: 700;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.take-topbar-meta .take-count { margin-right: auto; }
+.take-topbar-meta #take-end-btn { margin-left: auto; }
+.fab-msg {
+  z-index: 10000 !important;
+  pointer-events: auto !important;
+  position: fixed !important;
+}
+.attempt-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.attempt-stat {
+  text-align: center;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.attempt-stat .val { font-size: 1.75rem; font-weight: 700; }
+.attempt-stat .lbl { font-size: 0.85rem; color: var(--text-muted); }
+@media (max-width: 700px) {
+  .attempt-stats { grid-template-columns: repeat(2, 1fr); }
+  .take-fullscreen .take-q-banner { min-height: 30vh; }
+}

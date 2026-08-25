@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.5</div>
+          <div class="app-version">Build v1.5.6</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.5</div>
+              <div class="app-version">v1.5.6</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -1390,14 +1390,18 @@ const App = {
         if (!filtered.length) return '<p class="text-muted" style="text-align:left">No assessments in this section.</p>';
         return `<table class="table" style="text-align:left"><thead><tr>
           ${showCb ? '<th class="mock-pick-col"></th>' : ''}
-          <th>Title</th><th>Subject</th><th>Score</th><th>Submitted</th>
+          <th>Title</th><th>Subject</th><th>Total</th><th>Correct</th><th>Incorrect</th><th>Unattempted</th><th>Submitted</th>
         </tr></thead><tbody>${filtered.map(s => {
           const title = s.examTitle || s.subject || 'Assessment';
+          const st = App.computeAttemptStats(s, null);
           return `<tr class="hist-row" data-open="${s.id}">
             ${showCb ? `<td class="mock-pick-col" onclick="event.stopPropagation()"><input type="checkbox" class="mock-pick" data-sid="${s.id}" data-eid="${s.examId||''}" /></td>` : ''}
             <td>${escapeHtml(title)}</td>
             <td>${escapeHtml(s.subject || '—')}</td>
-            <td>${s.score != null ? s.score : '—'}</td>
+            <td>${st.total}</td>
+            <td>${st.correct}</td>
+            <td>${st.incorrect}</td>
+            <td>${st.unattempted}</td>
             <td>${s.submittedAt?.toDate ? s.submittedAt.toDate().toLocaleString() : '—'}</td>
           </tr>`;
         }).join('')}</tbody></table>`;
@@ -1558,6 +1562,51 @@ const App = {
   },
 
 
+
+  computeAttemptStats(session, exam) {
+    if (session && session.totalQuestions != null && session.correctCount != null) {
+      const total = Number(session.totalQuestions) || 0;
+      const correct = Number(session.correctCount) || 0;
+      const incorrect = Number(session.incorrectCount) || 0;
+      const unattempted = Number(session.unattemptedCount) != null ? Number(session.unattemptedCount) : Math.max(0, total - correct - incorrect);
+      return { total, correct, incorrect, unattempted, accuracy: total ? Math.round((correct / total) * 100) : (session.accuracy || 0) };
+    }
+    const questions = session.questionsSnapshot?.length
+      ? session.questionsSnapshot
+      : (exam ? (typeof Regular.flattenQuestions === 'function' ? Regular.flattenQuestions(exam) : (exam.questions || [])) : []);
+    const answers = session.answers || {};
+    let correct = 0, incorrect = 0, unattempted = 0, total = questions.length;
+    if (!total && session.code != null) {
+      // code assessment single item
+      total = 1;
+      if (session.status === 'submitted') {
+        if (session.score != null && session.maxScore) {
+          correct = session.score >= session.maxScore ? 1 : 0;
+          incorrect = correct ? 0 : 1;
+        } else {
+          unattempted = session.code ? 0 : 1;
+          incorrect = session.code ? 1 : 0;
+        }
+      }
+      return { total, correct, incorrect, unattempted, accuracy: total ? Math.round((correct / total) * 100) : 0 };
+    }
+    questions.forEach(q => {
+      const resp = answers[q.id];
+      const empty = resp === undefined || resp === null || resp === '' || (Array.isArray(resp) && !resp.length);
+      if (empty) { unattempted++; return; }
+      if (q.type === 'essay') { unattempted++; return; } // essay not auto-scored as correct
+      try {
+        const g = Regular.gradeAnswers([q], { [q.id]: resp });
+        if ((g.score || 0) >= (g.maxScore || 1)) correct++;
+        else incorrect++;
+      } catch (_) {
+        incorrect++;
+      }
+    });
+    const accuracy = total ? Math.round((correct / total) * 100) : 0;
+    return { total, correct, incorrect, unattempted, accuracy };
+  },
+
   formatAnswerDisplay(q, value, isCorrectKey = false) {
     if (!q) return '—';
     const rawOpts = q.options || [];
@@ -1670,6 +1719,7 @@ const App = {
       });
     }
 
+    const stats = this.computeAttemptStats(session, exam);
     this.renderShell(`
       <div class="card-header page-header-responsive">
         <h2 class="page-title">${escapeHtml(session.examTitle || exam?.title || 'Attempt')}</h2>
@@ -1678,6 +1728,13 @@ const App = {
           <button class="btn btn-ghost" onclick="App.showStudentHistory()">Back</button>
         </div>
       </div>
+      <div class="attempt-stats">
+        <div class="attempt-stat"><div class="val">${stats.total}</div><div class="lbl">Total Questions</div></div>
+        <div class="attempt-stat"><div class="val">${stats.correct}</div><div class="lbl">Correct</div></div>
+        <div class="attempt-stat"><div class="val">${stats.incorrect}</div><div class="lbl">Incorrect</div></div>
+        <div class="attempt-stat"><div class="val">${stats.unattempted}</div><div class="lbl">Unattempted</div></div>
+      </div>
+      <p class="text-muted">Accuracy: <strong>${stats.accuracy}%</strong></p>
       <div class="table-wrap">
         <table class="table" id="attempt-detail-table">
           <thead><tr><th>Question</th><th>Your response</th><th>Correct answer</th></tr></thead>
@@ -1711,6 +1768,8 @@ const App = {
       doc.text(title, margin, y); y += 20;
       doc.setFontSize(10);
       doc.text(`${session.studentName || ''}  ${session.studentEmail || ''}`, margin, y); y += 18;
+      const st = this.computeAttemptStats(session, exam);
+      doc.text(`Total: ${st.total}  Correct: ${st.correct}  Incorrect: ${st.incorrect}  Unattempted: ${st.unattempted}  Accuracy: ${st.accuracy}%`, margin, y); y += 22;
       rows.forEach((r, i) => {
         const block = `Q${i + 1}. ${r.prompt}\nYour response: ${r.response}\nCorrect answer: ${r.correct}\n`;
         const lines = doc.splitTextToSize(block, maxW);
@@ -2023,10 +2082,12 @@ const App = {
         this._lastInstructorReply = s.instructorReply;
         await UI.alert(String(s.instructorReply || ''), 'Message from Instructor');
       }
-      // Chat from instructor
-      if (s.lastInstructorMessage && s.lastInstructorMessage !== this._lastInstructorChat) {
-        this._lastInstructorChat = s.lastInstructorMessage;
-        await UI.alert(String(s.lastInstructorMessage || ''), 'Message from Instructor');
+      // Chat / reply from instructor (paste reply or message student)
+      const msg = s.lastInstructorMessage || s.instructorReply;
+      if (msg && msg !== this._lastInstructorChat) {
+        this._lastInstructorChat = msg;
+        this._lastInstructorReply = s.instructorReply || this._lastInstructorReply;
+        await UI.alert(String(msg), 'Message from Instructor');
       }
     });
   },
@@ -2313,10 +2374,16 @@ const App = {
         } else renderTake();
       };
 
-      document.getElementById('take-next').onclick = () => goNext(false, false);
-      document.getElementById('take-skip')?.addEventListener('click', () => goNext(false, true));
-      document.getElementById('take-skip-passage')?.addEventListener('click', () => goNext(true, false));
-      document.getElementById('take-end-btn').onclick = async () => {
+      const nextBtn = document.getElementById('take-next');
+      const skipBtn = document.getElementById('take-skip');
+      const skipPassBtn = document.getElementById('take-skip-passage');
+      const endBtn = document.getElementById('take-end-btn');
+      if (nextBtn) nextBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(false, false); };
+      if (skipBtn) skipBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(false, true); };
+      if (skipPassBtn) skipPassBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(true, false); };
+      if (endBtn) endBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const ok = await UI.confirm(
           'End this assessment now? Confirming will automatically submit your answers and end the assessment.',
           'End assessment'
@@ -2326,7 +2393,16 @@ const App = {
         await this.finishRegularTake(session, answers, 'manual');
       };
       this.injectTestModeBar();
-      if (!String(session.id).startsWith('test_')) this.injectStudentChatFab(session.id);
+      if (!String(session.id).startsWith('test_')) {
+        this.injectStudentChatFab(session.id);
+        this._watchTeacherEnd(session.id);
+      }
+      // Keep fullscreen during take
+      try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } catch (_) {}
     };
 
     this._endedHandled = false;
@@ -2361,6 +2437,16 @@ const App = {
     if (!isTest) {
       try {
         await Exam.updateSessionAnswers(session.id, answers || {});
+        const exam = session.exam || await Exam.getExam(session.examId);
+        const st = this.computeAttemptStats({ ...session, answers: answers || {} }, exam);
+        await window.db.collection('sessions').doc(session.id).update({
+          totalQuestions: st.total,
+          correctCount: st.correct,
+          incorrectCount: st.incorrect,
+          unattemptedCount: st.unattempted,
+          accuracy: st.accuracy,
+          questionsSnapshot: session.questionsSnapshot || (exam ? Regular.flattenQuestions(exam) : [])
+        }).catch(() => {});
         await Exam.submitSession(session.id, reason === 'time-up' ? 'time-up' : 'manual');
       } catch (e) { console.error(e); }
     }

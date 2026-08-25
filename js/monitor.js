@@ -78,31 +78,52 @@ const Monitor = {
         const btn = document.getElementById('monitor-accept');
         btn.disabled = true;
         btn.textContent = 'Starting…';
+        this._joinedAt = Date.now();
+        this._graceMs = 30000; // no join-time false positives
 
-        // Desktop: require fullscreen
-        if (this.deviceType === 'desktop') {
-          await this.requestFullscreen();
-          if (!this.isFullscreen()) {
-            btn.disabled = false;
-            btn.textContent = 'Accept Rules & Start Exam';
-            if (window.UI) await UI.alert('Full screen is required on desktop. Please allow full screen and try again.', 'Full screen required');
-            return;
+        try {
+          // 1) Prompt screen share immediately (desktop)
+          if (this.deviceType === 'desktop') {
+            btn.textContent = 'Waiting for screen share…';
+            const shared = await Promise.race([
+              this.startDesktopCapture(),
+              new Promise(r => setTimeout(() => r(false), 60000))
+            ]);
+            if (!shared && !this.stream) {
+              // still continue with UI snapshot fallback after confirm
+              if (window.UI) {
+                const cont = await UI.confirm('Screen share was not started. Continue with limited monitoring?', 'Screen share');
+                if (!cont) {
+                  btn.disabled = false;
+                  btn.textContent = 'Accept Rules & Start Exam';
+                  return;
+                }
+              }
+            }
           }
-        } else {
+
+          // 2) Force fullscreen after share prompt
+          btn.textContent = 'Entering full screen…';
           await this.requestFullscreen();
-        }
+          if (this.deviceType === 'desktop' && !this.isFullscreen()) {
+            // try once more
+            await this.requestFullscreen();
+          }
 
-        // Screen share only (no camera)
-        if (this.deviceType === 'desktop') {
-          await this.startDesktopCapture();
+          this.bindLockListeners();
+          if (this.timer) clearInterval(this.timer);
+          this.timer = setInterval(() => this.pushLiveThumbs(), 12000);
+          // don't block start on first thumb upload
+          this.pushLiveThumbs().catch(() => {});
+          this.started = true;
+          overlay.remove();
+          resolve(true);
+        } catch (err) {
+          console.error(err);
+          btn.disabled = false;
+          btn.textContent = 'Accept Rules & Start Exam';
+          if (window.UI) await UI.alert(err.message || 'Could not start. Try again.', 'Start failed');
         }
-
-        this.bindLockListeners();
-        this.timer = setInterval(() => this.pushLiveThumbs(), 12000);
-        await this.pushLiveThumbs();
-        this.started = true;
-        overlay.remove();
-        resolve(true);
       };
     });
   },
@@ -146,7 +167,7 @@ const Monitor = {
       return true;
     } catch (e) {
       console.warn('getDisplayMedia', e);
-      return true; // UI snapshot fallback
+      return false;
     }
   },
 
@@ -195,11 +216,17 @@ const Monitor = {
       pingMs = Math.round(performance.now() - t0);
     } catch (_) { pingMs = 9999; }
     const connectionQuality = (pingMs != null && pingMs > 800) ? 'bad' : 'ok';
-    if (connectionQuality === 'bad' && !this._connFlagged) {
-      this._connFlagged = true;
-      this.recordViolation('connection-loss', true);
+    // Only flag connection-loss after sustained poor network (~30s)
+    if (connectionQuality === 'bad') {
+      if (!this._connBadSince) this._connBadSince = Date.now();
+      if (!this._connFlagged && (Date.now() - this._connBadSince) >= 30000) {
+        this._connFlagged = true;
+        this.recordViolation('connection-loss', true);
+      }
+    } else {
+      this._connBadSince = null;
+      this._connFlagged = false;
     }
-    if (connectionQuality === 'ok') this._connFlagged = false;
 
     const payload = {
       deviceType: this.deviceType,
@@ -244,6 +271,13 @@ const Monitor = {
 
   async recordViolation(type, forceHq = true) {
     if (this.submitting) return;
+    // Grace after join: ignore focus/fullscreen/blur noise for 30s
+    const joined = this._joinedAt || 0;
+    const grace = this._graceMs || 30000;
+    const soft = ['exited-fullscreen','tab-hidden','window-blur','resize','right-click','screen-share-stopped'];
+    if (joined && (Date.now() - joined) < grace && soft.includes(type)) {
+      return;
+    }
     this.violationCount += 1;
     if (!this.sessionId || String(this.sessionId).startsWith('test_')) return;
 

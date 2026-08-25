@@ -111,3 +111,10 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Save as Draft and Publish wired to single save path with error messages
 - Edit loads sections/questions and re-renders builder
 - New assessment clears previous editor state
+
+## v1.5.6
+- Agree & Continue: prompt screen share first, non-blocking start, then fullscreen
+- 30s grace after join (no false left-app / fullscreen violations); connection-loss after 30s poor network
+- Take UI: question ~3/4 height, selected choice black border, green Skip, centered timer
+- End / Submit / floating message / instructor message fixes
+- History + PDF: Total / Correct / Incorrect / Unattempted + accuracy
