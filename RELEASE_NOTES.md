@@ -125,3 +125,9 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Integrity list chronological by time; PDF export loads jsPDF if needed
 - Live: End assessment per student + End all assessments
 - Take layout fits device height/width with less scrolling
+
+## v1.5.8
+- End assessment / Talk to instructor no longer logged as window-blur
+- PDF export: multi-CDN jsPDF loader
+- Student "Talk to instructor" pops up on instructor live view with reply
+- End assessment (per student + all) fixed with direct Firestore update

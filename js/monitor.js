@@ -330,6 +330,10 @@ const Monitor = {
       if (this.submitting) return;
       setTimeout(() => {
         if (this.submitting || document.hasFocus()) return;
+        // Ignore blur caused by our own modals / message dialogs
+        if (this._uiBusy || this.submitting) return;
+        if (document.getElementById('ui-modal-root')?.innerHTML?.trim()) return;
+        if (document.querySelector('.ui-modal-overlay, .modal-overlay')) return;
         this.recordViolation('window-blur', true);
       }, 400);
     });

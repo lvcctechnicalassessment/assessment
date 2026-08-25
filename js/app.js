@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.7</div>
+          <div class="app-version">Build v1.5.8</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.7</div>
+              <div class="app-version">v1.5.8</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -1565,17 +1565,33 @@ const App = {
 
 
   async ensureJsPdf() {
-    if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
-    if (window.jsPDF) return window.jsPDF;
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('Failed to load PDF library'));
-      document.head.appendChild(s);
-    });
-    if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
-    if (window.jsPDF) return window.jsPDF;
+    const pick = () => {
+      if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
+      if (window.jspdf && typeof window.jspdf === 'function') return window.jspdf;
+      if (window.jsPDF) return window.jsPDF;
+      return null;
+    };
+    let Ctor = pick();
+    if (Ctor) return Ctor;
+    const urls = [
+      'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+      'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',
+      'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js'
+    ];
+    for (const url of urls) {
+      try {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = url;
+          s.async = true;
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error('load fail'));
+          document.head.appendChild(s);
+        });
+        Ctor = pick();
+        if (Ctor) return Ctor;
+      } catch (_) {}
+    }
     throw new Error('PDF library not available');
   },
 
@@ -2145,14 +2161,16 @@ const App = {
     fab.style.zIndex = '9500';
     fab.style.pointerEvents = 'auto';
     fab.onclick = async () => {
-      const msg = await UI.prompt('Message your instructor:', '', 'Talk to instructor', 'Talk to instructor');
-      if (msg == null) return;
-      const text = String(msg).trim();
-      if (!text) {
-        await UI.alert('Please type a message.', 'Empty');
-        return;
-      }
+      // Suppress integrity blur while messaging
+      if (window.Monitor) Monitor._uiBusy = true;
       try {
+        const msg = await UI.prompt('Message your instructor:', '', 'Talk to instructor', 'Talk to instructor');
+        if (msg == null) return;
+        const text = String(msg).trim();
+        if (!text) {
+          await UI.alert('Please type a message.', 'Empty');
+          return;
+        }
         await window.db.collection('sessions').doc(sessionId).update({
           lastStudentMessage: text,
           lastStudentMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -2163,6 +2181,8 @@ const App = {
       } catch (e) {
         console.error(e);
         await UI.alert(e.message || 'Could not send', 'Error');
+      } finally {
+        setTimeout(() => { if (window.Monitor) Monitor._uiBusy = false; }, 800);
       }
     };
     document.body.appendChild(fab);
@@ -2377,13 +2397,23 @@ const App = {
       if (endBtn) endBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const ok = await UI.confirm(
-          'End this assessment now? Confirming will automatically submit your answers and end the assessment.',
-          'End assessment'
-        );
-        if (!ok) return;
-        save();
-        await this.finishRegularTake(session, answers, 'manual');
+        if (window.Monitor) { Monitor._uiBusy = true; Monitor.submitting = true; }
+        try {
+          const ok = await UI.confirm(
+            'End this assessment now? Confirming will automatically submit your answers and end the assessment.',
+            'End assessment'
+          );
+          if (!ok) {
+            if (window.Monitor) { Monitor.submitting = false; Monitor._uiBusy = false; }
+            return;
+          }
+          save();
+          await this.finishRegularTake(session, answers, 'manual');
+        } catch (err) {
+          if (window.Monitor) { Monitor.submitting = false; Monitor._uiBusy = false; }
+          console.error(err);
+          await UI.alert(err.message || String(err), 'Error');
+        }
       };
       this.injectTestModeBar();
       if (!String(session.id).startsWith('test_')) {

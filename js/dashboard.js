@@ -538,6 +538,126 @@ const Dashboard = {
   },
 
 
+
+  showIncomingStudentMessage(s) {
+    if (!s || !s.id) return;
+    const text = String(s.lastStudentMessage || '').trim();
+    if (!text || text === '(No message)') return;
+    // Avoid duplicate popup for same chatPing
+    const key = s.id + '_' + (s.chatPing || s.lastStudentMessageAt || text);
+    this._shownStudentChats = this._shownStudentChats || {};
+    if (this._shownStudentChats[key]) return;
+    this._shownStudentChats[key] = true;
+
+    document.getElementById('student-msg-modal')?.remove();
+    const root = document.getElementById('integrity-modal-root') || document.body;
+    const wrap = document.createElement('div');
+    wrap.id = 'student-msg-modal';
+    wrap.className = 'modal-overlay ui-modal-overlay';
+    wrap.style.cssText = 'z-index:50000;pointer-events:auto';
+    wrap.innerHTML = `
+      <div class="modal ui-modal">
+        <h2>Message from student</h2>
+        <p class="ui-modal-body"><strong>${escapeHtml(s.studentName || s.studentEmail || 'Student')}</strong></p>
+        <p class="ui-modal-body">${escapeHtml(text)}</p>
+        <div class="form-group">
+          <label>Reply</label>
+          <textarea id="student-msg-reply" class="form-control" rows="3" placeholder="Type your reply…"></textarea>
+        </div>
+        <div class="modal-actions action-btns">
+          <button class="btn btn-ghost" id="student-msg-close">Close</button>
+          <button class="btn btn-primary" id="student-msg-send">Send reply</button>
+        </div>
+      </div>`;
+    root.appendChild(wrap);
+    document.getElementById('student-msg-close').onclick = () => wrap.remove();
+    document.getElementById('student-msg-send').onclick = async () => {
+      const reply = (document.getElementById('student-msg-reply')?.value || '').trim();
+      if (!reply) {
+        await UI.alert('Please type a reply.', 'Empty');
+        return;
+      }
+      try {
+        await window.db.collection('sessions').doc(s.id).update({
+          lastInstructorMessage: reply,
+          instructorReply: reply,
+          lastInstructorMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+          instructorReplyAt: firebase.firestore.FieldValue.serverTimestamp(),
+          chatPing: Date.now()
+        });
+        wrap.remove();
+        await UI.alert('Reply sent to student.', 'Sent');
+      } catch (e) {
+        await UI.alert(e.message || String(e), 'Error');
+      }
+    };
+  },
+
+  async endStudentAssessment(sessionId) {
+    if (!sessionId) {
+      await UI.alert('No session selected.', 'Error');
+      return;
+    }
+    const ok = await UI.confirm(
+      "End this student's assessment now? Their work will be submitted and they will be removed from live view.",
+      'End assessment'
+    );
+    if (!ok) return;
+    try {
+      // Direct Firestore update so instructor-side always works
+      await window.db.collection('sessions').doc(sessionId).update({
+        status: 'submitted',
+        submitReason: 'teacher-ended',
+        submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        screenThumb: null,
+        cameraThumb: null,
+        monitorFeed: 'SUBMITTED',
+        monitoringStopped: true,
+        instructorEnded: true
+      });
+      try { await window.db.collection('liveScreens').doc(sessionId).delete(); } catch (_) {}
+      await UI.alert('Assessment ended for this student.', 'Ended');
+    } catch (e) {
+      console.error(e);
+      await UI.alert(e.message || String(e), 'Error');
+    }
+  },
+
+  async endAllAssessments(examId) {
+    const ok = await UI.confirm(
+      'End assessment for ALL students currently taking this exam? Their work will be submitted.',
+      'End all assessments'
+    );
+    if (!ok) return;
+    try {
+      const sessions = this.sessionsCache || [];
+      const active = sessions.filter(s =>
+        s.status === 'active' && !String(s.id).startsWith('test_')
+      );
+      let n = 0;
+      for (const s of active) {
+        try {
+          await window.db.collection('sessions').doc(s.id).update({
+            status: 'submitted',
+            submitReason: 'teacher-ended',
+            submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            screenThumb: null,
+            cameraThumb: null,
+            monitorFeed: 'SUBMITTED',
+            monitoringStopped: true,
+            instructorEnded: true
+          });
+          try { await window.db.collection('liveScreens').doc(s.id).delete(); } catch (_) {}
+          n++;
+        } catch (e) { console.warn(e); }
+      }
+      await UI.alert('Ended assessment for ' + n + ' student(s).', 'Ended');
+    } catch (e) {
+      console.error(e);
+      await UI.alert(e.message || String(e), 'Error');
+    }
+  },
+
   async messageStudent(sessionId) {
     if (!sessionId) {
       await UI.alert('No session selected.', 'Error');
