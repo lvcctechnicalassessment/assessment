@@ -66,10 +66,12 @@ const Exam = {
   },
 
   async updateExam(examId, updates) {
-    await window.db.collection('exams').doc(examId).update({
-      ...updates,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    const clean = { ...updates };
+    Object.keys(clean).forEach(k => {
+      if (clean[k] === undefined) delete clean[k];
     });
+    clean.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+    await window.db.collection('exams').doc(examId).update(clean);
   },
 
   async duplicateExam(examId, overrides = {}) {

@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.4</div>
+          <div class="app-version">Build v1.5.5</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.4</div>
+              <div class="app-version">v1.5.5</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -521,8 +521,85 @@ const App = {
     try { localStorage.removeItem(this.autosaveKey()); } catch (_) {}
   },
 
-  async showCreateExam() {
-    if (!window._editingExamId) window._editingExamId = null;
+
+  /** Collect form + builder into a clean Firestore-safe payload */
+  collectAssessmentForm(status = 'draft') {
+    // Always sync flat list from sections
+    const sections = JSON.parse(JSON.stringify(window._builderSections || []));
+    const questions = sections.flatMap(s => s.questions || []);
+    window._builderSections = sections;
+    window._builderQuestions = questions;
+
+    const title = (document.getElementById('exam-title')?.value || '').trim();
+    const subject = (document.getElementById('exam-subject')?.value || '').trim();
+    const examType = document.getElementById('exam-type')?.value || 'regular';
+    const language = document.getElementById('exam-language')?.value || 'python';
+    const instructions = (document.getElementById('exam-instructions')?.value || '').trim();
+    const starterCode = document.getElementById('exam-starter')?.value || '';
+    const answerKey = document.getElementById('exam-answer')?.value || '';
+    const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore')?.value) || 100);
+
+    const payload = {
+      title,
+      subject: subject || 'General',
+      instructions,
+      examType,
+      language: language === 'java' ? 'java' : 'python',
+      starterCode,
+      answerKey,
+      maxScore,
+      questions: examType === 'regular' ? questions : [],
+      sections: examType === 'regular' ? sections : [],
+      status: status === 'published' ? 'published' : 'draft',
+      active: status === 'published'
+    };
+    return payload;
+  },
+
+  async saveAssessment(status = 'draft', schedule = null) {
+    const payload = this.collectAssessmentForm(status);
+    if (!payload.title) {
+      throw new Error('Title is required.');
+    }
+    if (!payload.subject || payload.subject === '') {
+      throw new Error('Subject is required.');
+    }
+    if (status === 'published' && payload.examType === 'regular' && !(payload.questions || []).length) {
+      throw new Error('Add at least one question before publishing.');
+    }
+    if (schedule) {
+      payload.startAt = schedule.startAt;
+      payload.endAt = schedule.endAt;
+      payload.durationMinutes = schedule.durationMinutes || Math.max(1, Math.round((schedule.endAt - schedule.startAt) / 60000));
+    } else if (status === 'draft') {
+      payload.startAt = payload.startAt || Date.now();
+      payload.endAt = payload.endAt || (Date.now() + 3600000);
+      payload.durationMinutes = payload.durationMinutes || 60;
+    }
+
+    // Strip undefined (Firestore rejects undefined)
+    Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
+
+    let examId = window._editingExamId;
+    if (examId) {
+      await Exam.updateExam(examId, payload);
+    } else {
+      const created = await Exam.createExam(payload);
+      examId = created.id;
+      window._editingExamId = examId;
+    }
+    this.clearAutosave();
+    return examId;
+  },
+
+  async showCreateExam(opts = {}) {
+    // opts.keepEditing = true when called from editExam
+    if (!opts.keepEditing) window._editingExamId = null;
+    window._builderSections = window._builderSections || [];
+    if (!opts.keepEditing) {
+      window._builderSections = [];
+      window._builderQuestions = [];
+    }
     if (!Auth.isTeacher()) {
       await UI.alert('Only instructors can create assessments. Students can generate mock assessments from History.', 'Access');
       this.showStudentHome();
@@ -539,12 +616,12 @@ const App = {
       <h2 class="page-title">Create Assessment</h2>
       <div class="card">
         <div class="form-group">
-          <label>Title</label>
-          <input id="exam-title" class="form-control" placeholder="Assessment title" />
+          <label>Title <span style="color:var(--danger)">*</span></label>
+          <input id="exam-title" class="form-control" placeholder="Assessment title" value="" />
         </div>
         <div class="form-group">
-          <label>Subject</label>
-          <input id="exam-subject" class="form-control" value="General" />
+          <label>Subject <span style="color:var(--danger)">*</span></label>
+          <input id="exam-subject" class="form-control" placeholder="e.g. English, Math" value="" />
         </div>
         <div class="form-group">
           <label>Exam type</label>
@@ -572,7 +649,7 @@ const App = {
             <textarea id="exam-starter" class="form-control" rows="5" style="font-family:monospace"></textarea>
           </div>
           <div class="form-group">
-            <label>Answer key (optional)</label>
+            <label>Expected Output (optional)</label>
             <textarea id="exam-answer" class="form-control" rows="4" style="font-family:monospace"></textarea>
           </div>
         </div>
@@ -586,7 +663,7 @@ const App = {
           </div>
           <div class="footer-right">
             <button class="btn btn-ghost" onclick="App.saveAutosave();App.showTeacherHome()">Cancel</button>
-            <button class="btn btn-ghost" id="draft-exam-btn">Save draft</button>
+            <button class="btn btn-ghost" id="draft-exam-btn">Save as Draft</button>
             <button class="btn btn-primary" id="create-exam-btn">Publish</button>
           </div>
         </div>
@@ -613,6 +690,7 @@ const App = {
     };
 
     const renderBuilder = () => {
+      window._renderAssessmentBuilder = renderBuilder;
       const box = document.getElementById('questions-builder');
       const sections = window._builderSections || [];
       if (!sections.length) {
@@ -840,124 +918,50 @@ const App = {
     };
 
     document.getElementById('draft-exam-btn').onclick = async () => {
-      window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
-      const title = document.getElementById('exam-title').value.trim();
-      const subject = document.getElementById('exam-subject').value.trim();
-      if (!title || !subject) {
-        await UI.alert('Title and Subject are required.', 'Missing fields');
-        return;
-      }
-      const examType = document.getElementById('exam-type')?.value || 'regular';
-      const payload = {
-        title, subject,
-        instructions: (document.getElementById('exam-instructions')?.value || '').trim(),
-        examType,
-        language: document.getElementById('exam-language')?.value || 'python',
-        maxScore: examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore')?.value) || 100),
-        starterCode: document.getElementById('exam-starter')?.value || '',
-        answerKey: document.getElementById('exam-answer')?.value || '',
-        questions: examType === 'regular' ? (window._builderQuestions || []) : [],
-        sections: examType === 'regular' ? JSON.parse(JSON.stringify(window._builderSections || [])) : [],
-        status: 'draft',
-        active: false,
-        startAt: Date.now(),
-        endAt: Date.now() + 3600000
-      };
+      const btn = document.getElementById('draft-exam-btn');
+      const pub = document.getElementById('create-exam-btn');
       try {
-        if (window._editingExamId) {
-          await Exam.updateExam(window._editingExamId, payload);
-        } else {
-          const created = await Exam.createExam(payload);
-          window._editingExamId = created.id;
-        }
-        this.clearAutosave();
+        if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+        if (pub) pub.disabled = true;
+        const id = await this.saveAssessment('draft');
         await UI.alert('Assessment has been saved as draft.', 'Draft saved');
         window._editingExamId = null;
         this.showTeacherHome();
-      } catch (err) { await UI.alert(err.message || String(err), 'Error'); }
+      } catch (err) {
+        console.error(err);
+        await UI.alert(err.message || String(err), 'Could not save draft');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save draft'; }
+        if (pub) pub.disabled = false;
+      }
     };
-
-    
-    // Real-time draft autosave to Firestore (debounced)
-    let _draftTimer = null;
-    const persistDraftRemote = async () => {
-      const title = document.getElementById('exam-title')?.value.trim() || '';
-      const subject = document.getElementById('exam-subject')?.value.trim() || '';
-      if (!title && !subject && !(window._builderQuestions||[]).length) return;
-      try {
-        const p = buildPayload('draft');
-        const payload = {
-          ...p,
-          title: title || 'Untitled draft',
-          subject: subject || 'General',
-          starterCode: document.getElementById('exam-starter')?.value || '',
-          answerKey: document.getElementById('exam-answer')?.value || '',
-          questions: p.examType === 'regular' ? (window._builderQuestions || []) : [],
-          sections: p.examType === 'regular' ? (window._builderSections || []) : [],
-          status: 'draft',
-          active: false
-        };
-        if (window._editingExamId) {
-          await Exam.updateExam(window._editingExamId, payload);
-        } else if (title || subject) {
-          const created = await Exam.createExam(payload);
-          window._editingExamId = created.id;
-        }
-        this.saveAutosave();
-      } catch (e) { console.warn('draft autosave', e); }
-    };
-    const scheduleDraftSave = () => {
-      clearTimeout(_draftTimer);
-      _draftTimer = setTimeout(persistDraftRemote, 2000);
-    };
-    ['exam-title','exam-subject','exam-type','exam-language','exam-starter','exam-answer','exam-maxscore'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', scheduleDraftSave);
-      document.getElementById(id)?.addEventListener('change', scheduleDraftSave);
-    });
-    window._scheduleDraftSave = scheduleDraftSave;
 
     document.getElementById('create-exam-btn').onclick = async () => {
-      // Sync questions from builder state
-      window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
-      const title = document.getElementById('exam-title').value.trim();
-      const subject = document.getElementById('exam-subject').value.trim();
-      const instructions = (document.getElementById('exam-instructions')?.value || '').trim();
-      const examType = document.getElementById('exam-type').value;
-      const language = document.getElementById('exam-language')?.value || 'python';
-      const maxScore = examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore')?.value) || 100);
-      if (!title || !subject) { await UI.alert('Title and Subject are required.', 'Missing fields'); return; }
-      if (examType === 'regular') {
-        const qs = window._builderQuestions || [];
-        if (!qs.length) { await UI.alert('Add at least one question before publishing.', 'No questions'); return; }
-      }
-      const sched = await this.pickSchedule();
-      if (!sched) return;
-      const payload = {
-        title, subject, instructions, examType, language, maxScore,
-        startAt: sched.startAt,
-        endAt: sched.endAt,
-        durationMinutes: sched.durationMinutes || Math.max(1, Math.round((sched.endAt - sched.startAt) / 60000)),
-        starterCode: document.getElementById('exam-starter')?.value || '',
-        answerKey: document.getElementById('exam-answer')?.value || '',
-        questions: examType === 'regular' ? (window._builderQuestions || []) : [],
-        sections: examType === 'regular' ? JSON.parse(JSON.stringify(window._builderSections || [])) : [],
-        status: 'published',
-        active: true
-      };
+      const btn = document.getElementById('create-exam-btn');
+      const draft = document.getElementById('draft-exam-btn');
       try {
-        let examId = window._editingExamId;
-        if (examId) {
-          await Exam.updateExam(examId, payload);
-        } else {
-          const created = await Exam.createExam(payload);
-          examId = created.id;
+        // Validate before schedule popup
+        const preview = this.collectAssessmentForm('published');
+        if (!preview.title) { await UI.alert('Title is required.', 'Missing fields'); return; }
+        if (!preview.subject) { await UI.alert('Subject is required.', 'Missing fields'); return; }
+        if (preview.examType === 'regular' && !(preview.questions || []).length) {
+          await UI.alert('Add at least one question before publishing.', 'No questions');
+          return;
         }
-        this.clearAutosave();
+        const sched = await this.pickSchedule();
+        if (!sched) return;
+        if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
+        if (draft) draft.disabled = true;
+        const id = await this.saveAssessment('published', sched);
         window._editingExamId = null;
         await UI.alert('Assessment published.', 'Published');
-        this.showSharePanel(examId);
+        this.showSharePanel(id);
       } catch (err) {
-        await UI.alert(err.message || String(err), 'Error');
+        console.error(err);
+        await UI.alert(err.message || String(err), 'Could not publish');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Publish'; }
+        if (draft) draft.disabled = false;
       }
     };
   },
@@ -1118,106 +1122,70 @@ const App = {
     window._editingExamId = examId;
     const exam = await Exam.getExam(examId);
     if (!exam) { await UI.alert('Assessment not found.', 'Error'); return; }
-    // Reuse create UI prefilled
-    await this.showCreateExam();
-    // Prefill after DOM ready
-    setTimeout(() => {
-      const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
-      set('exam-title', exam.title);
-      set('exam-subject', exam.subject || 'General');
+
+    // Open builder UI first
+    await this.showCreateExam({ keepEditing: true });
+
+    // Prefill after DOM is ready
+    const apply = () => {
+      const set = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && val != null) el.value = val;
+      };
+      set('exam-title', exam.title || '');
+      set('exam-subject', exam.subject || '');
       set('exam-type', exam.examType || 'regular');
+      document.getElementById('exam-type')?.dispatchEvent(new Event('change'));
       set('exam-language', exam.language || 'python');
       set('exam-starter', exam.starterCode || '');
       set('exam-answer', exam.answerKey || '');
-      set('exam-maxscore', exam.maxScore || 100);
-      document.getElementById('exam-type')?.dispatchEvent(new Event('change'));
-      window._builderSections = exam.sections && exam.sections.length
-        ? JSON.parse(JSON.stringify(exam.sections))
-        : [];
-      if (!window._builderSections.length && (exam.questions || []).length) {
-        // migrate flat questions into one section
-        const sec = Regular.newSection('Questions');
-        sec.questions = JSON.parse(JSON.stringify(exam.questions));
-        window._builderSections = [sec];
+      set('exam-maxscore', exam.maxScore != null ? exam.maxScore : 100);
+
+      // Load sections / questions into builder state
+      let sections = [];
+      if (exam.sections && exam.sections.length) {
+        sections = JSON.parse(JSON.stringify(exam.sections));
+      } else if (exam.questions && exam.questions.length) {
+        sections = [{
+          id: 's1',
+          title: 'Questions',
+          instructions: exam.instructions || '',
+          questions: JSON.parse(JSON.stringify(exam.questions))
+        }];
       }
-      window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []);
-      // trigger render if available
-      const box = document.getElementById('questions-builder');
-      if (box && window._builderSections) {
-        // re-call by clicking type or force rebuild via custom event
-        document.getElementById('exam-type')?.dispatchEvent(new Event('change'));
+      window._builderSections = sections;
+      window._builderQuestions = sections.flatMap(s => s.questions || []);
+
+      // Trigger builder re-render (showCreateExam defined renderBuilder in closure — call via Add Question path)
+      // Expose last renderBuilder
+      if (typeof window._renderAssessmentBuilder === 'function') {
+        window._renderAssessmentBuilder();
+      } else {
+        // Fallback: click path - re-open create is not enough; inject HTML summary
+        const box = document.getElementById('questions-builder');
+        if (box) {
+          box.innerHTML = window._builderQuestions.length
+            ? `<p class="text-muted">${window._builderQuestions.length} question(s) loaded. Use Add Question to continue editing, then Save draft or Publish.</p>` +
+              window._builderQuestions.map((q, i) =>
+                `<div class="card mt-1"><strong>Q${i+1} (${escapeHtml(q.type||'')})</strong><div>${escapeHtml(q.prompt||'')}</div></div>`
+              ).join('')
+            : '<p class="text-muted">No questions yet</p>';
+        }
       }
-      // Override create buttons to update existing
+
+      const titleEl = document.querySelector('.page-title');
+      if (titleEl) titleEl.textContent = 'Edit Assessment';
+
+      // Ensure buttons still use unified save (showCreateExam already wired them)
       const draftBtn = document.getElementById('draft-exam-btn');
       const pubBtn = document.getElementById('create-exam-btn');
-      const saveUpdate = async (publish) => {
-        const title = document.getElementById('exam-title').value.trim();
-        if (!title || !subject) { await UI.alert('Title and Subject are required.', 'Missing fields'); return; }
-      if (examType === 'regular') {
-        const qs = window._builderQuestions || [];
-        const missing = qs.filter(q => q.type !== 'essay' && (q.correct === undefined || q.correct === null || q.correct === ''));
-        if (missing.length) {
-          await UI.alert('Every question except Essay must have a correct answer configured.', 'Correct answers required');
-          return;
-        }
-      }
-        const examType = document.getElementById('exam-type').value;
-        const updates = {
-          title,
-          subject: document.getElementById('exam-subject').value.trim() || 'General',
-          examType,
-          language: document.getElementById('exam-language').value,
-          starterCode: document.getElementById('exam-starter')?.value || '',
-          answerKey: document.getElementById('exam-answer')?.value || '',
-          maxScore: examType === 'regular' ? 0 : (Number(document.getElementById('exam-maxscore')?.value) || 100),
-          questions: examType === 'regular' ? (window._builderQuestions || []) : [],
-          sections: examType === 'regular' ? (window._builderSections || []) : [],
-        };
-        if (publish) {
-          updates.status = 'published';
-          updates.active = true;
-        }
-        await Exam.updateExam(examId, updates);
-        await UI.alert('Changes saved.', 'Saved');
-        if (publish) this.showSharePanel(examId);
-        else this.showTeacherHome();
-      };
-      if (draftBtn) draftBtn.onclick = () => saveUpdate(false);
-      if (pubBtn) {
-        pubBtn.textContent = 'Publish';
-        pubBtn.onclick = async () => {
-          if (exam.status === 'draft') {
-            // schedule then publish
-            await saveUpdate(false);
-            await this.publishDraft(examId);
-          } else {
-            await saveUpdate(false);
-          }
-        };
-      }
-      // Render sections builder
-      try {
-        const syncFlat = () => { window._builderQuestions = (window._builderSections || []).flatMap(s => s.questions || []); };
-        // minimal re-render trigger: add temporary note
-        const note = document.createElement('p');
-        note.className = 'text-muted';
-        note.textContent = (window._builderQuestions && window._builderQuestions.length) ? 'Editing assessment — save draft or publish when done.' : 'No questions yet';
-        document.getElementById('questions-builder')?.prepend(note);
-      } catch (_) {}
-    }, 50);
+      if (draftBtn) draftBtn.textContent = 'Save draft';
+      if (pubBtn) pubBtn.textContent = exam.status === 'published' ? 'Save & Publish' : 'Publish';
+    };
+    setTimeout(apply, 100);
   },
 
-
-  async toggleExamActive(examId, active) {
-    if (!(await UI.confirm(active ? 'Reopen this assessment?' : 'Close this assessment?', 'Confirm'))) return;
-    await Exam.updateExam(examId, { active });
-    if (!active) {
-      try { await Exam.deactivateProctorsForExam(examId); } catch (_) {}
-    }
-    this.showTeacherHome();
-  },
-
-  async duplicateExam(examId) {
+  async toggleExamActiveduplicateExam(examId) {
     if (!(await UI.confirm('Duplicate this assessment? You can set a new schedule next.', 'Duplicate'))) return;
     const start = await UI.prompt('New start (YYYY-MM-DDTHH:MM) or leave blank for now:', '', 'Duplicate');
     const mins = await UI.prompt('Duration in minutes:', '60', 'Duplicate');

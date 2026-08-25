@@ -105,3 +105,9 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Draft/Publish save sections+questions; integrity thumbs + hide names
 - Live dashboard open; paste/copy/resize/right-click/fullscreen violations
 - Take UI: question full width, choices below, theme background
+
+## v1.5.5
+- Reliable assessment builder: collectAssessmentForm + saveAssessment
+- Save as Draft and Publish wired to single save path with error messages
+- Edit loads sections/questions and re-renders builder
+- New assessment clears previous editor state
