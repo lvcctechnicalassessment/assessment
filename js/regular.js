@@ -103,15 +103,30 @@ const Regular = {
         return {
           ...base,
           isPassageSet: true,
-          passages: [{ id: 'p1', title: 'Passage 1', html: '<p>Type or paste passage content here.</p>' }],
-          // questions attached in section builder
+          prompt: 'Passage',
+          passageHtml: '<p>Type or paste the passage content here.</p>',
+          passages: [{ id: 'p1', title: 'Passage 1', html: '<p>Type or paste the passage content here.</p>' }],
+          questions: [
+            { id: 'pq1', type: 'multiple', prompt: '', options: ['', '', '', ''], correct: 0, points: 1 }
+          ]
         };
       case 'match':
         return { ...base, left: ['Item 1', 'Item 2'], right: ['Match A', 'Match B'], correct: [0, 1] };
       case 'reorder':
         return { ...base, items: ['First', 'Second', 'Third'], correct: [0, 1, 2] };
       case 'categorize':
-        return { ...base, categories: ['Cat A', 'Cat B'], items: ['Item 1', 'Item 2'], correct: {} };
+        return {
+          ...base,
+          prompt: 'Organize these items into the right categories.',
+          categories: [
+            { id: 'c1', name: 'Category A' },
+            { id: 'c2', name: 'Category B' }
+          ],
+          items: [
+            { id: 'i1', name: 'Item 1', category: 'c1' },
+            { id: 'i2', name: 'Item 2', category: 'c2' }
+          ]
+        };
       default:
         return { ...base, correct: '' };
     }
@@ -256,8 +271,12 @@ const Regular = {
   },
 
   renderBuilderPassage(q, index) {
-    const html = q.passageHtml || q.prompt || '';
-    const kids = q.questions || [];
+    if (!q.questions) q.questions = [];
+    if (!q.passageHtml && q.passages && q.passages[0]) {
+      q.passageHtml = q.passages[0].html || '';
+    }
+    const html = q.passageHtml || '<p></p>';
+    const kids = q.questions;
     const qCards = kids.map((kq, ki) => {
       const isMc = kq.type === 'multiple';
       const opts = (kq.options || ['', '', '', '']).map((o, oi) => `
@@ -289,7 +308,11 @@ const Regular = {
           <button type="button" data-rte="${index}:center">Center</button>
           <button type="button" data-rte="${index}:right">Right</button>
           <button type="button" data-rte="${index}:justify">Justify</button>
-          <button type="button" data-rte="${index}:image">Image</button>
+          <button type="button" data-rte="${index}:image">Image URL</button>
+          <label class="rte-upload-btn" title="Upload image from device">
+            Upload image
+            <input type="file" accept="image/*" data-pass-upload="${index}" hidden />
+          </label>
         </div>
         <div class="rte-editor" contenteditable="true" data-pass-html="${index}">${html}</div>
       </div>
@@ -301,8 +324,18 @@ const Regular = {
   },
 
   renderBuilderCategorize(q, index) {
-    const cats = q.categories || [];
-    const items = q.items || [];
+    // Normalize legacy string arrays → objects
+    if (q.categories && q.categories.length && typeof q.categories[0] === 'string') {
+      q.categories = q.categories.map((name, i) => ({ id: 'c' + (i + 1), name: String(name) }));
+    }
+    if (q.items && q.items.length && typeof q.items[0] === 'string') {
+      const firstCat = (q.categories && q.categories[0] && q.categories[0].id) || 'c1';
+      q.items = q.items.map((name, i) => ({ id: 'i' + (i + 1), name: String(name), category: firstCat }));
+    }
+    if (!q.categories) q.categories = [];
+    if (!q.items) q.items = [];
+    const cats = q.categories;
+    const items = q.items;
     const catCols = cats.map((c, ci) => `
       <div class="cat-col" data-cat="${c.id}">
         <div class="cat-col-head" style="background:${['#3b82f6','#14b8a6','#f59e0b','#ef4444','#8b5cf6'][ci%5]}">
@@ -312,11 +345,17 @@ const Regular = {
         <div class="cat-col-body text-muted" style="font-size:0.8rem;padding:0.5rem">Items assigned via answer key below</div>
       </div>`).join('');
     const itemRows = items.map((it, ii) => `
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin:0.35rem 0">
+      <div class="cat-item-config" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin:0.35rem 0;padding:0.5rem;border:1px solid var(--border);border-radius:8px">
+        ${it.image ? `<img src="${escapeHtml(it.image)}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:6px" />` : ''}
         <input class="form-control" style="max-width:160px" data-cat-item-name="${index}:${ii}" value="${escapeHtml(it.name||'')}" placeholder="Item name" />
         <select class="form-control" style="max-width:160px" data-cat-item-cat="${index}:${ii}">
+          <option value="">— category —</option>
           ${cats.map(c => `<option value="${escapeHtml(c.id)}" ${it.category===c.id?'selected':''}>${escapeHtml(c.name||c.id)}</option>`).join('')}
         </select>
+        <label class="btn btn-sm btn-ghost" style="margin:0;cursor:pointer">
+          Image
+          <input type="file" accept="image/*" data-cat-item-img="${index}:${ii}" hidden />
+        </label>
         <button type="button" class="btn btn-sm btn-danger" data-cat-item-del="${index}:${ii}">×</button>
       </div>`).join('');
     return `<div class="categorize-dual" data-gidx="${index}">
@@ -325,12 +364,12 @@ const Regular = {
         <input class="form-control q-prompt" data-gidx="${index}" value="${escapeHtml(q.prompt||'')}" placeholder="Organize these items into the right categories." />
       </div>
       <div class="cat-board">${catCols || '<p class="text-muted">Add categories</p>'}</div>
-      <div class="action-btns mt-1">
+      <div class="action-btns mt-1" style="flex-wrap:wrap;gap:0.5rem">
         <button type="button" class="btn btn-sm btn-primary" data-cat-add="${index}">+ Add Category</button>
         <button type="button" class="btn btn-sm btn-primary" data-cat-add-item="${index}">+ Add Item</button>
       </div>
-      <div class="mt-1"><strong>Items & answer key</strong></div>
-      ${itemRows || '<p class="text-muted">Add items and assign each to a category</p>'}
+      <div class="mt-1"><strong>Items & answer key</strong> <span class="text-muted" style="font-size:0.8rem">(name + correct category; optional image)</span></div>
+      ${itemRows || '<p class="text-muted">Click “+ Add Item”, then set the name and category.</p>'}
       <div class="points-row mt-1">
         <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
       </div>

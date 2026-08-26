@@ -2621,3 +2621,12 @@ html, body {
     max-height: 40vh;
   }
 }
+
+/* v1.5.15 */
+.rte-upload-btn {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--border); background: var(--surface-2);
+  border-radius: 6px; padding: 0.25rem 0.5rem; cursor: pointer;
+  font-size: 0.8rem;
+}
+.rte-toolbar { gap: 0.35rem; }

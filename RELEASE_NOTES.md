@@ -167,3 +167,8 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Question type picker always available (no longer nested under existing sections)
 - Create/Edit assessment: Add Question works with zero questions
 - Initial builder paint wires Save / Publish / Add Question on open
+
+## v1.5.15
+- Categorize: fixed add category / item / answer key (schema + handlers)
+- Passage: fixed Add New Question
+- Local image upload for Passage editor and Categorize items

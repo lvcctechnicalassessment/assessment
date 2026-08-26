@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.14</div>
+          <div class="app-version">Build v1.5.15</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.14</div>
+              <div class="app-version">v1.5.15</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -1100,14 +1100,29 @@ const App = {
           syncFlat(); renderBuilder();
         };
       });
+
+      // Resolve question live (avoid stale flat closure)
+      const qAt = (gi) => (window._builderQuestions || [])[Number(gi)] || null;
+      const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+        if (!file) return resolve(null);
+        if (file.size > 1.5 * 1024 * 1024) {
+          if (window.UI) UI.alert('Image is too large (max ~1.5MB).', 'Image');
+          return resolve(null);
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
       // Passage
       box.querySelectorAll('[data-pass-html]').forEach(el => {
-        el.oninput = () => { const q = flat[Number(el.dataset.passHtml)]; if (q) q.passageHtml = el.innerHTML; };
-        el.onblur = () => { const q = flat[Number(el.dataset.passHtml)]; if (q) q.passageHtml = el.innerHTML; };
+        el.oninput = () => { const q = qAt(el.dataset.passHtml); if (q) { q.passageHtml = el.innerHTML; if (q.passages && q.passages[0]) q.passages[0].html = el.innerHTML; } };
+        el.onblur = () => { const q = qAt(el.dataset.passHtml); if (q) { q.passageHtml = el.innerHTML; if (q.passages && q.passages[0]) q.passages[0].html = el.innerHTML; } };
       });
       box.querySelectorAll('[data-rte]').forEach(btn => {
         btn.onclick = (e) => {
-          e.preventDefault();
+          e.preventDefault(); e.stopPropagation();
           const [gi, cmd] = btn.dataset.rte.split(':');
           const ed = box.querySelector(`[data-pass-html="${gi}"]`);
           if (!ed) return;
@@ -1122,131 +1137,173 @@ const App = {
           else if (cmd === 'right') document.execCommand('justifyRight');
           else if (cmd === 'justify') document.execCommand('justifyFull');
           else if (cmd === 'image') {
-            const url = prompt('Image URL');
+            const url = window.prompt('Image URL');
             if (url) document.execCommand('insertImage', false, url);
           }
-          const q = flat[Number(gi)]; if (q) q.passageHtml = ed.innerHTML;
+          const q = qAt(gi); if (q) { q.passageHtml = ed.innerHTML; if (q.passages && q.passages[0]) q.passages[0].html = ed.innerHTML; }
+        };
+      });
+      box.querySelectorAll('[data-pass-upload]').forEach(inp => {
+        inp.onchange = async () => {
+          const gi = Number(inp.dataset.passUpload);
+          const dataUrl = await readFileAsDataUrl(inp.files && inp.files[0]);
+          if (!dataUrl) return;
+          const ed = box.querySelector(`[data-pass-html="${gi}"]`);
+          if (ed) {
+            ed.focus();
+            document.execCommand('insertImage', false, dataUrl);
+            const q = qAt(gi);
+            if (q) { q.passageHtml = ed.innerHTML; if (q.passages && q.passages[0]) q.passages[0].html = ed.innerHTML; }
+          }
+          inp.value = '';
         };
       });
       box.querySelectorAll('[data-pass-add-q]').forEach(el => {
-        el.onclick = () => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
           const gi = Number(el.dataset.passAddQ);
-          const q = flat[gi]; if (!q) return;
-          q.questions = q.questions || [];
-          q.questions.push({ id: 'pq'+Date.now(), type: 'multiple', prompt: '', options: ['','','',''], correct: 0, points: 1 });
+          const q = qAt(gi);
+          if (!q) return;
+          q.questions = Array.isArray(q.questions) ? q.questions : [];
+          q.questions.push({ id: 'pq' + Date.now(), type: 'multiple', prompt: '', options: ['', '', '', ''], correct: 0, points: 1 });
           syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-pass-q-prompt]').forEach(el => {
         el.oninput = () => {
           const [gi, ki] = el.dataset.passQPrompt.split(':').map(Number);
-          if (flat[gi]?.questions?.[ki]) flat[gi].questions[ki].prompt = el.value;
+          const q = qAt(gi); if (q?.questions?.[ki]) q.questions[ki].prompt = el.value;
         };
       });
       box.querySelectorAll('[data-pass-q-type]').forEach(el => {
         el.onchange = () => {
           const [gi, ki] = el.dataset.passQType.split(':').map(Number);
-          const kq = flat[gi]?.questions?.[ki];
-          if (!kq) return;
+          const q = qAt(gi); const kq = q?.questions?.[ki]; if (!kq) return;
           kq.type = el.value;
-          if (el.value === 'multiple' && !kq.options) kq.options = ['','','',''];
+          if (el.value === 'multiple' && !kq.options) kq.options = ['', '', '', ''];
           syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-pass-opt]').forEach(el => {
         el.oninput = () => {
           const [gi, ki, oi] = el.dataset.passOpt.split(':').map(Number);
-          if (flat[gi]?.questions?.[ki]) {
-            flat[gi].questions[ki].options = flat[gi].questions[ki].options || [];
-            flat[gi].questions[ki].options[oi] = el.value;
-          }
+          const q = qAt(gi); if (!q?.questions?.[ki]) return;
+          q.questions[ki].options = q.questions[ki].options || [];
+          q.questions[ki].options[oi] = el.value;
         };
       });
       box.querySelectorAll('[data-pass-correct]').forEach(el => {
         el.onchange = () => {
           const [gi, ki, oi] = el.dataset.passCorrect.split(':').map(Number);
-          if (flat[gi]?.questions?.[ki]) flat[gi].questions[ki].correct = oi;
+          const q = qAt(gi); if (q?.questions?.[ki]) q.questions[ki].correct = oi;
         };
       });
       box.querySelectorAll('[data-pass-add-opt]').forEach(el => {
-        el.onclick = () => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
           const [gi, ki] = el.dataset.passAddOpt.split(':').map(Number);
-          const kq = flat[gi]?.questions?.[ki];
-          if (!kq) return;
-          kq.options = kq.options || [];
-          kq.options.push('');
+          const q = qAt(gi); const kq = q?.questions?.[ki]; if (!kq) return;
+          kq.options = kq.options || []; kq.options.push('');
           syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-pass-del-opt]').forEach(el => {
-        el.onclick = () => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
           const [gi, ki, oi] = el.dataset.passDelOpt.split(':').map(Number);
-          const kq = flat[gi]?.questions?.[ki];
-          if (!kq?.options) return;
-          kq.options.splice(oi, 1);
-          syncFlat(); renderBuilder();
+          const q = qAt(gi); const kq = q?.questions?.[ki]; if (!kq?.options) return;
+          kq.options.splice(oi, 1); syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-pass-rubric]').forEach(el => {
         el.oninput = () => {
           const [gi, ki] = el.dataset.passRubric.split(':').map(Number);
-          if (flat[gi]?.questions?.[ki]) flat[gi].questions[ki].correct = el.value;
+          const q = qAt(gi); if (q?.questions?.[ki]) q.questions[ki].correct = el.value;
         };
       });
       box.querySelectorAll('[data-pass-del-q]').forEach(el => {
-        el.onclick = () => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
           const [gi, ki] = el.dataset.passDelQ.split(':').map(Number);
-          if (flat[gi]?.questions) { flat[gi].questions.splice(ki, 1); syncFlat(); renderBuilder(); }
+          const q = qAt(gi); if (!q?.questions) return;
+          q.questions.splice(ki, 1); syncFlat(); renderBuilder();
         };
       });
+
       // Categorize
       box.querySelectorAll('[data-cat-add]').forEach(el => {
-        el.onclick = () => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
           const gi = Number(el.dataset.catAdd);
-          const q = flat[gi]; if (!q) return;
+          const q = qAt(gi); if (!q) return;
+          if (q.categories && q.categories.length && typeof q.categories[0] === 'string') {
+            q.categories = q.categories.map((name, i) => ({ id: 'c' + (i + 1), name: String(name) }));
+          }
           q.categories = q.categories || [];
-          q.categories.push({ id: 'c'+Date.now(), name: 'Category ' + (q.categories.length + 1) });
+          q.categories.push({ id: 'c' + Date.now(), name: 'Category ' + (q.categories.length + 1) });
           syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-cat-add-item]').forEach(el => {
-        el.onclick = () => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
           const gi = Number(el.dataset.catAddItem);
-          const q = flat[gi]; if (!q) return;
+          const q = qAt(gi); if (!q) return;
+          if (q.categories && q.categories.length && typeof q.categories[0] === 'string') {
+            q.categories = q.categories.map((name, i) => ({ id: 'c' + (i + 1), name: String(name) }));
+          }
+          if (q.items && q.items.length && typeof q.items[0] === 'string') {
+            const fc = (q.categories[0] && q.categories[0].id) || '';
+            q.items = q.items.map((name, i) => ({ id: 'i' + (i + 1), name: String(name), category: fc }));
+          }
           q.items = q.items || [];
-          const firstCat = (q.categories && q.categories[0]?.id) || '';
-          q.items.push({ id: 'i'+Date.now(), name: '', category: firstCat });
+          const firstCat = (q.categories && q.categories[0] && q.categories[0].id) || '';
+          q.items.push({ id: 'i' + Date.now(), name: '', category: firstCat, image: '' });
           syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-cat-name]').forEach(el => {
         el.oninput = () => {
           const [gi, ci] = el.dataset.catName.split(':').map(Number);
-          if (flat[gi]?.categories?.[ci]) flat[gi].categories[ci].name = el.value;
+          const q = qAt(gi); if (q?.categories?.[ci]) q.categories[ci].name = el.value;
         };
       });
       box.querySelectorAll('[data-cat-del]').forEach(el => {
-        el.onclick = () => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
           const [gi, ci] = el.dataset.catDel.split(':').map(Number);
-          if (flat[gi]?.categories) { flat[gi].categories.splice(ci, 1); syncFlat(); renderBuilder(); }
+          const q = qAt(gi); if (!q?.categories) return;
+          q.categories.splice(ci, 1); syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-cat-item-name]').forEach(el => {
         el.oninput = () => {
           const [gi, ii] = el.dataset.catItemName.split(':').map(Number);
-          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].name = el.value;
+          const q = qAt(gi); if (q?.items?.[ii]) q.items[ii].name = el.value;
         };
       });
       box.querySelectorAll('[data-cat-item-cat]').forEach(el => {
         el.onchange = () => {
           const [gi, ii] = el.dataset.catItemCat.split(':').map(Number);
-          if (flat[gi]?.items?.[ii]) flat[gi].items[ii].category = el.value;
+          const q = qAt(gi); if (q?.items?.[ii]) q.items[ii].category = el.value;
+        };
+      });
+      box.querySelectorAll('[data-cat-item-img]').forEach(inp => {
+        inp.onchange = async () => {
+          const [gi, ii] = inp.dataset.catItemImg.split(':').map(Number);
+          const q = qAt(gi); if (!q?.items?.[ii]) return;
+          const dataUrl = await readFileAsDataUrl(inp.files && inp.files[0]);
+          if (!dataUrl) return;
+          q.items[ii].image = dataUrl;
+          syncFlat(); renderBuilder();
         };
       });
       box.querySelectorAll('[data-cat-item-del]').forEach(el => {
-        el.onclick = () => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
           const [gi, ii] = el.dataset.catItemDel.split(':').map(Number);
-          if (flat[gi]?.items) { flat[gi].items.splice(ii, 1); syncFlat(); renderBuilder(); }
+          const q = qAt(gi); if (!q?.items) return;
+          q.items.splice(ii, 1); syncFlat(); renderBuilder();
         };
       });
 
