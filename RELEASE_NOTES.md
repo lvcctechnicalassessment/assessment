@@ -172,3 +172,28 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Categorize: fixed add category / item / answer key (schema + handlers)
 - Passage: fixed Add New Question
 - Local image upload for Passage editor and Categorize items
+
+## v1.5.16
+- Save: compress images; block writes over Firestore 1 MB doc limit (clear error)
+- Categorize: drag images when provided; remove image option
+- Passage take: dual panel 50/50 independent scroll, all questions on same page
+- Points per blank/item for fill, wordbox, categorize, table
+- Alternates for open-ended/essay; table-fill dual panel + calculator
+- Table fill copy/paste not flagged as integrity
+- window-blur → "Clicked outside assessment page"
+- Intentional leave lock + instructor Admit / Ignore / End
+- Live write budget to protect Spark free-tier quotas
+
+## v1.5.17
+- Multiple images no longer stored inside the Firestore exam document
+- On save: images upload to Firebase Storage; exam doc only keeps download URLs (stays under 1 MB)
+- Requires Firebase Storage enabled + storageBucket in firebase-config + Storage rules for assessments/{examId}/**
+
+## v1.5.18
+- Live dashboard: "Show live screens" toggle (off = quota saver; students stop uploading frames)
+
+## v1.5.19
+- Live screens OFF is silent for students: screen share stays on; only instructor stops receiving frames
+
+## v1.5.20
+- Table fill scoring: Full points only if all blanks correct OR points for every correct blank

@@ -227,7 +227,8 @@ const Regular = {
       <div class="mt-1"><strong>Blank answers</strong></div>
       ${blankCfg || '<p class="text-muted">Insert blanks first</p>'}
       <div class="points-row mt-1">
-        <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+        <label class="ml-1">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? q.pointsPerBlank ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
       </div>
     </div>`;
   },
@@ -265,7 +266,8 @@ const Regular = {
       <div class="mt-1"><strong>Correct answers</strong></div>
       ${blankCfg || '<p class="text-muted">Insert blanks first</p>'}
       <div class="points-row mt-1">
-        <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+        <label>Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
       </div>
     </div>`;
   },
@@ -353,9 +355,10 @@ const Regular = {
           ${cats.map(c => `<option value="${escapeHtml(c.id)}" ${it.category===c.id?'selected':''}>${escapeHtml(c.name||c.id)}</option>`).join('')}
         </select>
         <label class="btn btn-sm btn-ghost" style="margin:0;cursor:pointer">
-          Image
+          ${it.image ? 'Replace image' : 'Image'}
           <input type="file" accept="image/*" data-cat-item-img="${index}:${ii}" hidden />
         </label>
+        ${it.image ? `<button type="button" class="btn btn-sm btn-ghost" data-cat-item-del-img="${index}:${ii}">Remove image</button>` : ''}
         <button type="button" class="btn btn-sm btn-danger" data-cat-item-del="${index}:${ii}">×</button>
       </div>`).join('');
     return `<div class="categorize-dual" data-gidx="${index}">
@@ -371,8 +374,121 @@ const Regular = {
       <div class="mt-1"><strong>Items & answer key</strong> <span class="text-muted" style="font-size:0.8rem">(name + correct category; optional image)</span></div>
       ${itemRows || '<p class="text-muted">Click “+ Add Item”, then set the name and category.</p>'}
       <div class="points-row mt-1">
-        <label>Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+        <label>Points per item <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
       </div>
+    </div>`;
+  },
+
+
+  renderBuilderTable(q, index) {
+    const rows = Math.min(20, Math.max(1, Number(q.rows) || 3));
+    const cols = Math.min(10, Math.max(1, Number(q.cols) || 3));
+    q.cells = q.cells || {};
+    let blankCount = 0;
+    Object.keys(q.cells).forEach(k => { if (q.cells[k] && q.cells[k].blank) blankCount++; });
+    let grid = '<table class="table-fill-cfg"><thead><tr><th></th>';
+    for (let c = 0; c < cols; c++) {
+      const h = (q.headers && q.headers[c]) || ('Col ' + (c + 1));
+      grid += `<th><input class="form-control" data-tf-header="${index}:${c}" value="${escapeHtml(h)}" /></th>`;
+    }
+    grid += '</tr></thead><tbody>';
+    for (let r = 0; r < rows; r++) {
+      grid += `<tr><th>${r + 1}</th>`;
+      for (let c = 0; c < cols; c++) {
+        const key = r + '-' + c;
+        const cell = q.cells[key] || {};
+        const isBlank = !!cell.blank;
+        const val = isBlank ? (Array.isArray(cell.correct) ? cell.correct[0] : (cell.correct || '')) : (cell.value || '');
+        const alts = isBlank ? (Array.isArray(cell.correct) && cell.correct.length > 1 ? cell.correct.slice(1) : (cell.alternatives || [])) : [];
+        grid += `<td class="${isBlank ? 'is-blank' : ''}">
+          <label class="tf-blank-toggle"><input type="checkbox" data-tf-blank="${index}:${key}" ${isBlank ? 'checked' : ''}/> Blank</label>
+          <input class="form-control" data-tf-cell="${index}:${key}" value="${escapeHtml(String(val || ''))}" placeholder="${isBlank ? 'Correct answer' : 'Cell text'}" />
+          ${isBlank ? `<input class="form-control mt-1" data-tf-alt="${index}:${key}" value="${escapeHtml((alts || []).join(', '))}" placeholder="Alternatives" />` : ''}
+        </td>`;
+      }
+      grid += '</tr>';
+    }
+    grid += '</tbody></table>';
+    return `<div class="table-fill-dual" data-gidx="${index}">
+      <div class="table-fill-left">
+        <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions for students">${escapeHtml(q.prompt || '')}</textarea>
+        <div class="form-group mt-1" style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <label>Rows <input type="number" min="1" max="20" class="form-control" style="width:70px" data-tf-rows="${index}" value="${rows}" /></label>
+          <label>Cols <input type="number" min="1" max="10" class="form-control" style="width:70px" data-tf-cols="${index}" value="${cols}" /></label>
+          <button type="button" class="btn btn-sm btn-ghost" data-tf-resize="${index}">Apply size</button>
+          <span class="text-muted" style="font-size:0.8rem">Blanks: ${blankCount}/50</span>
+        </div>
+        <div class="table-fill-scroll">${grid}</div>
+        <div class="points-row mt-1" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+          <label>Scoring
+            <select class="form-control" data-pointsmode="${index}" style="width:auto;display:inline-block">
+              <option value="all" ${(q.pointsMode || 'all') === 'all' ? 'selected' : ''}>Full points only if all blanks correct</option>
+              <option value="each" ${q.pointsMode === 'each' ? 'selected' : ''}>Points for every correct blank</option>
+            </select>
+          </label>
+          <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+          <label class="tf-each-pts" style="${(q.pointsMode || 'all') === 'each' ? '' : 'opacity:0.5'}">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
+        </div>
+      </div>
+      <div class="table-fill-right" id="tf-calc-panel-${index}">
+        <div class="tf-calc-head">
+          <strong>Calculator</strong>
+          <button type="button" class="btn btn-sm btn-ghost" data-tf-calc-toggle="${index}" title="Collapse">⌄</button>
+        </div>
+        <div class="tf-calculator">
+          <input class="form-control tf-calc-display" data-tf-calc-display="${index}" readonly value="0" />
+          <div class="tf-calc-keys">
+            ${['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+','C','⌫','Copy'].map(k =>
+              `<button type="button" class="btn btn-sm btn-ghost tf-calc-key" data-tf-calc-key="${index}:${k}">${k}</button>`
+            ).join('')}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  },
+
+  renderStudentTable(q, answer) {
+    const rows = Number(q.rows) || 3;
+    const cols = Number(q.cols) || 3;
+    const cells = q.cells || {};
+    const ans = (answer && typeof answer === 'object') ? answer : {};
+    let grid = '<table class="table-fill-student"><thead><tr><th></th>';
+    for (let c = 0; c < cols; c++) {
+      grid += `<th>${escapeHtml((q.headers && q.headers[c]) || ('Col ' + (c + 1)))}</th>`;
+    }
+    grid += '</tr></thead><tbody>';
+    for (let r = 0; r < rows; r++) {
+      grid += `<tr><th>${r + 1}</th>`;
+      for (let c = 0; c < cols; c++) {
+        const key = r + '-' + c;
+        const cell = cells[key] || {};
+        if (cell.blank) {
+          grid += `<td><input class="form-control tf-student-blank" data-qid="${q.id}" data-cell="${key}" value="${escapeHtml(ans[key] || '')}" /></td>`;
+        } else {
+          grid += `<td class="tf-fixed">${escapeHtml(cell.value || '')}</td>`;
+        }
+      }
+      grid += '</tr>';
+    }
+    grid += '</tbody></table>';
+    return `<div class="table-fill-take" data-qid="${q.id}" data-table-fill="1">
+      <div class="table-fill-take-left">
+        <div class="take-q-banner">${escapeHtml(q.prompt || 'Fill in the blank cells.')}</div>
+        <div class="table-fill-scroll">${grid}</div>
+      </div>
+      <aside class="table-fill-take-right" id="student-calc-panel">
+        <button type="button" class="btn btn-sm btn-ghost calc-collapse-btn" id="calc-collapse-btn" title="Calculator">计算器</button>
+        <div class="tf-calculator" id="student-calculator">
+          <input class="form-control tf-calc-display" id="stu-calc-display" readonly value="0" />
+          <div class="tf-calc-keys">
+            ${['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+','C','⌫','Copy'].map(k =>
+              `<button type="button" class="btn btn-sm btn-ghost tf-calc-key" data-stu-calc="${k}">${k}</button>`
+            ).join('')}
+          </div>
+          <p class="text-muted" style="font-size:0.75rem">Copy/paste between table and calculator is allowed for this question.</p>
+        </div>
+      </aside>
     </div>`;
   },
 
@@ -435,17 +551,19 @@ const Regular = {
     const cats = q.categories || [];
     const items = q.items || [];
     const ans = (answer && typeof answer === 'object') ? answer : {};
-    // placed item ids per category
     const placed = new Set(Object.keys(ans));
     const leftItems = items.filter(it => !placed.has(it.id) && !placed.has(it.name));
-    const bank = leftItems.map(it =>
-      `<div class="cat-item-chip" draggable="true" data-item-id="${escapeHtml(it.id)}" data-item-name="${escapeHtml(it.name||'')}">${escapeHtml(it.name||'')}</div>`
-    ).join('');
+    const chipHtml = (it, placedCls = '') => {
+      const hasImg = it.image && String(it.image).startsWith('data:image');
+      const body = hasImg
+        ? `<img class="cat-chip-img" src="${escapeHtml(it.image)}" alt="${escapeHtml(it.name||'')}" draggable="false" /><span class="cat-chip-caption">${escapeHtml(it.name||'')}</span>`
+        : `<span class="cat-chip-caption">${escapeHtml(it.name||'Item')}</span>`;
+      return `<div class="cat-item-chip ${placedCls} ${hasImg ? 'has-img' : ''}" draggable="true" data-item-id="${escapeHtml(it.id)}" data-item-name="${escapeHtml(it.name||'')}">${body}</div>`;
+    };
+    const bank = leftItems.map(it => chipHtml(it)).join('');
     const cols = cats.map((c, ci) => {
       const inCat = items.filter(it => ans[it.id] === c.id || ans[it.name] === c.id || ans[it.id] === c.name);
-      const cells = inCat.map(it =>
-        `<div class="cat-item-chip placed" draggable="true" data-item-id="${escapeHtml(it.id)}" data-item-name="${escapeHtml(it.name||'')}">${escapeHtml(it.name||'')}</div>`
-      ).join('');
+      const cells = inCat.map(it => chipHtml(it, 'placed')).join('');
       return `<div class="cat-col" data-cat-id="${escapeHtml(c.id)}">
         <div class="cat-col-head" style="background:${['#3b82f6','#14b8a6','#f59e0b','#ef4444','#8b5cf6'][ci%5]}">${escapeHtml(c.name||'')}</div>
         <div class="cat-col-drop" data-cat-id="${escapeHtml(c.id)}">${cells || ''}</div>
@@ -500,6 +618,7 @@ const Regular = {
     if (q.type === 'wordbox') return this.renderStudentWordBox(q, answer);
     if (q.type === 'fill') return this.renderStudentFill(q, answer);
     if (q.type === 'categorize') return this.renderStudentCategorize(q, answer);
+    if (q.type === 'table') return this.renderStudentTable(q, answer);
     const val = answer !== undefined ? answer : null;
 
     if (q.type === 'multiple') {
@@ -722,7 +841,7 @@ const Regular = {
       if (q.type === 'wordbox' || q.type === 'fill') {
         const blanks = q.blanks || [];
         const n = blanks.length || 1;
-        const itemPts = pts / n;
+        const itemPts = (q.pointsPerItem != null && q.pointsPerItem !== '') ? Number(q.pointsPerItem) : (pts / n);
         total -= pts;
         blanks.forEach(b => {
           total += itemPts;
@@ -739,13 +858,43 @@ const Regular = {
       if (q.type === 'categorize') {
         const items = q.items || [];
         const n = items.length || 1;
-        const itemPts = pts / n;
+        const itemPts = (q.pointsPerItem != null && q.pointsPerItem !== '') ? Number(q.pointsPerItem) : (pts / n);
         total -= pts;
         items.forEach(it => {
           total += itemPts;
           const got = a && (a[it.id] || a[it.name]);
           if (got && (got === it.category || got === (q.categories||[]).find(c=>c.id===it.category)?.name)) earned += itemPts;
         });
+        return;
+      }
+      if (q.type === 'table') {
+        const cells = q.cells || {};
+        const blanks = Object.keys(cells).filter(k => cells[k] && cells[k].blank);
+        const n = blanks.length || 1;
+        const mode = q.pointsMode || 'all';
+        const itemPts = (q.pointsPerItem != null && q.pointsPerItem !== '')
+          ? Number(q.pointsPerItem)
+          : (n ? pts / n : pts);
+        let correctCount = 0;
+        blanks.forEach(key => {
+          const cell = cells[key];
+          const got = String((a && a[key]) || '').trim().toLowerCase();
+          if (!got) return;
+          let corrects = [];
+          if (Array.isArray(cell.correct)) corrects = cell.correct;
+          else corrects = [cell.correct, ...(cell.alternatives || [])];
+          const okList = corrects.map(x => String(x || '').trim().toLowerCase()).filter(Boolean);
+          if (okList.includes(got)) correctCount++;
+        });
+        if (mode === 'each') {
+          // Replace default full-question pts with sum of per-blank awards
+          total -= pts;
+          total += itemPts * n;
+          earned += itemPts * correctCount;
+        } else {
+          // Full points only if every blank is correct
+          if (n > 0 && correctCount === n) earned += pts;
+        }
         return;
       }
       if (q.type === 'multiple' || q.type === 'dropdown') {
@@ -842,6 +991,17 @@ const Regular = {
         const id = chip.getAttribute('data-item-id');
         const catId = chip.closest('[data-cat-id]')?.getAttribute('data-cat-id');
         if (id && catId) map[id] = catId;
+      });
+      if (qid) answers[qid] = map;
+      return answers;
+    }
+    const tf = container.querySelector('.table-fill-take, [data-table-fill="1"]');
+    if (tf) {
+      const qid = tf.getAttribute('data-qid');
+      const map = {};
+      tf.querySelectorAll('.tf-student-blank').forEach(inp => {
+        const key = inp.getAttribute('data-cell');
+        if (key) map[key] = (inp.value || '').trim();
       });
       if (qid) answers[qid] = map;
       return answers;

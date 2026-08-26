@@ -201,6 +201,18 @@ const Dashboard = {
       this._sessionScreenFilter = e.target.value;
       this._renderSessions(this.sessionsCache, exam);
     };
+    const liveToggle = document.getElementById('toggle-live-screens');
+    if (liveToggle) {
+      liveToggle.checked = !!this.showLiveScreens;
+      liveToggle.onchange = () => this.setLiveScreensEnabled(liveToggle.checked);
+    }
+    // Sync preference to exam so students stop/start screen uploads
+    try {
+      window.db.collection('exams').doc(examId).update({
+        liveFeedEnabled: !!this.showLiveScreens,
+        liveFeedUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).catch(() => {});
+    } catch (_) {}
 
     this._seenStudentMsgs = this._seenStudentMsgs || {};
     this._liveThumbs = this._liveThumbs || {};
@@ -211,7 +223,11 @@ const Dashboard = {
         if (this._liveThumbs[s.id] && !s.screenThumb) s.screenThumb = this._liveThumbs[s.id];
         if (s.lastStudentMessage && s.chatPing && this._seenStudentMsgs[s.id] !== s.chatPing) {
           this._seenStudentMsgs[s.id] = s.chatPing;
-          this.showIncomingStudentMessage(s);
+          if (s.awaitingAdmit || s.lockedUntilAdmit) {
+            this.showAdmitRequest(s);
+          } else {
+            this.showIncomingStudentMessage(s);
+          }
         }
       });
       this.sessionsCache = list;
@@ -288,7 +304,7 @@ const Dashboard = {
     items = items.filter(n => {
       const ts = n.createdAt?.toMillis?.() || Date.parse(n.timestamp || 0) || 0;
       const bucket = Math.floor(ts / 60000);
-      const key = [n.sessionId || '', n.type || '', n.details || '', bucket].join('|');
+      const key = [n.sessionId || '', (n.type === 'outside-assessment' || n.type === 'window-blur' ? 'Clicked outside assessment page' : (n.type || '')), n.details || '', bucket].join('|');
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -298,7 +314,7 @@ const Dashboard = {
         (n.studentName || '').toLowerCase().includes(q) ||
         (n.studentEmail || '').toLowerCase().includes(q) ||
         (n.details || '').toLowerCase().includes(q) ||
-        (n.type || '').toLowerCase().includes(q)
+        ((n.type === 'outside-assessment' || n.type === 'window-blur' ? 'Clicked outside assessment page' : (n.type || ''))).toLowerCase().includes(q)
       );
     }
     // Paste issues first
@@ -321,7 +337,7 @@ const Dashboard = {
         <div class="integrity-item-main">
           <strong>${escapeHtml(n.studentName || n.studentEmail || '')}</strong>
           <div class="text-muted" style="font-size:0.75rem">${escapeHtml(n.studentEmail || '')}</div>
-          <div><span class="chip">${escapeHtml(n.type || '')}</span> ${escapeHtml(n.details || '')}</div>
+          <div><span class="chip">${escapeHtml((n.type === 'outside-assessment' || n.type === 'window-blur' ? 'Clicked outside assessment page' : (n.type || '')))}</span> ${escapeHtml(n.details || '')}</div>
           <div class="text-muted" style="font-size:0.7rem">${time}</div>
         </div>
       </div>`;
@@ -538,6 +554,69 @@ const Dashboard = {
   },
 
 
+
+  showAdmitRequest(s) {
+    if (!s || !s.id) return;
+    document.getElementById('admit-req-modal')?.remove();
+    const root = document.getElementById('integrity-modal-root') || document.body;
+    const wrap = document.createElement('div');
+    wrap.id = 'admit-req-modal';
+    wrap.className = 'modal-overlay ui-modal-overlay';
+    wrap.style.cssText = 'z-index:50000;pointer-events:auto';
+    wrap.innerHTML = `
+      <div class="modal ui-modal">
+        <h2>Student left assessment</h2>
+        <p class="ui-modal-body"><strong>${escapeHtml(s.studentName || s.studentEmail || 'Student')}</strong> wants to return.</p>
+        <p class="ui-modal-body">${escapeHtml(s.lockRequestMessage || s.lastStudentMessage || '')}</p>
+        <div class="form-group">
+          <label>Reply to student</label>
+          <textarea id="admit-reply" class="form-control" rows="2" placeholder="Optional message…"></textarea>
+        </div>
+        <div class="modal-actions action-btns" style="flex-wrap:wrap">
+          <button class="btn btn-danger" id="admit-end">End Student Assessment</button>
+          <button class="btn btn-ghost" id="admit-ignore">Ignore</button>
+          <button class="btn btn-primary" id="admit-ok">Admit</button>
+        </div>
+      </div>`;
+    root.appendChild(wrap);
+    const sendReply = async () => {
+      const text = (document.getElementById('admit-reply')?.value || '').trim();
+      if (!text) return;
+      await window.db.collection('sessions').doc(s.id).update({
+        lastInstructorMessage: text,
+        instructorReply: text,
+        chatPing: Date.now()
+      });
+    };
+    document.getElementById('admit-ignore').onclick = async () => {
+      await sendReply();
+      wrap.remove();
+    };
+    document.getElementById('admit-ok').onclick = async () => {
+      await sendReply();
+      await window.db.collection('sessions').doc(s.id).update({
+        lockedUntilAdmit: false,
+        instructorAdmitted: true,
+        awaitingAdmit: false,
+        admittedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      wrap.remove();
+      if (window.UI) UI.alert('Student admitted back into the assessment.', 'Admitted');
+    };
+    document.getElementById('admit-end').onclick = async () => {
+      await sendReply();
+      try {
+        await window.db.collection('sessions').doc(s.id).update({
+          status: 'submitted',
+          submitReason: 'teacher-ended',
+          lockedUntilAdmit: false,
+          awaitingAdmit: false,
+          submittedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (e) { console.error(e); }
+      wrap.remove();
+    };
+  },
 
   showIncomingStudentMessage(s) {
     if (!s || !s.id) return;
@@ -770,11 +849,13 @@ const Dashboard = {
             </div>
           </div>
           <div class="screen-share-wrap">
-            ${feed && String(feed).startsWith('data:')
-              ? `<img class="screen-share-img" src="${feed}" alt="Screen" onclick="UI.showImage(this.src,'Student screen')" />`
-              : isMobile
-                ? `<div class="screen-share-placeholder mobile-status">📱 ${escapeHtml(s.monitorFeed || 'Mobile active')}</div>`
-                : `<div class="screen-share-placeholder">Waiting for screen…</div>`}
+            ${!this.showLiveScreens
+              ? `<div class="screen-share-placeholder">Live screens off<br/><span style="font-size:0.7rem">Quota saver</span></div>`
+              : (feed && (String(feed).startsWith('data:') || String(feed).startsWith('http'))
+                ? `<img class="screen-share-img" src="${feed}" alt="Screen" onclick="UI.showImage(this.src,'Student screen')" />`
+                : isMobile
+                  ? `<div class="screen-share-placeholder mobile-status">📱 ${escapeHtml(s.monitorFeed || 'Mobile active')}</div>`
+                  : `<div class="screen-share-placeholder">Waiting for screen…</div>`)}
             <span class="screen-share-label">Screen</span>
           </div>
           <div class="${(s.connectionQuality === 'bad' || s.pingMs > 800) ? 'ping-bad' : 'ping-ok'}">

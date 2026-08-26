@@ -160,3 +160,24 @@ exam-integrity-app/
 ---
 
 Built for academic integrity. Use responsibly and in accordance with your institution’s policies.
+
+
+## Firebase Storage (required for multi-image assessments)
+
+Firestorestore documents are capped at **1 MB**. Large Passage/Categorize images are uploaded to **Firebase Storage**.
+
+1. Firebase Console → Build → **Storage** → Get started (if not enabled).
+2. Confirm `storageBucket` in `js/firebase-config.js` (usually `your-project.appspot.com`).
+3. Storage **Rules** example:
+
+```
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /assessments/{examId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+}
+```

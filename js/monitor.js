@@ -1,4 +1,44 @@
 /**
+ * Soft client-side write budget to protect Spark free quotas
+ * (20k writes / 50k reads / 20k deletes per day). Live thumbs are throttled first.
+ */
+window.WriteBudget = window.WriteBudget || {
+  dayKey() { return new Date().toISOString().slice(0, 10); },
+  load() {
+    try {
+      const raw = localStorage.getItem('lvcc_write_budget');
+      const o = raw ? JSON.parse(raw) : null;
+      if (!o || o.day !== this.dayKey()) return { day: this.dayKey(), writes: 0, reads: 0, deletes: 0, liveStopped: false };
+      return o;
+    } catch (_) { return { day: this.dayKey(), writes: 0, reads: 0, deletes: 0, liveStopped: false }; }
+  },
+  save(o) { try { localStorage.setItem('lvcc_write_budget', JSON.stringify(o)); } catch (_) {} },
+  // Reserve headroom for saves/results/exports (~8k writes buffer)
+  maxLiveWrites: 12000,
+  canLiveWrite() {
+    const o = this.load();
+    return !o.liveStopped && o.writes < this.maxLiveWrites;
+  },
+  recordWrite(n = 1) {
+    const o = this.load();
+    o.writes += n;
+    if (o.writes >= this.maxLiveWrites && !o.liveStopped) {
+      o.liveStopped = true;
+      this.save(o);
+      if (window.UI) {
+        UI.alert(
+          'Live monitoring write limit for today was reached to protect free-tier quotas. Assessment saving, results, integrity export, and PDF export remain available. Live screen updates are paused until tomorrow.',
+          'Live monitoring paused'
+        );
+      }
+      return false;
+    }
+    this.save(o);
+    return true;
+  }
+};
+
+/**
  * Assessment integrity monitor
  * - Desktop: enforce fullscreen + screen share
  * - Live thumbs overwrite every 10-15s (screen + camera)
@@ -111,6 +151,7 @@ const Monitor = {
           }
 
           this.bindLockListeners();
+          this.startLiveFeedFlagWatcher();
           if (this.timer) clearInterval(this.timer);
           this.timer = setInterval(() => this.pushLiveThumbs(), 12000);
           // don't block start on first thumb upload
@@ -205,6 +246,30 @@ const Monitor = {
   /** Live grid: small overwrite thumbs only */
   async pushLiveThumbs() {
     if (this.submitting || !this.sessionId || String(this.sessionId).startsWith('test_')) return;
+    if (window.WriteBudget && !WriteBudget.canLiveWrite()) return;
+    // Instructor turned off live grid (quota saver). Students must NOT notice:
+    // - keep screen-share stream running
+    // - keep fullscreen / integrity rules
+    // - do NOT show any message
+    // - only skip uploading live thumbnails (silent)
+    if (this._liveFeedEnabled === false) {
+      // Throttle quiet heartbeat (~every 4th tick ≈ 48s) so status stays "active"
+      this._quietBeat = (this._quietBeat || 0) + 1;
+      if (this._quietBeat % 4 === 1) {
+        try {
+          await window.db.collection('sessions').doc(this.sessionId).update({
+            lastSeenAt: firebase.firestore.FieldValue.serverTimestamp(),
+            lastHeartbeat: firebase.firestore.FieldValue.serverTimestamp(),
+            isWindowFocused: document.hasFocus() && !document.hidden,
+            isFullscreen: this.isFullscreen(),
+            // Look the same as a normal active session (no student-visible fields)
+            monitorFeed: this.deviceType === 'mobile' ? 'Exam Active' : 'ACTIVE'
+          });
+          if (window.WriteBudget) WriteBudget.recordWrite(1);
+        } catch (_) {}
+      }
+      return;
+    }
     let screenThumb = this.frameFromVideo(this.video, 480, 0.35);
     if (!screenThumb) screenThumb = await this.captureUi(0.3, 0.35);
     const cameraThumb = null;
@@ -274,7 +339,7 @@ const Monitor = {
     // Grace after join: ignore focus/fullscreen/blur noise for 30s
     const joined = this._joinedAt || 0;
     const grace = this._graceMs || 30000;
-    const soft = ['exited-fullscreen','tab-hidden','window-blur','resize','right-click','screen-share-stopped'];
+    const soft = ['exited-fullscreen','tab-hidden','outside-assessment','resize','right-click','screen-share-stopped'];
     if (joined && (Date.now() - joined) < grace && soft.includes(type)) {
       return;
     }
@@ -295,12 +360,26 @@ const Monitor = {
     } catch (_) {}
     // bump session fields
     try {
+      if (window.WriteBudget && !WriteBudget.recordWrite(1)) return;
       await window.db.collection('sessions').doc(this.sessionId).update({
         violationCount: this.violationCount,
         lastViolation: type,
         lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
       });
     } catch (_) {}
+  },
+
+  startLiveFeedFlagWatcher() {
+    if (!this.examId || this._feedUnsub) return;
+    try {
+      this._feedUnsub = window.db.collection('exams').doc(this.examId).onSnapshot(snap => {
+        const d = snap.data() || {};
+        // Default true if unset
+        this._liveFeedEnabled = d.liveFeedEnabled !== false;
+      }, () => {});
+    } catch (_) {
+      this._liveFeedEnabled = true;
+    }
   },
 
   bindLockListeners() {
@@ -322,8 +401,29 @@ const Monitor = {
     document.addEventListener('visibilitychange', () => {
       if (this.submitting) return;
       if (document.hidden) {
+        this._hiddenAt = Date.now();
         this.recordViolation('tab-hidden', true);
+      } else {
+        // Returned to tab — if session still active, allow continue (resume)
+        this._hiddenAt = null;
+        try {
+          window.db.collection('sessions').doc(this.sessionId).update({
+            lastSeenAt: firebase.firestore.FieldValue.serverTimestamp(),
+            isWindowFocused: true
+          });
+        } catch (_) {}
       }
+    });
+
+    // Intentional leave: beforeunload with beacon + lock requiring instructor admit
+    window.addEventListener('pagehide', () => {
+      if (this.submitting || !this.sessionId || String(this.sessionId).startsWith('test_')) return;
+      // Network-only drops often don't fire a clean intentional leave flag
+      try {
+        const payload = JSON.stringify({ intentionalLeave: true, at: Date.now() });
+        // Best-effort flag; full lock handled on next load via session doc
+        sessionStorage.setItem('lvcc_leave_' + this.sessionId, payload);
+      } catch (_) {}
     });
 
     window.addEventListener('blur', () => {
@@ -334,13 +434,15 @@ const Monitor = {
         if (this._uiBusy || this.submitting) return;
         if (document.getElementById('ui-modal-root')?.innerHTML?.trim()) return;
         if (document.querySelector('.ui-modal-overlay, .modal-overlay')) return;
-        this.recordViolation('window-blur', true);
+        this.recordViolation('outside-assessment', true);
       }, 400);
     });
 
     // Copy / paste (regular assessment + global)
     document.addEventListener('paste', (e) => {
       if (this.submitting || window._testMode) return;
+      // Table fill allows calculator ↔ cell copy/paste without integrity flag
+      if (window._tableFillActive) return;
       const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
       const lines = text ? text.split(/\r?\n/).length : 1;
       this.recordViolation('paste', true);
@@ -355,6 +457,7 @@ const Monitor = {
 
     document.addEventListener('copy', () => {
       if (this.submitting || window._testMode) return;
+      if (window._tableFillActive) return;
       this.recordViolation('copy', true);
     }, true);
 

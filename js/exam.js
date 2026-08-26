@@ -497,3 +497,98 @@ const Exam = {
 };
 
 window.Exam = Exam;
+
+
+/**
+ * Store large images in Firebase Storage so the exam Firestore doc stays under 1 MB.
+ * Storage rules (Console → Storage → Rules) should allow auth users to write under assessments/:
+ *
+ * rules_version = '2';
+ * service firebase.storage {
+ *   match /b/{bucket}/o {
+ *     match /assessments/{examId}/{allPaths=**} {
+ *       allow read: if request.auth != null;
+ *       allow write: if request.auth != null;
+ *     }
+ *   }
+ * }
+ */
+const MediaStore = {
+  available() {
+    try { return !!(window.firebase && firebase.storage); } catch (_) { return false; }
+  },
+
+  dataUrlToBlob(dataUrl) {
+    const m = String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+    if (!m) return null;
+    const mime = m[1] || 'image/jpeg';
+    const bin = atob(m[2]);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  },
+
+  async uploadDataUrl(examId, dataUrl, nameHint) {
+    if (!this.available()) throw new Error('Firebase Storage SDK not loaded.');
+    if (!dataUrl || !String(dataUrl).startsWith('data:image')) return dataUrl;
+    const blob = this.dataUrlToBlob(dataUrl);
+    if (!blob) return dataUrl;
+    const safe = String(nameHint || 'img').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'img';
+    const path = `assessments/${examId}/${safe}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`;
+    const ref = firebase.storage().ref(path);
+    await ref.put(blob, { contentType: blob.type || 'image/jpeg' });
+    return await ref.getDownloadURL();
+  },
+
+  /** Walk payload; upload every data:image string; replace with download URL. */
+  async externalizeImages(examId, payload, onProgress) {
+    if (!examId) throw new Error('examId required for media upload');
+    const seen = new Map(); // dataUrl -> url (dedupe identical embeds)
+    let uploaded = 0;
+
+    const handle = async (dataUrl, hint) => {
+      if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) return dataUrl;
+      if (seen.has(dataUrl)) return seen.get(dataUrl);
+      // skip tiny placeholders
+      if (dataUrl.length < 200) return dataUrl;
+      const url = await this.uploadDataUrl(examId, dataUrl, hint);
+      seen.set(dataUrl, url);
+      uploaded++;
+      if (onProgress) onProgress(uploaded);
+      return url;
+    };
+
+    const walk = async (node, path = '') => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) {
+          if (typeof node[i] === 'string' && node[i].startsWith('data:image')) {
+            node[i] = await handle(node[i], path + '_' + i);
+          } else {
+            await walk(node[i], path + '_' + i);
+          }
+        }
+        return;
+      }
+      for (const k of Object.keys(node)) {
+        const v = node[k];
+        if (typeof v === 'string' && v.startsWith('data:image')) {
+          node[k] = await handle(v, path + '_' + k);
+        } else if (v && typeof v === 'object') {
+          await walk(v, path + '_' + k);
+        }
+      }
+    };
+
+    // Prefer Storage when available; otherwise keep compressed in-doc (may still hit 1MB)
+    if (!this.available()) {
+      console.warn('Firebase Storage not available — images stay in Firestore document');
+      return { payload, uploaded: 0, usedStorage: false };
+    }
+
+    await walk(payload, 'root');
+    return { payload, uploaded, usedStorage: true };
+  }
+};
+
+window.MediaStore = MediaStore;

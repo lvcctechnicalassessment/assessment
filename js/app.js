@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.15</div>
+          <div class="app-version">Build v1.5.20</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.15</div>
+              <div class="app-version">v1.5.20</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -522,6 +522,93 @@ const App = {
   },
 
 
+
+  /** Estimate JSON size in bytes */
+  _payloadBytes(obj) {
+    try { return new Blob([JSON.stringify(obj)]).size; } catch (_) {
+      return JSON.stringify(obj).length;
+    }
+  },
+
+  /**
+   * Firestore max document size is 1 MiB (hard limit — not configurable).
+   * Compress/strip base64 images so the exam doc stays under ~900 KB.
+   * (User-facing "budget" keeps room for metadata; total content aim < 1 MB.)
+   */
+  async compressAssessmentPayload(payload, maxBytes = 900000) {
+    const clone = JSON.parse(JSON.stringify(payload));
+    const compressDataUrl = (dataUrl, maxW = 640, quality = 0.55) => new Promise((resolve) => {
+      if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) {
+        resolve(dataUrl); return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let w = img.width, h = img.height;
+          if (w > maxW) { h = Math.round(h * (maxW / w)); w = maxW; }
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          let out = c.toDataURL('image/jpeg', quality);
+          // further shrink if still huge
+          if (out.length > 120000) {
+            out = c.toDataURL('image/jpeg', 0.35);
+          }
+          if (out.length > 80000) {
+            const c2 = document.createElement('canvas');
+            c2.width = Math.round(w * 0.7); c2.height = Math.round(h * 0.7);
+            c2.getContext('2d').drawImage(c, 0, 0, c2.width, c2.height);
+            out = c2.toDataURL('image/jpeg', 0.32);
+          }
+          resolve(out);
+        } catch (_) { resolve(null); }
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
+
+    const walk = async (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) {
+          if (typeof node[i] === 'string' && node[i].startsWith('data:image')) {
+            node[i] = await compressDataUrl(node[i]) || '';
+          } else {
+            await walk(node[i]);
+          }
+        }
+        return;
+      }
+      for (const k of Object.keys(node)) {
+        const v = node[k];
+        if (typeof v === 'string' && v.startsWith('data:image')) {
+          node[k] = await compressDataUrl(v) || '';
+        } else if (v && typeof v === 'object') {
+          await walk(v);
+        }
+      }
+    };
+
+    await walk(clone);
+    let size = this._payloadBytes(clone);
+    // If still too large, strip images progressively
+    if (size > maxBytes) {
+      const stripImgs = (node) => {
+        if (!node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(stripImgs); return; }
+        for (const k of Object.keys(node)) {
+          if (typeof node[k] === 'string' && node[k].startsWith('data:image') && node[k].length > 5000) {
+            node[k] = ''; // drop oversized embedded image
+          } else if (node[k] && typeof node[k] === 'object') stripImgs(node[k]);
+        }
+      };
+      stripImgs(clone);
+      size = this._payloadBytes(clone);
+    }
+    clone._payloadBytes = size;
+    return clone;
+  },
+
   /** Collect form + builder into a clean Firestore-safe payload */
   collectAssessmentForm(status = 'draft') {
     // Always sync flat list from sections
@@ -557,7 +644,7 @@ const App = {
   },
 
   async saveAssessment(status = 'draft', schedule = null) {
-    const payload = this.collectAssessmentForm(status);
+    let payload = this.collectAssessmentForm(status);
     if (!payload.title) {
       throw new Error('Title is required.');
     }
@@ -580,17 +667,57 @@ const App = {
     // Strip undefined (Firestore rejects undefined)
     Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
 
+    // Light compress first (smaller uploads), then move images to Firebase Storage
+    // so the Firestore exam document stays under the 1 MB hard limit.
+    payload = await this.compressAssessmentPayload(payload, 50 * 1024 * 1024); // soft; Storage holds bulk
+    delete payload._payloadBytes;
+
     let examId = window._editingExamId || sessionStorage.getItem('lvcc_editing_exam') || null;
-    if (examId) {
-      await Exam.updateExam(examId, payload);
-      window._editingExamId = examId;
-      try { sessionStorage.setItem('lvcc_editing_exam', examId); } catch (_) {}
-    } else {
-      const created = await Exam.createExam(payload);
-      examId = created.id;
+
+    // Need an exam id before Storage paths work — create a stub if new
+    if (!examId) {
+      const stub = await Exam.createExam({
+        ...payload,
+        questions: [],
+        sections: [],
+        status: status === 'published' ? 'published' : 'draft'
+      });
+      examId = stub.id;
       window._editingExamId = examId;
       try { sessionStorage.setItem('lvcc_editing_exam', examId); } catch (_) {}
     }
+
+    // Externalize data:image → Storage download URLs
+    if (window.MediaStore) {
+      try {
+        const result = await MediaStore.externalizeImages(examId, payload, (n) => {
+          console.log('Uploaded media', n);
+        });
+        payload = result.payload;
+        if (result.uploaded) {
+          console.log('Moved', result.uploaded, 'image(s) to Firebase Storage');
+        }
+      } catch (mediaErr) {
+        console.error(mediaErr);
+        throw new Error(
+          'Could not upload images to Storage. Enable Firebase Storage for this project, ' +
+          'set Storage rules for assessments/{examId}/**, and ensure storageBucket is set in firebase-config. ' +
+          (mediaErr.message || '')
+        );
+      }
+    }
+
+    const bytes = this._payloadBytes(payload);
+    if (bytes > 1048576) {
+      throw new Error(
+        'Assessment text/metadata is still too large (' + Math.round(bytes / 1024) + ' KB). ' +
+        'Firestore max is 1 MB for the document itself. Images should be in Storage; remove extra large HTML if needed.'
+      );
+    }
+
+    await Exam.updateExam(examId, payload);
+    window._editingExamId = examId;
+    try { sessionStorage.setItem('lvcc_editing_exam', examId); } catch (_) {}
     this.clearAutosave();
     return examId;
   },
@@ -804,9 +931,14 @@ const App = {
             return `<div class="card q-in-section categorize-builder-wrap" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderCategorize(q, globalIdx)}
               <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
+          if (q.type === 'table') {
+            return `<div class="card q-in-section table-builder-wrap" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderTable(q, globalIdx)}
+              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+          }
           return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}
             <textarea class="form-control q-prompt" data-gidx="${globalIdx}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
-            <input class="form-control mt-1" data-correct-text="${globalIdx}" value="${escapeHtml(String(q.correct ?? ''))}" placeholder="Correct answer" />
+            <input class="form-control mt-1" data-correct-text="${globalIdx}" value="${escapeHtml(String(Array.isArray(q.correct)?(q.correct[0]||''): (q.correct ?? '')))}" placeholder="Correct / suggested answer" />
+            <input class="form-control mt-1" data-correct-alt="${globalIdx}" value="${escapeHtml((q.alternatives||[]).join(', '))}" placeholder="Alternate correct answers (comma-separated)" />
             <label class="mt-1">Points <input type="number" class="form-control" style="width:80px;display:inline-block" data-points="${globalIdx}" value="${q.points??1}" /></label>
             <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button>
           </div>`;
@@ -1306,6 +1438,122 @@ const App = {
           q.items.splice(ii, 1); syncFlat(); renderBuilder();
         };
       });
+
+
+      box.querySelectorAll('[data-points-each]').forEach(el => {
+        el.oninput = () => {
+          const q = (window._builderQuestions || [])[Number(el.dataset.pointsEach)];
+          if (q) q.pointsPerItem = el.value === '' ? null : Number(el.value);
+        };
+      });
+      box.querySelectorAll('[data-correct-alt]').forEach(el => {
+        el.oninput = () => {
+          const q = (window._builderQuestions || [])[Number(el.dataset.correctAlt)];
+          if (q) q.alternatives = el.value.split(',').map(s => s.trim()).filter(Boolean);
+        };
+      });
+      box.querySelectorAll('[data-cat-item-del-img]').forEach(el => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const [gi, ii] = el.dataset.catItemDelImg.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q?.items?.[ii]) { q.items[ii].image = ''; syncFlat(); renderBuilder(); }
+        };
+      });
+      // Table fill config
+      box.querySelectorAll('[data-tf-rows], [data-tf-cols]').forEach(el => {
+        el.onchange = () => {};
+      });
+      box.querySelectorAll('[data-tf-resize]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.tfResize);
+          const q = (window._builderQuestions || [])[gi]; if (!q) return;
+          q.rows = Math.min(20, Math.max(1, Number(box.querySelector(`[data-tf-rows="${gi}"]`)?.value) || 3));
+          q.cols = Math.min(10, Math.max(1, Number(box.querySelector(`[data-tf-cols="${gi}"]`)?.value) || 3));
+          q.headers = q.headers || [];
+          while (q.headers.length < q.cols) q.headers.push('Col ' + (q.headers.length + 1));
+          q.headers = q.headers.slice(0, q.cols);
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-tf-header]').forEach(el => {
+        el.oninput = () => {
+          const [gi, c] = el.dataset.tfHeader.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi]; if (!q) return;
+          q.headers = q.headers || []; q.headers[c] = el.value;
+        };
+      });
+      box.querySelectorAll('[data-tf-blank]').forEach(el => {
+        el.onchange = () => {
+          const [gi, key] = el.dataset.tfBlank.split(':');
+          const q = (window._builderQuestions || [])[Number(gi)]; if (!q) return;
+          q.cells = q.cells || {};
+          const cell = q.cells[key] || {};
+          cell.blank = el.checked;
+          if (cell.blank) {
+            let blanks = Object.keys(q.cells).filter(k => q.cells[k]?.blank).length;
+            if (!q.cells[key]?.blank) blanks += 1;
+            // recount
+            const next = { ...q.cells, [key]: { ...cell, blank: true } };
+            const n = Object.keys(next).filter(k => next[k]?.blank).length;
+            if (n > 50) {
+              el.checked = false;
+              if (window.UI) UI.alert('Maximum 50 blank cells per table.', 'Limit');
+              return;
+            }
+            cell.correct = cell.correct || [''];
+          } else {
+            cell.value = cell.value || '';
+          }
+          q.cells[key] = cell;
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-tf-cell]').forEach(el => {
+        el.oninput = () => {
+          const [gi, key] = el.dataset.tfCell.split(':');
+          const q = (window._builderQuestions || [])[Number(gi)]; if (!q) return;
+          q.cells = q.cells || {};
+          const cell = q.cells[key] || {};
+          if (cell.blank) {
+            const alts = cell.alternatives || [];
+            cell.correct = [el.value, ...alts];
+          } else {
+            cell.value = el.value;
+          }
+          q.cells[key] = cell;
+        };
+      });
+      box.querySelectorAll('[data-tf-alt]').forEach(el => {
+        el.oninput = () => {
+          const [gi, key] = el.dataset.tfAlt.split(':');
+          const q = (window._builderQuestions || [])[Number(gi)]; if (!q) return;
+          q.cells = q.cells || {};
+          const cell = q.cells[key] || { blank: true };
+          const primary = Array.isArray(cell.correct) ? cell.correct[0] : (cell.correct || '');
+          cell.alternatives = el.value.split(',').map(s => s.trim()).filter(Boolean);
+          cell.correct = [primary, ...cell.alternatives];
+          q.cells[key] = cell;
+        };
+      });
+      // Builder calculator keys
+      box.querySelectorAll('[data-tf-calc-key]').forEach(btn => {
+        btn.onclick = () => {
+          const [gi, key] = btn.dataset.tfCalcKey.split(':');
+          const disp = box.querySelector(`[data-tf-calc-display="${gi}"]`);
+          if (!disp) return;
+          let v = disp.value === '0' ? '' : disp.value;
+          if (key === 'C') disp.value = '0';
+          else if (key === '⌫') disp.value = v.slice(0, -1) || '0';
+          else if (key === '=') {
+            try { disp.value = String(Function('"use strict";return (' + v + ')')()); }
+            catch (_) { disp.value = 'Error'; }
+          } else if (key === 'Copy') {
+            try { navigator.clipboard.writeText(disp.value); } catch (_) {}
+          } else disp.value = v + key;
+        };
+      });
+
 
       } // end sections.length else
 
@@ -2142,6 +2390,21 @@ const App = {
     return { total, correct, incorrect, unattempted, accuracy };
   },
 
+  integrityTypeLabel(type) {
+    const map = {
+      'outside-assessment': 'Clicked outside assessment page',
+      'window-blur': 'Clicked outside assessment page',
+      'tab-hidden': 'Switching tabs: Leaving the assessment window or browser tab',
+      'paste': 'Copying content: Attempting to paste',
+      'copy': 'Copying content: Attempting to copy text or questions',
+      'exited-fullscreen': 'Exiting full-screen mode',
+      'right-click': 'Right-clicking: Opening context menus on the page',
+      'resize': 'Resizing the window',
+      'screen-share-stopped': 'Screen sharing stopped'
+    };
+    return map[type] || type || '';
+  },
+
   formatAnswerDisplay(q, value, isCorrectKey = false) {
     if (!q) return '—';
     if (q.type === 'wordbox' || q.type === 'fill') {
@@ -2726,6 +2989,62 @@ const App = {
   },
 
   async startRegularExam(session) {
+    // Resume vs lock: intentional leave requires instructor Admit
+    if (session.lockedUntilAdmit && !session.instructorAdmitted) {
+      const msg = await UI.prompt(
+        'Your assessment is locked because you left the page. Send a message to your instructor to request access:',
+        '',
+        'Assessment locked',
+        'Message to instructor…'
+      );
+      if (msg && String(msg).trim() && !String(session.id).startsWith('test_')) {
+        await window.db.collection('sessions').doc(session.id).update({
+          lockRequestMessage: String(msg).trim(),
+          lockRequestAt: firebase.firestore.FieldValue.serverTimestamp(),
+          chatPing: Date.now(),
+          lastStudentMessage: String(msg).trim(),
+          awaitingAdmit: true
+        });
+        await UI.alert('Message sent. Wait for your instructor to Admit you back into the assessment.', 'Sent');
+      }
+      return this.showStudentHome();
+    }
+    // Promote leave flag to server lock once
+    try {
+      const leaveRaw = sessionStorage.getItem('lvcc_leave_' + session.id);
+      if (leaveRaw && !session.instructorAdmitted && !session.lockedUntilAdmit) {
+        const leave = JSON.parse(leaveRaw);
+        if (leave.intentionalLeave) {
+          await window.db.collection('sessions').doc(session.id).update({
+            lockedUntilAdmit: true,
+            leaveAt: leave.at || Date.now()
+          });
+          session.lockedUntilAdmit = true;
+        }
+      }
+    } catch (_) {}
+    if (session.lockedUntilAdmit && !session.instructorAdmitted) {
+      // re-run lock UI path
+      const msg = await UI.prompt(
+        'Your assessment is locked because you left the page. Message your instructor to continue:',
+        '',
+        'Assessment locked',
+        'Message to instructor…'
+      );
+      if (msg && String(msg).trim()) {
+        await window.db.collection('sessions').doc(session.id).update({
+          lockRequestMessage: String(msg).trim(),
+          lockRequestAt: firebase.firestore.FieldValue.serverTimestamp(),
+          chatPing: Date.now(),
+          lastStudentMessage: String(msg).trim(),
+          awaitingAdmit: true
+        });
+        await UI.alert('Message sent. Wait for your instructor to Admit you.', 'Sent');
+      }
+      return this.showStudentHome();
+    }
+    try { sessionStorage.removeItem('lvcc_leave_' + session.id); } catch (_) {}
+
     const exam = session.exam || await Exam.getExam(session.examId);
     const groups = (typeof Regular.groupQuestionsForTake === 'function')
       ? Regular.groupQuestionsForTake(exam)
@@ -2837,6 +3156,20 @@ const App = {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentFill(currentQ, answers[currentQ.id])}</div>`;
         } else if (currentQ.type === 'categorize') {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentCategorize(currentQ, answers[currentQ.id])}</div>`;
+        } else if (currentQ.type === 'table') {
+          body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentTable(currentQ, answers[currentQ.id])}</div>`;
+        } else if (currentQ.type === 'passage' || currentQ.isPassageSet) {
+          const html = currentQ.passageHtml || (currentQ.passages && currentQ.passages[0] && currentQ.passages[0].html) || '';
+          const kids = currentQ.questions || [];
+          const kidsHtml = kids.map((kq, ki) => {
+            const ans = answers[kq.id];
+            if (kq.type === 'multiple' || kq.type === 'truefalse') return `<div class="pass-take-q">${Regular.renderStudentQuestion(kq, ans)}</div>`;
+            return `<div class="pass-take-q">${Regular.renderStudentQuestion(kq, ans)}</div>`;
+          }).join('');
+          body = `<div class="passage-take-dual" id="take-q-box" data-passage-take="1">
+            <div class="passage-take-left"><div class="passage-doc">${html}</div></div>
+            <div class="passage-take-right">${kidsHtml || '<p class="text-muted">No questions</p>'}</div>
+          </div>`;
         } else {
           body = `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(currentQ.prompt || 'Question')}</div>
             <div class="take-single" id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
@@ -2910,6 +3243,41 @@ const App = {
       if (wbRoot) Regular.bindWordBoxDrag(wbRoot, save);
       const catRoot = document.querySelector('.cat-student');
       if (catRoot) Regular.bindCategorizeDrag(catRoot, save);
+      // Table fill calculator + no integrity paste while focused here
+      window._tableFillActive = !!document.querySelector('[data-table-fill="1"]');
+      const stuCalc = document.getElementById('student-calculator');
+      if (stuCalc) {
+        let expr = '0';
+        const disp = document.getElementById('stu-calc-display');
+        stuCalc.querySelectorAll('[data-stu-calc]').forEach(btn => {
+          btn.onclick = () => {
+            const k = btn.getAttribute('data-stu-calc');
+            if (k === 'C') { expr = '0'; }
+            else if (k === '⌫') { expr = expr.slice(0, -1) || '0'; }
+            else if (k === '=') {
+              try { expr = String(Function('"use strict";return (' + expr + ')')()); }
+              catch (_) { expr = 'Error'; }
+            } else if (k === 'Copy') {
+              try { navigator.clipboard.writeText(disp.value); } catch (_) {}
+              return;
+            } else {
+              expr = (expr === '0' ? '' : expr) + k;
+            }
+            if (disp) disp.value = expr;
+          };
+        });
+        document.getElementById('calc-collapse-btn')?.addEventListener('click', () => {
+          document.getElementById('student-calc-panel')?.classList.toggle('collapsed');
+        });
+      }
+      // Passage: bind MC inside dual panel
+      document.querySelectorAll('.passage-take-right .gq-student, .passage-take-right .take-opt').forEach(btn => {
+        btn.addEventListener('click', () => setTimeout(save, 0));
+      });
+      document.querySelectorAll('.passage-take-right input, .passage-take-right textarea').forEach(el => {
+        el.addEventListener('change', save);
+        el.addEventListener('input', save);
+      });
 
       const goNext = async (skipPassage = false, isSkip = false) => {
         save();
@@ -3157,7 +3525,7 @@ const App = {
       const items = q ? all.filter(n =>
         (n.studentName || '').toLowerCase().includes(q) ||
         (n.studentEmail || '').toLowerCase().includes(q) ||
-        (n.type || '').toLowerCase().includes(q) ||
+        ((n.type === 'outside-assessment' || n.type === 'window-blur' ? 'Clicked outside assessment page' : (n.type || ''))).toLowerCase().includes(q) ||
         (n.details || '').toLowerCase().includes(q)
       ) : all;
       window._integrityExportRows = items;
@@ -3292,7 +3660,7 @@ const App = {
         rows.forEach((n) => {
           const time = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
             : (n.timestamp ? new Date(n.timestamp).toLocaleString() : '');
-          const line = `${n.studentName || ''} | ${n.studentEmail || ''} | ${n.type || ''} | ${n.details || ''} | ${time}`;
+          const line = `${n.studentName || ''} | ${n.studentEmail || ''} | ${(n.type === 'outside-assessment' || n.type === 'window-blur' ? 'Clicked outside assessment page' : (n.type || ''))} | ${n.details || ''} | ${time}`;
           const lines = doc.splitTextToSize(line, 520);
           if (y + lines.length * 12 > 780) { doc.addPage(); y = 40; }
           doc.text(lines, 40, y);
