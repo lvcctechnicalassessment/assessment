@@ -197,3 +197,7 @@ If features seem missing, replace **all** app files from the zip (not only one J
 
 ## v1.5.20
 - Table fill scoring: Full points only if all blanks correct OR points for every correct blank
+
+## v1.5.21
+- Hard-stop monitoring on submit / time-up / teacher end / test-as-student end (clears timers, streams, session id)
+- Student auto-stops live writes when session status becomes submitted

@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.20</div>
+          <div class="app-version">Build v1.5.21</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.20</div>
+              <div class="app-version">v1.5.21</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -2878,9 +2878,9 @@ const App = {
         if (this._endedHandled) return;
         this._endedHandled = true;
         if (this._sessionWatchUnsub) { try { this._sessionWatchUnsub(); } catch (_) {} this._sessionWatchUnsub = null; }
-        CodeEditor.beginSubmit();
-        try { try { Monitor.stop(); } catch(_){}
-      CodeEditor.dispose(); } catch (_) {}
+        try { CodeEditor.beginSubmit(); } catch (_) {}
+        try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+        try { CodeEditor.dispose(); } catch (_) {}
         document.getElementById('student-chat-fab')?.remove();
         this.clearExamQuery();
         this._showEndedOverlay();
@@ -3374,7 +3374,9 @@ const App = {
   },
 
   async finishRegularTake(session, answers, reason = 'manual') {
+    // Always kill live uploads first (protects Spark write quota)
     try { if (window.Monitor) Monitor.markSubmitting(); } catch (_) {}
+    try { if (window.Monitor) Monitor.stop(); } catch (_) {}
     try { CodeEditor.beginSubmit(); } catch (_) {}
     const isTest = !!(session._testMode || window._testMode || String(session.id).startsWith('test_'));
     if (!isTest) {
@@ -3398,6 +3400,8 @@ const App = {
     document.getElementById('test-mode-bar')?.remove();
     window._testMode = false;
     if (isTest) {
+      try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+      window._testMode = false;
       // Instructor preview tab: close or return to instructor dashboard
       this.renderShell(`
         <div class="card empty-state times-up-card">

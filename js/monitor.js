@@ -152,6 +152,7 @@ const Monitor = {
 
           this.bindLockListeners();
           this.startLiveFeedFlagWatcher();
+          this.startSessionEndWatcher();
           if (this.timer) clearInterval(this.timer);
           this.timer = setInterval(() => this.pushLiveThumbs(), 12000);
           // don't block start on first thumb upload
@@ -374,12 +375,28 @@ const Monitor = {
     try {
       this._feedUnsub = window.db.collection('exams').doc(this.examId).onSnapshot(snap => {
         const d = snap.data() || {};
-        // Default true if unset
         this._liveFeedEnabled = d.liveFeedEnabled !== false;
       }, () => {});
     } catch (_) {
       this._liveFeedEnabled = true;
     }
+  },
+
+  /** Stop all local monitoring as soon as session is submitted/ended (teacher or self) */
+  startSessionEndWatcher() {
+    if (!this.sessionId || String(this.sessionId).startsWith('test_') || this._sessionEndUnsub) return;
+    try {
+      this._sessionEndUnsub = window.db.collection('sessions').doc(this.sessionId).onSnapshot(snap => {
+        const d = snap.data() || {};
+        if (d.status === 'submitted' || d.monitoringStopped || d.instructorEnded) {
+          try { this.stop(); } catch (_) {}
+          if (this._sessionEndUnsub) {
+            try { this._sessionEndUnsub(); } catch (_) {}
+            this._sessionEndUnsub = null;
+          }
+        }
+      }, () => {});
+    } catch (_) {}
   },
 
   bindLockListeners() {
@@ -544,10 +561,25 @@ const Monitor = {
     this.stop();
   },
 
+  /**
+   * Fully end monitoring so no further Firestore writes (thumbs/heartbeats).
+   * Must run on: submit, time-up, teacher end, test-as-student close, leave exam.
+   */
   stop() {
     this.submitting = true;
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    this.started = false;
+    if (this.timer) {
+      try { clearInterval(this.timer); } catch (_) {}
+      this.timer = null;
+    }
+    if (this._feedUnsub) {
+      try { this._feedUnsub(); } catch (_) {}
+      this._feedUnsub = null;
+    }
+    if (this._sessionEndUnsub) {
+      try { this._sessionEndUnsub(); } catch (_) {}
+      this._sessionEndUnsub = null;
+    }
     if (this.stream) {
       try { this.stream.getTracks().forEach(tr => tr.stop()); } catch (_) {}
       this.stream = null;
@@ -556,8 +588,15 @@ const Monitor = {
       try { this.cameraStream.getTracks().forEach(tr => tr.stop()); } catch (_) {}
       this.cameraStream = null;
     }
+    if (this.video) {
+      try { this.video.srcObject = null; } catch (_) {}
+      this.video = null;
+    }
     document.getElementById('monitor-gate')?.remove();
     document.getElementById('monitor-lock')?.remove();
+    // Clear ids last so any in-flight pushLiveThumbs bails out
+    this.sessionId = null;
+    this.examId = null;
   }
 };
 
