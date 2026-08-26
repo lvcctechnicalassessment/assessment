@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.21</div>
+          <div class="app-version">Build v1.5.22</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -194,7 +194,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.21</div>
+              <div class="app-version">v1.5.22</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -3139,13 +3139,25 @@ const App = {
         const list = g.questions && g.questions.length ? g.questions : [g.passage];
         if (pi >= list.length) pi = list.length - 1;
         currentQ = list[pi];
-        const passageHtml = (g.passage.passages || []).map(pp =>
-          `<div class="passage-doc"><h4>${escapeHtml(pp.title || 'Passage')}</h4>${pp.html || ''}</div>`
-        ).join('') || `<div class="passage-doc">${escapeHtml(g.passage.prompt || '')}</div>`;
+        const rawPass = g.passage.passageHtml
+          || (g.passage.passages && g.passage.passages[0] && g.passage.passages[0].html)
+          || '';
+        const passageHtml = rawPass
+          ? `<div class="passage-doc">${rawPass}</div>`
+          : ((g.passage.passages || []).map(pp =>
+              `<div class="passage-doc"><h4>${escapeHtml(pp.title || 'Passage')}</h4>${pp.html || ''}</div>`
+            ).join('') || `<div class="passage-doc">${escapeHtml(g.passage.prompt || '')}</div>`);
         const qPart = (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf')
           ? renderMcKahoot(currentQ)
           : `<div id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
-        body = `<div class="take-passage"><div class="take-passage-left">${passageHtml}</div><div class="take-passage-right">${qPart}</div></div>`;
+        // Left = passage (stays while pi advances); right = current question only
+        body = `<div class="take-passage passage-take-dual">
+          <div class="take-passage-left passage-take-left">${passageHtml}</div>
+          <div class="take-passage-right passage-take-right">
+            <div class="text-muted" style="font-size:0.8rem;margin-bottom:0.35rem">Question ${pi + 1} of ${(g.questions && g.questions.length) || 1}</div>
+            ${qPart}
+          </div>
+        </div>`;
       } else {
         currentQ = g.question;
         if (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf') {
@@ -3190,7 +3202,7 @@ const App = {
           </div>
           <div class="take-stage">${body}</div>
           <div class="take-nav">
-            ${g.kind === 'passage' ? '<button type="button" class="btn btn-ghost" id="take-skip-passage">Skip passage</button>' : ''}
+            ${g.kind === 'passage' ? '<button type="button" class="btn btn-primary btn-skip-passage" id="take-skip-passage">Skip passage</button>' : ''}
             ${showSkip ? '<button type="button" class="btn btn-ghost" id="take-skip">Skip</button>' : ''}
             <button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>
           </div>

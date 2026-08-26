@@ -775,6 +775,21 @@ const Dashboard = {
   },
 
   _renderSessions(sessions, exam) {
+    // Refresh focus dropdown
+    const sel = document.getElementById('focus-student-screen');
+    if (sel) {
+      const cur = this.focusedSessionId || '';
+      const opts = ['<option value="">All students (grid)</option>'];
+      (sessions || []).filter(s => s.status === 'active').forEach(s => {
+        const label = escapeHtml((s.studentName || s.studentEmail || s.id || '').toString());
+        opts.push(`<option value="${escapeHtml(s.id)}" ${cur === s.id ? 'selected' : ''}>${label}</option>`);
+      });
+      sel.innerHTML = opts.join('');
+      sel.onchange = () => {
+        this.focusedSessionId = sel.value || null;
+        this._renderSessions(this.sessionsCache, this.currentExam || exam);
+      };
+    }
     const grid = document.getElementById('live-sessions-grid');
     if (!grid) return;
     const all = sessions || [];
@@ -793,6 +808,10 @@ const Dashboard = {
         (s.studentName || '').toLowerCase().includes(q) ||
         (s.studentEmail || '').toLowerCase().includes(q)
       );
+    }
+    // Instructor: watch only one student's screen (others removed from grid)
+    if (this.focusedSessionId) {
+      list = list.filter(s => s.id === this.focusedSessionId);
     }
     if (!list.length) {
       grid.innerHTML = '<div class="empty-state">Waiting for students...</div>';
@@ -851,6 +870,8 @@ const Dashboard = {
           <div class="screen-share-wrap">
             ${!this.showLiveScreens
               ? `<div class="screen-share-placeholder">Live screens off<br/><span style="font-size:0.7rem">Quota saver</span></div>`
+              : (this.focusedSessionId && this.focusedSessionId !== s.id)
+                ? `<div class="screen-share-placeholder">Screen hidden<br/><span style="font-size:0.7rem">Viewing another student</span></div>`
               : (feed && (String(feed).startsWith('data:') || String(feed).startsWith('http'))
                 ? `<img class="screen-share-img" src="${feed}" alt="Screen" onclick="UI.showImage(this.src,'Student screen')" />`
                 : isMobile

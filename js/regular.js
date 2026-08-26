@@ -412,7 +412,8 @@ const Regular = {
     grid += '</tbody></table>';
     return `<div class="table-fill-dual" data-gidx="${index}">
       <div class="table-fill-left">
-        <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions for students">${escapeHtml(q.prompt || '')}</textarea>
+        <label class="text-muted" style="font-size:0.8rem">Instruction (shown as first merged row of the table)</label>
+        <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions for students — appears as top row spanning all columns">${escapeHtml(q.prompt || '')}</textarea>
         <div class="form-group mt-1" style="display:flex;gap:0.5rem;flex-wrap:wrap">
           <label>Rows <input type="number" min="1" max="20" class="form-control" style="width:70px" data-tf-rows="${index}" value="${rows}" /></label>
           <label>Cols <input type="number" min="1" max="10" class="form-control" style="width:70px" data-tf-cols="${index}" value="${cols}" /></label>
@@ -453,20 +454,24 @@ const Regular = {
     const cols = Number(q.cols) || 3;
     const cells = q.cells || {};
     const ans = (answer && typeof answer === 'object') ? answer : {};
-    let grid = '<table class="table-fill-student"><thead><tr><th></th>';
+    const instr = q.prompt || 'Fill in the blank cells.';
+    let grid = '<table class="table-fill-student table-fill-grid"><thead>';
+    // Instruction row: merge all columns
+    grid += `<tr class="tf-instr-row"><td colspan="${cols + 1}">${escapeHtml(instr)}</td></tr>`;
+    grid += '<tr class="tf-header-row"><th class="tf-corner"></th>';
     for (let c = 0; c < cols; c++) {
       grid += `<th>${escapeHtml((q.headers && q.headers[c]) || ('Col ' + (c + 1)))}</th>`;
     }
     grid += '</tr></thead><tbody>';
     for (let r = 0; r < rows; r++) {
-      grid += `<tr><th>${r + 1}</th>`;
+      grid += `<tr><th class="tf-row-h">${r + 1}</th>`;
       for (let c = 0; c < cols; c++) {
         const key = r + '-' + c;
         const cell = cells[key] || {};
         if (cell.blank) {
-          grid += `<td><input class="form-control tf-student-blank" data-qid="${q.id}" data-cell="${key}" value="${escapeHtml(ans[key] || '')}" /></td>`;
+          grid += `<td class="tf-cell tf-blank"><input class="tf-student-blank" data-qid="${q.id}" data-cell="${key}" value="${escapeHtml(ans[key] || '')}" /></td>`;
         } else {
-          grid += `<td class="tf-fixed">${escapeHtml(cell.value || '')}</td>`;
+          grid += `<td class="tf-cell tf-fixed">${escapeHtml(cell.value || '')}</td>`;
         }
       }
       grid += '</tr>';
@@ -474,23 +479,24 @@ const Regular = {
     grid += '</tbody></table>';
     return `<div class="table-fill-take" data-qid="${q.id}" data-table-fill="1">
       <div class="table-fill-take-left">
-        <div class="take-q-banner">${escapeHtml(q.prompt || 'Fill in the blank cells.')}</div>
-        <div class="table-fill-scroll">${grid}</div>
+        <div class="table-fill-scroll table-fill-center">${grid}</div>
       </div>
       <aside class="table-fill-take-right" id="student-calc-panel">
         <button type="button" class="btn btn-sm btn-ghost calc-collapse-btn" id="calc-collapse-btn" title="Calculator">计算器</button>
-        <div class="tf-calculator" id="student-calculator">
+        <div class="tf-calculator tf-calc-pro" id="student-calculator">
+          <div class="tf-calc-title">Calculator</div>
           <input class="form-control tf-calc-display" id="stu-calc-display" readonly value="0" />
           <div class="tf-calc-keys">
-            ${['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+','C','⌫','Copy'].map(k =>
-              `<button type="button" class="btn btn-sm btn-ghost tf-calc-key" data-stu-calc="${k}">${k}</button>`
+            ${['7','8','9','÷','4','5','6','×','1','2','3','−','0','.','=','+','C','⌫','Copy'].map(k =>
+              `<button type="button" class="tf-calc-key" data-stu-calc="${k === '÷' ? '/' : k === '×' ? '*' : k === '−' ? '-' : k}">${k}</button>`
             ).join('')}
           </div>
-          <p class="text-muted" style="font-size:0.75rem">Copy/paste between table and calculator is allowed for this question.</p>
+          <p class="tf-calc-hint">Copy/paste with table is allowed</p>
         </div>
       </aside>
     </div>`;
   },
+
 
   renderBuilderTF(q, index) {
     const isMod = q.type === 'modified_tf' || q.tfCategory === 'modified';

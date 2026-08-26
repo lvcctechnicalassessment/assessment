@@ -201,3 +201,10 @@ If features seem missing, replace **all** app files from the zip (not only one J
 ## v1.5.21
 - Hard-stop monitoring on submit / time-up / teacher end / test-as-student end (clears timers, streams, session id)
 - Student auto-stops live writes when session status becomes submitted
+
+## v1.5.22
+- Live: focus one student screen only
+- Table fill: instruction as merged first row, visible grid, centered, professional calculator
+- Passage: left stays; next/skip only advances questions; Skip passage visible
+- Builder: Duplicate question for all types
+- Next requires answer; Skip allows blanks

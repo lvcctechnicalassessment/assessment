@@ -2723,3 +2723,109 @@ html, body {
   border: 1px solid var(--border); background: var(--surface);
 }
 .live-screens-toggle input { accent-color: var(--primary, #4085C9); }
+
+/* v1.5.22 */
+.btn-skip-passage {
+  background: #0E71AA !important;
+  color: #fff !important;
+  border: none !important;
+  font-weight: 600;
+}
+[data-theme="dark"] .btn-skip-passage {
+  background: #F2A240 !important;
+  color: #020C12 !important;
+}
+.table-fill-grid {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  table-layout: fixed;
+}
+.table-fill-grid th,
+.table-fill-grid td {
+  border: 1px solid #64748b !important;
+  padding: 0.5rem;
+  min-width: 72px;
+  height: 48px;
+  vertical-align: middle;
+  text-align: center;
+}
+.table-fill-grid .tf-instr-row td {
+  background: var(--surface-2, #f1f5f9);
+  font-weight: 600;
+  text-align: left;
+  height: auto;
+  padding: 0.75rem 1rem;
+}
+.table-fill-grid .tf-header-row th {
+  background: var(--surface, #fff);
+  font-weight: 600;
+}
+.table-fill-grid .tf-cell.tf-blank input {
+  width: 100%;
+  height: 100%;
+  min-height: 36px;
+  border: 1px dashed #94a3b8;
+  background: #fff;
+  text-align: center;
+  box-sizing: border-box;
+}
+[data-theme="dark"] .table-fill-grid .tf-cell.tf-blank input {
+  background: #031926;
+  border-color: #64748b;
+  color: #fff;
+}
+.table-fill-center { display: flex; justify-content: center; width: 100%; }
+.tf-calc-pro {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border-radius: 12px;
+  padding: 0.75rem;
+  border: 1px solid #334155;
+}
+.tf-calc-pro .tf-calc-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+  margin-bottom: 0.35rem;
+}
+.tf-calc-pro .tf-calc-display {
+  background: #0f172a !important;
+  color: #f8fafc !important;
+  border: 1px solid #475569 !important;
+  font-size: 1.35rem;
+  text-align: right;
+}
+.tf-calc-pro .tf-calc-key {
+  background: #334155 !important;
+  color: #f8fafc !important;
+  border: 1px solid #475569 !important;
+  border-radius: 8px;
+  padding: 0.55rem 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tf-calc-pro .tf-calc-key:hover { background: #475569 !important; }
+.tf-calc-pro .tf-calc-hint { font-size: 0.7rem; opacity: 0.7; margin-top: 0.5rem; color: #cbd5e1; }
+.take-passage, .passage-take-dual {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  height: calc(100vh - 9rem);
+  max-height: calc(100dvh - 9rem);
+}
+.take-passage-left, .take-passage-right,
+.passage-take-left, .passage-take-right {
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: var(--surface);
+}
+@media (max-width: 800px) {
+  .take-passage, .passage-take-dual { grid-template-columns: 1fr; height: auto; max-height: none; }
+  .take-passage-left, .passage-take-left { max-height: 36vh; }
+}
