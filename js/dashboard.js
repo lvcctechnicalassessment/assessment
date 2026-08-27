@@ -12,6 +12,9 @@ const Dashboard = {
   _examList: [],
   _tab: 'published',
   _filter: '',
+  // Default OFF — students still share screen; instructor must opt-in to view
+  showLiveScreens: false,
+  focusedSessionId: null,
 
   clearListeners() {
     this.unsubscribers.forEach(u => u && u());
@@ -209,10 +212,11 @@ const Dashboard = {
     // Sync preference to exam so students stop/start screen uploads
     try {
       window.db.collection('exams').doc(examId).update({
-        liveFeedEnabled: !!this.showLiveScreens,
+        liveFeedEnabled: false, // default discreet — instructor turns on if needed
         liveFeedUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
       }).catch(() => {});
     } catch (_) {}
+    this.showLiveScreens = false;
 
     this._seenStudentMsgs = this._seenStudentMsgs || {};
     this._liveThumbs = this._liveThumbs || {};
@@ -787,6 +791,8 @@ const Dashboard = {
       sel.innerHTML = opts.join('');
       sel.onchange = () => {
         this.focusedSessionId = sel.value || null;
+        // Viewing one student implies screens on for that card only
+        if (this.focusedSessionId) this.showLiveScreens = true;
         this._renderSessions(this.sessionsCache, this.currentExam || exam);
       };
     }

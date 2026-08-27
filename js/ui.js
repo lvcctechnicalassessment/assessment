@@ -121,3 +121,85 @@ const UI = {
   }
 };
 window.UI = UI;
+
+
+/** 5 min idle → 10s countdown → end session (saves Firestore quota) */
+window.IdleGuard = {
+  idleMs: 5 * 60 * 1000,
+  warnMs: 10 * 1000,
+  _last: Date.now(),
+  _timer: null,
+  _warnTimer: null,
+  _active: false,
+  _onExpire: null,
+  start(onExpire) {
+    this.stop();
+    this._onExpire = onExpire;
+    this._active = true;
+    this._last = Date.now();
+    const bump = () => { this._last = Date.now(); };
+    ['mousemove','mousedown','keydown','touchstart','scroll','click'].forEach(ev => {
+      window.addEventListener(ev, bump, { passive: true, capture: true });
+    });
+    this._bump = bump;
+    this._timer = setInterval(() => this._tick(), 1000);
+  },
+  stop() {
+    this._active = false;
+    if (this._timer) clearInterval(this._timer);
+    this._timer = null;
+    if (this._warnTimer) clearInterval(this._warnTimer);
+    this._warnTimer = null;
+    document.getElementById('idle-guard-modal')?.remove();
+    if (this._bump) {
+      ['mousemove','mousedown','keydown','touchstart','scroll','click'].forEach(ev => {
+        window.removeEventListener(ev, this._bump, { capture: true });
+      });
+      this._bump = null;
+    }
+  },
+  _tick() {
+    if (!this._active) return;
+    if (document.getElementById('idle-guard-modal')) return;
+    if (Date.now() - this._last < this.idleMs) return;
+    this._showWarn();
+  },
+  _showWarn() {
+    if (document.getElementById('idle-guard-modal')) return;
+    let left = 10;
+    const root = document.createElement('div');
+    root.id = 'idle-guard-modal';
+    root.className = 'modal-overlay ui-modal-overlay';
+    root.style.cssText = 'position:fixed;inset:0;z-index:60000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55)';
+    root.innerHTML = `<div class="modal ui-modal" style="max-width:420px;text-align:center">
+      <h2>Are you still there?</h2>
+      <p>No activity detected for 5 minutes. Session will end in <strong id="idle-count">${left}</strong>s to save resources.</p>
+      <div class="action-btns" style="justify-content:center;gap:0.75rem;margin-top:1rem">
+        <button type="button" class="btn btn-danger" id="idle-end">End session</button>
+        <button type="button" class="btn btn-primary" id="idle-continue">Continue</button>
+      </div>
+    </div>`;
+    document.body.appendChild(root);
+    const end = () => {
+      root.remove();
+      if (this._warnTimer) clearInterval(this._warnTimer);
+      this._warnTimer = null;
+      this.stop();
+      if (typeof this._onExpire === 'function') this._onExpire();
+    };
+    const cont = () => {
+      root.remove();
+      if (this._warnTimer) clearInterval(this._warnTimer);
+      this._warnTimer = null;
+      this._last = Date.now();
+    };
+    root.querySelector('#idle-end').onclick = end;
+    root.querySelector('#idle-continue').onclick = cont;
+    this._warnTimer = setInterval(() => {
+      left -= 1;
+      const el = document.getElementById('idle-count');
+      if (el) el.textContent = String(left);
+      if (left <= 0) end();
+    }, 1000);
+  }
+};

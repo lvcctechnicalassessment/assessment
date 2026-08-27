@@ -498,7 +498,145 @@ const Regular = {
   },
 
 
-  renderBuilderTF(q, index) {
+  renderBuilderMatch(q, index) {
+    const left = q.left || ['', ''];
+    const right = q.right || ['', ''];
+    const correct = Array.isArray(q.correct) ? q.correct : left.map((_, i) => i);
+    const leftRows = left.map((t, i) => `
+      <div class="match-cfg-row" data-side="left" data-i="${i}">
+        <span class="match-dot">●</span>
+        <input class="form-control" data-match-left="${index}:${i}" value="${escapeHtml(t)}" placeholder="Column A item ${i + 1}" />
+        <button type="button" class="btn btn-sm btn-ghost" data-match-del-left="${index}:${i}">×</button>
+      </div>`).join('');
+    const rightRows = right.map((t, i) => `
+      <div class="match-cfg-row" data-side="right" data-i="${i}">
+        <span class="match-dot">●</span>
+        <input class="form-control" data-match-right="${index}:${i}" value="${escapeHtml(t)}" placeholder="Column B item ${i + 1}" />
+        <button type="button" class="btn btn-sm btn-ghost" data-match-del-right="${index}:${i}">×</button>
+      </div>`).join('');
+    const keyRows = left.map((_, i) => {
+      const opts = right.map((t, j) => `<option value="${j}" ${Number(correct[i]) === j ? 'selected' : ''}>${escapeHtml(t || ('B' + (j + 1)))}</option>`).join('');
+      return `<div class="form-group"><label>A${i + 1} → <select class="form-control" data-match-key="${index}:${i}">${opts}</select></label></div>`;
+    }).join('');
+    return `<div class="match-builder" data-gidx="${index}">
+      <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions (e.g. Match Column A with Column B)">${escapeHtml(q.prompt || '')}</textarea>
+      <p class="text-muted" style="font-size:0.8rem">1 point per correct pair. Set answer key below.</p>
+      <div class="match-cfg-cols">
+        <div><strong>Column A</strong>${leftRows}
+          <button type="button" class="btn btn-sm btn-ghost" data-match-add-left="${index}">+ Add A</button></div>
+        <div><strong>Column B</strong>${rightRows}
+          <button type="button" class="btn btn-sm btn-ghost" data-match-add-right="${index}">+ Add B</button></div>
+      </div>
+      <div class="match-key mt-1"><strong>Answer key</strong>${keyRows}</div>
+      <div class="points-row mt-1"><label>Points (total if all correct, or leave auto = 1×pairs)
+        <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points != null ? q.points : left.length}" style="width:80px;display:inline-block"/></label>
+      </div>
+    </div>`;
+  },
+
+  renderStudentMatch(q, answer) {
+    const left = q.left || [];
+    const right = q.right || [];
+    const pairs = (answer && typeof answer === 'object') ? answer : {};
+    const leftHtml = left.map((t, i) => `
+      <div class="match-item match-left" data-match-left="${i}" data-qid="${q.id}">
+        <span class="match-label">${i + 1}. ${escapeHtml(t)}</span>
+        <button type="button" class="match-node" data-match-node="L${i}" aria-label="Match start"></button>
+      </div>`).join('');
+    const rightHtml = right.map((t, i) => `
+      <div class="match-item match-right" data-match-right="${i}" data-qid="${q.id}">
+        <button type="button" class="match-node" data-match-node="R${i}" aria-label="Match end"></button>
+        <span class="match-label">${escapeHtml(t)}</span>
+      </div>`).join('');
+    const pairHints = left.map((_, i) => {
+      const r = pairs[i] != null ? pairs[i] : pairs[String(i)];
+      return r != null ? `<span class="match-pair-chip">A${i + 1}→B${Number(r) + 1}</span>` : '';
+    }).join('');
+    return `<div class="match-take vh-lock-inner" data-qid="${q.id}" data-type="match" id="match-take-${q.id}">
+      <div class="match-prompt">${escapeHtml(q.prompt || 'Match Column A with Column B')}</div>
+      <div class="match-board">
+        <svg class="match-lines" id="match-svg-${q.id}"></svg>
+        <div class="match-col match-col-a">${leftHtml}</div>
+        <div class="match-col match-col-b">${rightHtml}</div>
+      </div>
+      <div class="match-pair-hints">${pairHints || '<span class="text-muted">Tap an item in A, then its match in B</span>'}</div>
+    </div>`;
+  },
+
+  bindMatchTake(root, onChange) {
+    if (!root) return;
+    const qid = root.getAttribute('data-qid');
+    let pending = null;
+    const pairs = {};
+    // restore
+    root.querySelectorAll('.match-pair-chip').forEach(() => {});
+    const redraw = () => {
+      const svg = root.querySelector('.match-lines');
+      if (!svg) return;
+      const board = root.querySelector('.match-board');
+      const br = board.getBoundingClientRect();
+      svg.setAttribute('width', br.width);
+      svg.setAttribute('height', br.height);
+      svg.innerHTML = '';
+      Object.keys(pairs).forEach(li => {
+        const ri = pairs[li];
+        const a = root.querySelector(`[data-match-node="L${li}"]`);
+        const b = root.querySelector(`[data-match-node="R${ri}"]`);
+        if (!a || !b) return;
+        const ar = a.getBoundingClientRect();
+        const bb = b.getBoundingClientRect();
+        const x1 = ar.left + ar.width / 2 - br.left;
+        const y1 = ar.top + ar.height / 2 - br.top;
+        const x2 = bb.left + bb.width / 2 - br.left;
+        const y2 = bb.top + bb.height / 2 - br.top;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+        line.setAttribute('stroke', 'currentColor');
+        line.setAttribute('stroke-width', '2');
+        svg.appendChild(line);
+      });
+      const hints = root.querySelector('.match-pair-hints');
+      if (hints) {
+        hints.innerHTML = Object.keys(pairs).length
+          ? Object.keys(pairs).map(li => `<span class="match-pair-chip">A${Number(li) + 1}→B${Number(pairs[li]) + 1}</span>`).join('')
+          : '<span class="text-muted">Tap an item in A, then its match in B</span>';
+      }
+      if (onChange) onChange({ ...pairs });
+    };
+    root.querySelectorAll('[data-match-left]').forEach(el => {
+      el.onclick = (e) => {
+        e.preventDefault();
+        pending = Number(el.getAttribute('data-match-left'));
+        root.querySelectorAll('.match-item').forEach(x => x.classList.remove('pending'));
+        el.classList.add('pending');
+      };
+    });
+    root.querySelectorAll('[data-match-right]').forEach(el => {
+      el.onclick = (e) => {
+        e.preventDefault();
+        if (pending == null) return;
+        const ri = Number(el.getAttribute('data-match-right'));
+        // remove existing use of this right
+        Object.keys(pairs).forEach(k => { if (Number(pairs[k]) === ri) delete pairs[k]; });
+        pairs[pending] = ri;
+        pending = null;
+        root.querySelectorAll('.match-item').forEach(x => x.classList.remove('pending'));
+        redraw();
+      };
+    });
+    // seed from existing answer chips text if needed — parent will set via data
+    try {
+      const prev = window._takeAnswers && window._takeAnswers[qid];
+      if (prev && typeof prev === 'object') {
+        Object.keys(prev).forEach(k => { pairs[k] = prev[k]; });
+        redraw();
+      }
+    } catch (_) {}
+    window.addEventListener('resize', redraw);
+  },
+
+    renderBuilderTF(q, index) {
     const isMod = q.type === 'modified_tf' || q.tfCategory === 'modified';
     return `
       <div class="gq-block" data-qi="${index}">
@@ -625,6 +763,7 @@ const Regular = {
     if (q.type === 'fill') return this.renderStudentFill(q, answer);
     if (q.type === 'categorize') return this.renderStudentCategorize(q, answer);
     if (q.type === 'table') return this.renderStudentTable(q, answer);
+    if (q.type === 'match') return this.renderStudentMatch(q, answer);
     const val = answer !== undefined ? answer : null;
 
     if (q.type === 'multiple') {
@@ -901,6 +1040,21 @@ const Regular = {
           // Full points only if every blank is correct
           if (n > 0 && correctCount === n) earned += pts;
         }
+        return;
+      }
+      if (q.type === 'match') {
+        const left = q.left || [];
+        const key = Array.isArray(q.correct) ? q.correct : left.map((_, i) => i);
+        const pairPts = 1;
+        const maxPairs = left.length;
+        total -= pts;
+        total += pairPts * maxPairs;
+        let hits = 0;
+        left.forEach((_, i) => {
+          const got = a != null ? (a[i] != null ? a[i] : a[String(i)]) : null;
+          if (got != null && Number(got) === Number(key[i])) hits++;
+        });
+        earned += pairPts * hits;
         return;
       }
       if (q.type === 'multiple' || q.type === 'dropdown') {

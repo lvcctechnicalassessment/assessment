@@ -14,7 +14,7 @@ window.WriteBudget = window.WriteBudget || {
   },
   save(o) { try { localStorage.setItem('lvcc_write_budget', JSON.stringify(o)); } catch (_) {} },
   // Reserve headroom for saves/results/exports (~8k writes buffer)
-  maxLiveWrites: 12000,
+  maxLiveWrites: 8000,
   canLiveWrite() {
     const o = this.load();
     return !o.liveStopped && o.writes < this.maxLiveWrites;
@@ -154,7 +154,7 @@ const Monitor = {
           this.startLiveFeedFlagWatcher();
           this.startSessionEndWatcher();
           if (this.timer) clearInterval(this.timer);
-          this.timer = setInterval(() => this.pushLiveThumbs(), 12000);
+          this.timer = setInterval(() => this.pushLiveThumbs(), 15000);
           // don't block start on first thumb upload
           this.pushLiveThumbs().catch(() => {});
           this.started = true;
@@ -256,7 +256,7 @@ const Monitor = {
     if (this._liveFeedEnabled === false) {
       // Throttle quiet heartbeat (~every 4th tick ≈ 48s) so status stays "active"
       this._quietBeat = (this._quietBeat || 0) + 1;
-      if (this._quietBeat % 4 === 1) {
+      if (this._quietBeat % 8 === 1) {
         try {
           await window.db.collection('sessions').doc(this.sessionId).update({
             lastSeenAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -375,10 +375,11 @@ const Monitor = {
     try {
       this._feedUnsub = window.db.collection('exams').doc(this.examId).onSnapshot(snap => {
         const d = snap.data() || {};
-        this._liveFeedEnabled = d.liveFeedEnabled !== false;
+        // Default OFF unless instructor explicitly enables liveFeedEnabled: true
+        this._liveFeedEnabled = d.liveFeedEnabled === true;
       }, () => {});
     } catch (_) {
-      this._liveFeedEnabled = true;
+      this._liveFeedEnabled = false;
     }
   },
 

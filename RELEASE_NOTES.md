@@ -208,3 +208,10 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Passage: left stays; next/skip only advances questions; Skip passage visible
 - Builder: Duplicate question for all types
 - Next requires answer; Skip allows blanks
+
+## v1.5.23
+- Live screens OFF by default (discreet share); instructor can enable all or one student
+- Idle 5 min → 10s countdown → end session (quota saver)
+- Tighter live write budget for large classes
+- Passage: 100vh dual pane, left tabs, all questions on right, Skip passage only
+- Match question type with line pairing, 1 pt per correct pair

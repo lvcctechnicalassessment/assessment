@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.22</div>
+          <div class="app-version">Build v1.5.23</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -121,6 +121,15 @@ const App = {
   },
 
   routeAfterLogin() {
+    try {
+      if (window.IdleGuard) {
+        IdleGuard.start(async () => {
+          try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+          try { await Auth.signOut(); } catch (_) {}
+          location.reload();
+        });
+      }
+    } catch (_) {}
     const role = Auth.userProfile.role;
     const params = new URLSearchParams(window.location.search);
     const examId = params.get('exam');
@@ -194,7 +203,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.22</div>
+              <div class="app-version">v1.5.23</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -935,6 +944,11 @@ const App = {
             return `<div class="card q-in-section table-builder-wrap" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderTable(q, globalIdx)}
               <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
+          if (q.type === 'match') {
+            return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderMatch(q, globalIdx)}
+              <button type="button" class="btn btn-sm btn-ghost mt-1" data-dup-q="${si}:${qi}">Duplicate</button>
+              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+          }
           return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}
             <textarea class="form-control q-prompt" data-gidx="${globalIdx}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
             <input class="form-control mt-1" data-correct-text="${globalIdx}" value="${escapeHtml(String(Array.isArray(q.correct)?(q.correct[0]||''): (q.correct ?? '')))}" placeholder="Correct / suggested answer" />
@@ -967,6 +981,56 @@ const App = {
           if (!(await UI.confirm('Remove this entire section and its questions?', 'Remove section'))) return;
           window._builderSections.splice(Number(el.dataset.delSec), 1);
           syncFlat(); renderBuilder();
+        };
+      });
+      
+      box.querySelectorAll('[data-match-left]').forEach(el => {
+        el.oninput = () => {
+          const [gi, i] = el.dataset.matchLeft.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return; q.left = q.left || []; q.left[i] = el.value;
+        };
+      });
+      box.querySelectorAll('[data-match-right]').forEach(el => {
+        el.oninput = () => {
+          const [gi, i] = el.dataset.matchRight.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return; q.right = q.right || []; q.right[i] = el.value;
+        };
+      });
+      box.querySelectorAll('[data-match-key]').forEach(el => {
+        el.onchange = () => {
+          const [gi, i] = el.dataset.matchKey.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return; q.correct = q.correct || []; q.correct[i] = Number(el.value);
+        };
+      });
+      box.querySelectorAll('[data-match-add-left]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.matchAddLeft);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return; q.left = q.left || []; q.left.push(''); q.correct = q.correct || []; q.correct.push(0); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-match-add-right]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.matchAddRight);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return; q.right = q.right || []; q.right.push(''); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-match-del-left]').forEach(el => {
+        el.onclick = () => {
+          const [gi, i] = el.dataset.matchDelLeft.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q || !q.left) return; q.left.splice(i,1); if (q.correct) q.correct.splice(i,1); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-match-del-right]').forEach(el => {
+        el.onclick = () => {
+          const [gi, i] = el.dataset.matchDelRight.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q || !q.right) return; q.right.splice(i,1); renderBuilder();
         };
       });
       box.querySelectorAll('[data-del-q]').forEach(el => {
@@ -3060,102 +3124,25 @@ const App = {
 
     const qIdOf = (g, pidx = 0) => {
       if (g.kind === 'passage') {
-        const list = g.questions && g.questions.length ? g.questions : [g.passage];
-        return list[pidx]?.id;
-      }
-      return g.question?.id;
-    };
-    const isAnswered = (qid) => {
-      if (!qid) return true;
-      const v = answers[qid];
-      if (v === undefined || v === null || v === '') return false;
-      if (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length) return false;
-      if (Array.isArray(v) && !v.length) return false;
-      return true;
-    };
-    const allAnswered = () => groups.every((g, idx) => {
-      if (g.kind === 'passage') {
-        const list = g.questions && g.questions.length ? g.questions : [g.passage];
-        return list.every(q => isAnswered(q.id));
-      }
-      return isAnswered(g.question?.id);
-    });
-    const findNextUnanswered = (fromGi, fromPi) => {
-      for (let i = fromGi; i < groups.length; i++) {
-        const g = groups[i];
-        if (g.kind === 'passage') {
-          const list = g.questions && g.questions.length ? g.questions : [g.passage];
-          const startP = (i === fromGi) ? fromPi + 1 : 0;
-          for (let p = startP; p < list.length; p++) {
-            if (!isAnswered(list[p].id)) return { gi: i, pi: p };
-          }
-        } else if (!isAnswered(g.question?.id)) {
-          if (i > fromGi || fromPi >= 0) return { gi: i, pi: 0 };
-        }
-      }
-      for (let i = 0; i <= fromGi; i++) {
-        const g = groups[i];
-        if (g.kind === 'passage') {
-          const list = g.questions && g.questions.length ? g.questions : [g.passage];
-          for (let p = 0; p < list.length; p++) {
-            if (!isAnswered(list[p].id)) return { gi: i, pi: p };
-          }
-        } else if (!isAnswered(g.question?.id)) return { gi: i, pi: 0 };
-      }
-      return null;
-    };
-
-    const renderMcKahoot = (q) => {
-      const opts = q.options || [];
-      const multi = q.multiCorrect === true;
-      const val = answers[q.id];
-      const cards = opts.map((o, i) => {
-        const selected = multi
-          ? (Array.isArray(val) && (val.includes(i) || val.includes(String(i))))
-          : (val == i || val === String(i));
-        const label = (o && String(o).trim()) ? String(o).trim() : ('Choice ' + (i + 1));
-        return `<button type="button" class="take-opt c${i % 6} ${selected ? 'selected' : ''}" data-opt="${i}" data-multi="${multi ? 1 : 0}">${escapeHtml(label)}</button>`;
-      }).join('');
-      return `<div class="take-q-stack" style="display:flex;flex-direction:column;width:100%">
-        <div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(q.prompt || q.statement || 'Question')}</div>
-        <div class="take-options-grid ${opts.length <= 2 ? '' : ''}" id="take-q-box" data-qid="${q.id}">${cards}</div>
-      </div>`;
-    };
-
-    const renderTake = () => {
-      if (gi >= groups.length) {
-        const next = findNextUnanswered(0, -1);
-        if (next) { gi = next.gi; pi = next.pi; }
-        else {
-          this.finishRegularTake(session, answers, 'manual');
-          return;
-        }
-      }
-      const g = groups[gi];
-      const progress = Math.round((gi / Math.max(groups.length, 1)) * 100);
-      let body = '';
-      let currentQ = null;
-      if (g.kind === 'passage') {
-        const list = g.questions && g.questions.length ? g.questions : [g.passage];
-        if (pi >= list.length) pi = list.length - 1;
-        currentQ = list[pi];
-        const rawPass = g.passage.passageHtml
-          || (g.passage.passages && g.passage.passages[0] && g.passage.passages[0].html)
-          || '';
-        const passageHtml = rawPass
-          ? `<div class="passage-doc">${rawPass}</div>`
-          : ((g.passage.passages || []).map(pp =>
-              `<div class="passage-doc"><h4>${escapeHtml(pp.title || 'Passage')}</h4>${pp.html || ''}</div>`
-            ).join('') || `<div class="passage-doc">${escapeHtml(g.passage.prompt || '')}</div>`);
-        const qPart = (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf')
-          ? renderMcKahoot(currentQ)
-          : `<div id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
-        // Left = passage (stays while pi advances); right = current question only
-        body = `<div class="take-passage passage-take-dual">
-          <div class="take-passage-left passage-take-left">${passageHtml}</div>
+        const list = g.questions && g.questions.length ? g.questions : [];
+        const tabs = (g.passage.passages && g.passage.passages.length)
+          ? g.passage.passages
+          : [{ title: 'Passage 1', html: g.passage.passageHtml || g.passage.prompt || '' }];
+        const activeTab = window._passageTab || 0;
+        const tabBar = tabs.map((pp, i) =>
+          `<button type="button" class="passage-tab ${i === activeTab ? 'active' : ''}" data-pass-tab="${i}">${escapeHtml(pp.title || ('Passage ' + (i + 1)))}</button>`
+        ).join('');
+        const activeHtml = (tabs[activeTab] && tabs[activeTab].html) || '';
+        const kidsHtml = list.map((kq, ki) => {
+          return `<div class="pass-take-q" data-pass-qi="${ki}">${Regular.renderStudentQuestion(kq, answers[kq.id])}</div>`;
+        }).join('') || '<p class="text-muted">No questions for this passage</p>';
+        body = `<div class="take-passage passage-take-dual vh-lock-inner" id="take-q-box" data-passage-take="1">
+          <div class="take-passage-left passage-take-left">
+            <div class="passage-tab-bar">${tabBar}</div>
+            <div class="passage-doc-scroll"><div class="passage-doc">${activeHtml}</div></div>
+          </div>
           <div class="take-passage-right passage-take-right">
-            <div class="text-muted" style="font-size:0.8rem;margin-bottom:0.35rem">Question ${pi + 1} of ${(g.questions && g.questions.length) || 1}</div>
-            ${qPart}
+            <div class="pass-q-list">${kidsHtml}</div>
           </div>
         </div>`;
       } else {
@@ -3170,6 +3157,8 @@ const App = {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentCategorize(currentQ, answers[currentQ.id])}</div>`;
         } else if (currentQ.type === 'table') {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentTable(currentQ, answers[currentQ.id])}</div>`;
+        } else if (currentQ.type === 'match') {
+          body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentMatch(currentQ, answers[currentQ.id])}</div>`;
         } else if (currentQ.type === 'passage' || currentQ.isPassageSet) {
           const html = currentQ.passageHtml || (currentQ.passages && currentQ.passages[0] && currentQ.passages[0].html) || '';
           const kids = currentQ.questions || [];
@@ -3203,8 +3192,8 @@ const App = {
           <div class="take-stage">${body}</div>
           <div class="take-nav">
             ${g.kind === 'passage' ? '<button type="button" class="btn btn-primary btn-skip-passage" id="take-skip-passage">Skip passage</button>' : ''}
-            ${showSkip ? '<button type="button" class="btn btn-ghost" id="take-skip">Skip</button>' : ''}
-            <button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>
+            ${showSkip && g.kind !== 'passage' ? '<button type="button" class="btn btn-ghost" id="take-skip">Skip</button>' : ''}
+            ${g.kind !== 'passage' ? `<button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>` : `<button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>`}
           </div>
         </div>`;
 
@@ -3241,6 +3230,14 @@ const App = {
         });
       } else if (box) {
         Regular.bindStudentMC(box, save);
+        if (box.getAttribute('data-type') === 'match' || box.querySelector('[data-type="match"]')) {
+          const mt = box.getAttribute('data-type') === 'match' ? box : box.querySelector('[data-type="match"]');
+          Regular.bindMatchTake(mt, (pairs) => {
+            answers[mt.getAttribute('data-qid')] = pairs;
+            window._takeAnswers = answers;
+            save();
+          });
+        }
         box.querySelectorAll('input, textarea, select').forEach(el => {
           el.addEventListener('change', save);
           el.addEventListener('input', save);
@@ -3325,7 +3322,20 @@ const App = {
       const endBtn = document.getElementById('take-end-btn');
       if (nextBtn) nextBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(false, false); };
       if (skipBtn) skipBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(false, true); };
-      if (skipPassBtn) skipPassBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(true, false); };
+      if (skipPassBtn) skipPassBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(true, true); };
+      document.querySelectorAll('[data-pass-tab]').forEach(btn => {
+        btn.onclick = () => {
+          window._passageTab = Number(btn.dataset.passTab) || 0;
+          // Only swap left content without full re-render if possible
+          const tabs = (g.passage.passages && g.passage.passages.length)
+            ? g.passage.passages
+            : [{ title: 'Passage 1', html: g.passage.passageHtml || g.passage.prompt || '' }];
+          const html = (tabs[window._passageTab] && tabs[window._passageTab].html) || '';
+          const doc = document.querySelector('.passage-doc-scroll .passage-doc');
+          if (doc) doc.innerHTML = html;
+          document.querySelectorAll('[data-pass-tab]').forEach(b => b.classList.toggle('active', Number(b.dataset.passTab) === window._passageTab));
+        };
+      });
       if (endBtn) endBtn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -3352,6 +3362,14 @@ const App = {
         this.injectStudentChatFab(session.id);
         this._watchTeacherEnd(session.id);
       }
+      try {
+        if (window.IdleGuard) {
+          IdleGuard.start(async () => {
+            try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+            await this.finishRegularTake(session, window._takeAnswers || {}, 'idle-timeout');
+          });
+        }
+      } catch (_) {}
       // Keep fullscreen during take
       try {
         if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
