@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.25</div>
+          <div class="app-version">Build v1.5.26</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -203,7 +203,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.25</div>
+              <div class="app-version">v1.5.26</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -238,6 +238,7 @@ const App = {
   },
 
   toggleNav() {
+    document.getElementById('user-popover')?.remove();
     if (window.innerWidth > 900) {
       document.querySelector('.shell')?.classList.toggle('nav-collapsed');
       document.body.classList.toggle('nav-collapsed');
@@ -250,6 +251,7 @@ const App = {
   closeNav() {
     document.body.classList.remove('nav-open');
     document.querySelector('.shell')?.classList.remove('nav-open');
+    document.getElementById('user-popover')?.remove();
   },
 
   toggleUserPopover(ev) {
@@ -262,8 +264,20 @@ const App = {
     pop.id = 'user-popover';
     pop.className = 'user-popover';
     pop.innerHTML = `
-      <button type="button" class="popover-item" onclick="Theme.openSettings();document.getElementById('user-popover')?.remove()">Settings</button>
-      <button type="button" class="popover-item danger" onclick="App.logout()">Logout</button>`;
+      <button type="button" class="popover-item" id="pop-settings">Settings</button>
+      <button type="button" class="popover-item danger" id="pop-logout">Logout</button>`;
+    const closePop = () => { pop.remove(); this.closeNav(); };
+    pop.querySelector('#pop-settings')?.addEventListener('click', () => { closePop(); Theme.openSettings(); });
+    pop.querySelector('#pop-logout')?.addEventListener('click', () => { closePop(); this.logout(); });
+    setTimeout(() => {
+      const outside = (ev) => {
+        if (!pop.contains(ev.target) && ev.target.id !== 'user-menu-btn' && !ev.target.closest?.('#user-menu-btn')) {
+          pop.remove();
+          document.removeEventListener('click', outside, true);
+        }
+      };
+      document.addEventListener('click', outside, true);
+    }, 0);
     if (rect) {
       pop.style.position = 'fixed';
       pop.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
@@ -886,7 +900,7 @@ const App = {
       sec.instructions = defaultSectionInstructions(type);
       const q = Regular.newQuestion(type);
       if (type === 'essay') {
-        q.caption = q.caption || 'Note: Essay scores may be adjusted by your teacher based on a personal assessment of your response.';
+        q.caption = q.caption || 'Note: Open-ended scores may be adjusted by your teacher based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.';
       }
       sec.questions.push(q);
       window._builderSections = window._builderSections || [];
@@ -1692,8 +1706,29 @@ const App = {
         const id = await this.saveAssessment('published', sched);
         window._editingExamId = null;
         try { sessionStorage.removeItem('lvcc_editing_exam'); } catch (_) {}
-        await UI.alert('Assessment published.', 'Published');
-        this.showSharePanel(id);
+        // Optional student email invites before code/QR
+        try {
+          const inv = await UI.prompt(
+            'Invite student emails (optional, comma or newline separated). Leave blank to skip.',
+            '',
+            'Invite students',
+            'student@example.com'
+          );
+          if (inv && String(inv).trim()) {
+            const emails = String(inv).split(/[\n,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+            for (const email of emails) {
+              try {
+                await window.db.collection('examInvites').add({
+                  examId: id,
+                  email,
+                  createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                  createdBy: Auth.currentUser?.uid || null
+                });
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+        await this.showPublishSuccessModal(id);
       } catch (err) {
         console.error(err);
         await UI.alert(err.message || String(err), 'Could not publish');

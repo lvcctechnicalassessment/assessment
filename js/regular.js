@@ -554,6 +554,7 @@ const Regular = {
     }).join('');
     return `<div class="match-take vh-lock-inner" data-qid="${q.id}" data-type="match" id="match-take-${q.id}">
       <div class="match-prompt">${escapeHtml(q.prompt || 'Match Column A with Column B')}</div>
+      <p class="match-instruction">Click an item in Column A, then click its pair in Column B to match.</p>
       <div class="match-board">
         <svg class="match-lines" id="match-svg-${q.id}"></svg>
         <div class="match-col match-col-a">${leftHtml}</div>
@@ -835,7 +836,7 @@ const Regular = {
     if (q.type === 'essay') {
       const max = q.maxChars || 1000;
       const text = typeof val === 'string' ? val : '';
-      const caption = q.caption || 'Note: Essay scores may be adjusted by your teacher based on a personal assessment of your response, as essays may not be fully auto-graded on this portal.';
+      const caption = q.caption || 'Note: Open-ended scores may be adjusted by your teacher based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.';
       return `
         <div class="q-card" data-qid="${q.id}" data-type="essay">
           <div class="q-prompt"><strong>${escapeHtml(q.prompt || 'Essay')}</strong> <span class="text-muted">(${q.points ?? 1} pt)</span></div>
@@ -1170,16 +1171,53 @@ const Regular = {
       const qid = el.getAttribute('data-qid');
       if (qid) answers[qid] = el.value;
     });
+    // Multiple choice / TF gamified cards
+    container.querySelectorAll('.gq-block[data-qid], .q-card[data-qid][data-type="multiple"], .q-card[data-qid][data-type="truefalse"]').forEach(card => {
+      const qid = card.getAttribute('data-qid');
+      if (!qid) return;
+      const multi = card.querySelector('.gq-student')?.getAttribute('data-multi') === '1';
+      const selected = [...card.querySelectorAll('.gq-student.selected')].map(b => Number(b.getAttribute('data-opt')));
+      if (multi) answers[qid] = selected;
+      else if (selected.length) answers[qid] = selected[0];
+    });
     return answers;
   },
 
   bindWordBoxDrag(root, onChange) {
     if (!root) return;
+    let dragWord = '';
+    const placeWord = (zone, word) => {
+      if (!zone || !word) return;
+      zone.classList.add('filled');
+      zone.innerHTML = '';
+      const span = document.createElement('span');
+      span.className = 'wb-placed';
+      span.setAttribute('draggable', 'true');
+      span.setAttribute('data-word', word);
+      span.textContent = word;
+      zone.appendChild(span);
+      // allow dragging placed word again
+      span.addEventListener('dragstart', (ev) => {
+        dragWord = word;
+        try { ev.dataTransfer.setData('text/plain', word); } catch (_) {}
+      });
+      span.addEventListener('click', () => { dragWord = word; });
+      onChange && onChange();
+    };
     root.querySelectorAll('.wb-chip, .wb-placed').forEach(chip => {
       chip.setAttribute('draggable', 'true');
+      chip.style.touchAction = 'none';
       chip.addEventListener('dragstart', (e) => {
-        const word = chip.getAttribute('data-word') || chip.textContent || '';
-        e.dataTransfer.setData('text/plain', word);
+        dragWord = chip.getAttribute('data-word') || chip.textContent || '';
+        try { e.dataTransfer.setData('text/plain', dragWord); e.dataTransfer.effectAllowed = 'copy'; } catch (_) {}
+      });
+      // Mobile: tap chip then tap blank
+      chip.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragWord = chip.getAttribute('data-word') || chip.textContent || '';
+        root.querySelectorAll('.wb-chip').forEach(c => c.classList.remove('wb-selected'));
+        chip.classList.add('wb-selected');
       });
     });
     root.querySelectorAll('.wb-drop-zone, .wb-inline-drop').forEach(zone => {
@@ -1187,19 +1225,27 @@ const Regular = {
       zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
       zone.addEventListener('drop', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         zone.classList.remove('drag-over');
-        const word = (e.dataTransfer.getData('text/plain') || '').trim();
+        const word = (e.dataTransfer.getData('text/plain') || dragWord || '').trim();
         if (!word) return;
-        zone.classList.add('filled');
-        const span = document.createElement('span');
-        span.className = 'wb-placed';
-        span.draggable = true;
-        span.setAttribute('data-word', word);
-        span.textContent = word;
-        span.addEventListener('dragstart', (ev) => ev.dataTransfer.setData('text/plain', word));
-        zone.innerHTML = '';
-        zone.appendChild(span);
-        onChange && onChange();
+        placeWord(zone, word);
+        dragWord = '';
+        root.querySelectorAll('.wb-chip').forEach(c => c.classList.remove('wb-selected'));
+      });
+      zone.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (dragWord) {
+          placeWord(zone, dragWord);
+          dragWord = '';
+          root.querySelectorAll('.wb-chip').forEach(c => c.classList.remove('wb-selected'));
+        } else if (zone.classList.contains('filled')) {
+          // clear on second click without selection
+          zone.classList.remove('filled');
+          zone.innerHTML = '<span class="wb-placeholder">&nbsp;</span>';
+          onChange && onChange();
+        }
       });
       zone.addEventListener('dblclick', () => {
         zone.classList.remove('filled');
@@ -1212,12 +1258,46 @@ const Regular = {
   bindCategorizeDrag(root, onChange) {
     if (!root) return;
     let dragId = '', dragName = '';
+    const placeItem = (zone, id, name) => {
+      if (!zone || !id) return;
+      // remove existing chip with same id from other zones / bank
+      root.querySelectorAll('.cat-item-chip').forEach(ch => {
+        if (ch.getAttribute('data-item-id') === id) ch.remove();
+      });
+      const chip = document.createElement('div');
+      chip.className = 'cat-item-chip placed';
+      chip.setAttribute('draggable', 'true');
+      chip.setAttribute('data-item-id', id);
+      chip.setAttribute('data-item-name', name || id);
+      chip.textContent = name || id;
+      zone.appendChild(chip);
+      chip.addEventListener('dragstart', (e) => {
+        dragId = id; dragName = name;
+        try { e.dataTransfer.setData('text/plain', id); } catch (_) {}
+      });
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dragId = id; dragName = name;
+        root.querySelectorAll('.cat-item-chip').forEach(c => c.classList.remove('wb-selected'));
+        chip.classList.add('wb-selected');
+      });
+      onChange && onChange();
+    };
     root.querySelectorAll('.cat-item-chip').forEach(chip => {
       chip.setAttribute('draggable', 'true');
+      chip.style.touchAction = 'none';
       chip.addEventListener('dragstart', (e) => {
         dragId = chip.getAttribute('data-item-id') || '';
         dragName = chip.getAttribute('data-item-name') || chip.textContent || '';
-        e.dataTransfer.setData('text/plain', dragId);
+        try { e.dataTransfer.setData('text/plain', dragId); e.dataTransfer.effectAllowed = 'copy'; } catch (_) {}
+      });
+      chip.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragId = chip.getAttribute('data-item-id') || '';
+        dragName = chip.getAttribute('data-item-name') || chip.textContent || '';
+        root.querySelectorAll('.cat-item-chip').forEach(c => c.classList.remove('wb-selected'));
+        chip.classList.add('wb-selected');
       });
     });
     root.querySelectorAll('.cat-col-drop').forEach(zone => {
@@ -1225,33 +1305,26 @@ const Regular = {
       zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
       zone.addEventListener('drop', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         zone.classList.remove('drag-over');
-        const id = e.dataTransfer.getData('text/plain') || dragId;
+        const id = (e.dataTransfer.getData('text/plain') || dragId || '').trim();
         if (!id) return;
-        const chip = root.querySelector(`.cat-item-chip[data-item-id="${CSS.escape(id)}"]`);
-        if (chip) zone.appendChild(chip);
-        onChange && onChange();
+        const chip = root.querySelector('.cat-item-chip[data-item-id="' + String(id).replace(/"/g, '') + '"]');
+        const name = (chip && chip.getAttribute('data-item-name')) || dragName || id;
+        placeItem(zone, id, name);
+        dragId = ''; dragName = '';
+      });
+      zone.addEventListener('click', (e) => {
+        if (!dragId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        placeItem(zone, dragId, dragName);
+        dragId = ''; dragName = '';
+        root.querySelectorAll('.cat-item-chip').forEach(c => c.classList.remove('wb-selected'));
       });
     });
-    const bank = root.querySelector('.cat-options-panel');
-    if (bank) {
-      bank.addEventListener('dragover', (e) => e.preventDefault());
-      bank.addEventListener('drop', (e) => {
-        e.preventDefault();
-        const id = e.dataTransfer.getData('text/plain') || dragId;
-        const chip = root.querySelector(`.cat-item-chip[data-item-id="${CSS.escape(id)}"]`);
-        if (chip) bank.appendChild(chip);
-        onChange && onChange();
-      });
-    }
   },
 
-  bindStudentMC(box, onChange) {
-    if (!box || !onChange) return;
-    box.querySelectorAll('.gq-student, .take-opt').forEach(btn => {
-      btn.addEventListener('click', () => onChange());
-    });
-  }
 };
 
 window.Regular = Regular;

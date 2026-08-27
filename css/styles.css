@@ -2898,3 +2898,46 @@ html, body {
   border: 1px solid rgba(239, 68, 68, 0.35);
   text-align: left !important;
 }
+
+/* v1.5.26 */
+.wb-chip.wb-selected, .cat-item-chip.wb-selected {
+  outline: 2px solid #387EC3;
+  box-shadow: 0 0 0 3px rgba(56,126,195,0.25);
+}
+.match-instruction {
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0.25rem 0 0.75rem;
+  color: var(--text, inherit);
+}
+.match-take { align-items: center; }
+.match-board { width: 100%; max-width: 720px; margin: 0 auto; }
+.match-prompt, .match-pair-hints { text-align: center; width: 100%; }
+.match-item { justify-content: center; }
+.publish-code-big {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-family: ui-monospace, monospace;
+  margin: 0.75rem 0;
+}
+@media (max-width: 900px) {
+  .mobile-topbar, .shell-mobile-bar, .app-mobile-header {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  #user-menu-btn, .user-menu-btn, .mobile-avatar-btn {
+    margin-left: auto;
+    order: 2;
+  }
+  .sidebar {
+    right: 0;
+    left: auto;
+    transform: translateX(100%);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+}

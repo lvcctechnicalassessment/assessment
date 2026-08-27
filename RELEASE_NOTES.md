@@ -230,3 +230,12 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Integrity rules title, padding, Security Notice
 - Superadmin: remove non-school accounts + retention policy
 - Unpublished / not-started assessment messages
+
+## v1.5.26
+- Fix wordbox/categorize drag (desktop + tap-to-place on mobile)
+- Passage MC selection binding; open-ended note wording
+- Skip always advances
+- Exam code display 1234-5678 (raw 8 digits retained)
+- Publish: optional invites, centered success with title/code/times/QR
+- Avatar popover closes menu; mobile nav from right
+- Match centered + clear click-A-then-B instruction
