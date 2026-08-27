@@ -239,3 +239,9 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Publish: optional invites, centered success with title/code/times/QR
 - Avatar popover closes menu; mobile nav from right
 - Match centered + clear click-A-then-B instruction
+
+## v1.5.27
+- Re-bind wordbox/categorize drag (cursor + dropEffect + tap-to-place)
+- Passage MC full bindStudentMC; points + multiCorrect per passage question
+- Skip always advances (skip markers)
+- Exam code 1234-5678 inputs bound; publish success modal retained

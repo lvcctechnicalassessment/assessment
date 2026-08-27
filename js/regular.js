@@ -293,8 +293,13 @@ const Regular = {
           <option value="multiple" ${isMc?'selected':''}>Multiple Choice</option>
           <option value="essay" ${kq.type==='essay'?'selected':''}>Open-Ended Text</option>
         </select>
-        ${isMc ? `<div class="mt-1">${opts}<button type="button" class="btn btn-sm btn-ghost" data-pass-add-opt="${index}:${ki}">+ Add Option</button></div>`
-          : `<textarea class="form-control mt-1" data-pass-rubric="${index}:${ki}" rows="2" placeholder="Suggested answer / rubric">${escapeHtml(kq.correct||kq.rubric||'')}</textarea>`}
+        <label class="mt-1" style="display:inline-flex;align-items:center;gap:0.35rem">Points
+          <input type="number" min="0" step="0.5" class="form-control" style="width:70px" data-pass-q-points="${index}:${ki}" value="${kq.points != null ? kq.points : 1}" />
+        </label>
+        ${isMc ? `<label class="mt-1" style="display:block"><input type="checkbox" data-pass-q-multi="${index}:${ki}" ${kq.multiCorrect ? 'checked' : ''}/> Multiple correct answers</label>
+          <div class="mt-1">${opts}<button type="button" class="btn btn-sm btn-ghost" data-pass-add-opt="${index}:${ki}">+ Add Option</button></div>`
+          : `<textarea class="form-control mt-1" data-pass-rubric="${index}:${ki}" rows="2" placeholder="Suggested answer / rubric">${escapeHtml(kq.correct||kq.rubric||'')}</textarea>
+          <p class="text-muted" style="font-size:0.8rem">Note: Open-ended scores may be adjusted by your teacher based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.</p>`}
         <button type="button" class="btn btn-sm btn-danger mt-1" data-pass-del-q="${index}:${ki}">Delete Question</button>
       </div>`;
     }).join('');
@@ -1186,8 +1191,11 @@ const Regular = {
   bindWordBoxDrag(root, onChange) {
     if (!root) return;
     let dragWord = '';
+    root.style.userSelect = 'none';
     const placeWord = (zone, word) => {
       if (!zone || !word) return;
+      word = String(word).trim();
+      if (!word) return;
       zone.classList.add('filled');
       zone.innerHTML = '';
       const span = document.createElement('span');
@@ -1195,39 +1203,62 @@ const Regular = {
       span.setAttribute('draggable', 'true');
       span.setAttribute('data-word', word);
       span.textContent = word;
+      span.style.cursor = 'grab';
       zone.appendChild(span);
-      // allow dragging placed word again
-      span.addEventListener('dragstart', (ev) => {
+      const startDrag = (ev) => {
         dragWord = word;
-        try { ev.dataTransfer.setData('text/plain', word); } catch (_) {}
+        try {
+          ev.dataTransfer.setData('text/plain', word);
+          ev.dataTransfer.effectAllowed = 'copyMove';
+        } catch (_) {}
+      };
+      span.addEventListener('dragstart', startDrag);
+      span.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dragWord = word;
+        root.querySelectorAll('.wb-chip').forEach(c => c.classList.remove('wb-selected'));
       });
-      span.addEventListener('click', () => { dragWord = word; });
-      onChange && onChange();
+      if (typeof onChange === 'function') onChange();
     };
-    root.querySelectorAll('.wb-chip, .wb-placed').forEach(chip => {
+    root.querySelectorAll('.wb-chip').forEach(chip => {
       chip.setAttribute('draggable', 'true');
-      chip.style.touchAction = 'none';
+      chip.style.cursor = 'grab';
+      chip.style.touchAction = 'manipulation';
       chip.addEventListener('dragstart', (e) => {
-        dragWord = chip.getAttribute('data-word') || chip.textContent || '';
-        try { e.dataTransfer.setData('text/plain', dragWord); e.dataTransfer.effectAllowed = 'copy'; } catch (_) {}
+        dragWord = (chip.getAttribute('data-word') || chip.textContent || '').trim();
+        chip.style.cursor = 'grabbing';
+        try {
+          e.dataTransfer.setData('text/plain', dragWord);
+          e.dataTransfer.effectAllowed = 'copyMove';
+        } catch (_) {}
       });
-      // Mobile: tap chip then tap blank
+      chip.addEventListener('dragend', () => { chip.style.cursor = 'grab'; });
       chip.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        dragWord = chip.getAttribute('data-word') || chip.textContent || '';
+        dragWord = (chip.getAttribute('data-word') || chip.textContent || '').trim();
         root.querySelectorAll('.wb-chip').forEach(c => c.classList.remove('wb-selected'));
         chip.classList.add('wb-selected');
       });
     });
     root.querySelectorAll('.wb-drop-zone, .wb-inline-drop').forEach(zone => {
-      zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.style.cursor = 'copy';
+      zone.style.pointerEvents = 'auto';
+      zone.addEventListener('dragenter', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try { e.dataTransfer.dropEffect = 'copy'; } catch (_) {}
+        zone.classList.add('drag-over');
+      });
       zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
       zone.addEventListener('drop', (e) => {
         e.preventDefault();
         e.stopPropagation();
         zone.classList.remove('drag-over');
-        const word = (e.dataTransfer.getData('text/plain') || dragWord || '').trim();
+        let word = '';
+        try { word = (e.dataTransfer.getData('text/plain') || '').trim(); } catch (_) {}
+        if (!word) word = dragWord;
         if (!word) return;
         placeWord(zone, word);
         dragWord = '';
@@ -1241,16 +1272,10 @@ const Regular = {
           dragWord = '';
           root.querySelectorAll('.wb-chip').forEach(c => c.classList.remove('wb-selected'));
         } else if (zone.classList.contains('filled')) {
-          // clear on second click without selection
           zone.classList.remove('filled');
           zone.innerHTML = '<span class="wb-placeholder">&nbsp;</span>';
-          onChange && onChange();
+          if (typeof onChange === 'function') onChange();
         }
-      });
-      zone.addEventListener('dblclick', () => {
-        zone.classList.remove('filled');
-        zone.innerHTML = '<span class="wb-placeholder">&nbsp;</span>';
-        onChange && onChange();
       });
     });
   },
@@ -1285,7 +1310,8 @@ const Regular = {
     };
     root.querySelectorAll('.cat-item-chip').forEach(chip => {
       chip.setAttribute('draggable', 'true');
-      chip.style.touchAction = 'none';
+      chip.style.cursor = 'grab';
+      chip.style.touchAction = 'manipulation';
       chip.addEventListener('dragstart', (e) => {
         dragId = chip.getAttribute('data-item-id') || '';
         dragName = chip.getAttribute('data-item-name') || chip.textContent || '';
@@ -1301,7 +1327,11 @@ const Regular = {
       });
     });
     root.querySelectorAll('.cat-col-drop').forEach(zone => {
-      zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.style.cursor = 'copy';
+      zone.style.pointerEvents = 'auto';
+      zone.style.minHeight = '48px';
+      zone.addEventListener('dragenter', (e) => { e.preventDefault(); });
+      zone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); try { e.dataTransfer.dropEffect = 'copy'; } catch(_){} zone.classList.add('drag-over'); });
       zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
       zone.addEventListener('drop', (e) => {
         e.preventDefault();

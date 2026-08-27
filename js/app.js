@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.26</div>
+          <div class="app-version">Build v1.5.27</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -203,7 +203,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.26</div>
+              <div class="app-version">v1.5.27</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -306,7 +306,7 @@ const App = {
             <p class="text-muted">Enter your assessment code to begin</p>
           </div>
           <div class="join-input-wrap">
-            <input id="join-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="Enter the Assessment Code" />
+            <input id="join-code-input" type="text" inputmode="numeric" maxlength="9" placeholder="1234-5678" autocomplete="off" />
             <button type="button" class="btn btn-primary" id="join-code-btn">Join</button>
           </div>
           <button type="button" class="btn btn-ghost join-dashboard-btn" id="join-go-dash">Go to my Dashboard</button>
@@ -315,12 +315,15 @@ const App = {
     document.getElementById('join-go-dash').onclick = () => this.showDashboard();
     document.getElementById('join-code-btn').onclick = () => this.joinByAssessmentCode();
     const inp = document.getElementById('join-code-input');
+    this.bindExamCodeInput(inp);
     inp.oninput = () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 8); };
     inp.onkeydown = (e) => { if (e.key === 'Enter') this.joinByAssessmentCode(); };
   },
 
   async joinByAssessmentCode(codeFromArg) {
-    const raw = codeFromArg != null ? codeFromArg : (document.getElementById('join-code-input')?.value || document.getElementById('modal-join-code')?.value || '');
+    const raw = this.parseExamCodeInput(
+      codeFromArg != null ? codeFromArg : (document.getElementById('join-code-input')?.value || document.getElementById('modal-join-code')?.value || document.getElementById('join-code-input')?.dataset?.rawCode || '')
+    );
     const code = String(raw).replace(/\D/g, '').slice(0, 8);
     if (code.length !== 8) {
       await UI.alert('Please enter a valid 8-digit assessment code (numbers only).', 'Invalid code');
@@ -361,7 +364,7 @@ const App = {
     wrap.innerHTML = `<div class="popover-card settings-card">
       <h3>Join Assessment</h3>
       <div class="join-input-wrap" style="margin-top:0.75rem">
-        <input id="modal-join-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="Enter the Assessment Code" />
+        <input id="modal-join-code" type="text" inputmode="numeric" maxlength="9" placeholder="1234-5678" autocomplete="off" />
         <button type="button" class="btn btn-primary" id="modal-join-btn">Join</button>
       </div>
       <button type="button" class="btn btn-ghost w-full mt-1" id="modal-join-cancel">Cancel</button>
@@ -369,6 +372,7 @@ const App = {
     wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
     document.body.appendChild(wrap);
     const inp = document.getElementById('modal-join-code');
+    this.bindExamCodeInput(inp);
     inp.oninput = () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 8); };
     document.getElementById('modal-join-cancel').onclick = () => wrap.remove();
     document.getElementById('modal-join-btn').onclick = async () => {
@@ -440,6 +444,27 @@ const App = {
     `, 'dashboard');
   },
 
+
+  formatExamCodeDisplay(raw) {
+    const d = String(raw || '').replace(/\D/g, '').slice(0, 8);
+    if (d.length <= 4) return d;
+    return d.slice(0, 4) + '-' + d.slice(4);
+  },
+  parseExamCodeInput(val) {
+    return String(val || '').replace(/\D/g, '').slice(0, 8);
+  },
+  bindExamCodeInput(el) {
+    if (!el || el.dataset.codeBound) return;
+    el.dataset.codeBound = '1';
+    el.setAttribute('maxlength', '9');
+    el.setAttribute('inputmode', 'numeric');
+    el.placeholder = el.placeholder || '1234-5678';
+    el.addEventListener('input', () => {
+      const digits = this.parseExamCodeInput(el.value);
+      el.dataset.rawCode = digits;
+      el.value = this.formatExamCodeDisplay(digits);
+    });
+  },
 
   // ---- Superadmin ----
   async showSuperAdmin() {
@@ -1382,6 +1407,22 @@ const App = {
           syncFlat(); renderBuilder();
         };
       });
+      
+      box.querySelectorAll('[data-pass-q-points]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ki] = el.dataset.passQPoints.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q && q.questions && q.questions[ki]) q.questions[ki].points = Number(el.value) || 1;
+        };
+      });
+      box.querySelectorAll('[data-pass-q-multi]').forEach(el => {
+        el.onchange = () => {
+          const [gi, ki] = el.dataset.passQMulti.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q && q.questions && q.questions[ki]) q.questions[ki].multiCorrect = !!el.checked;
+        };
+      });
+
       box.querySelectorAll('[data-pass-q-prompt]').forEach(el => {
         el.oninput = () => {
           const [gi, ki] = el.dataset.passQPrompt.split(':').map(Number);
@@ -1759,16 +1800,75 @@ const App = {
     }
   },
 
+  async showPublishSuccessModal(examId) {
+    let exam = null;
+    try { exam = await Exam.getExam(examId); } catch (_) {}
+    if (!exam) {
+      await UI.alert('Assessment published.', 'Published');
+      return this.showTeacherHome();
+    }
+    const codeRaw = String(exam.assessmentCode || exam.code || exam.examCode || '').replace(/\D/g, '').slice(0, 8);
+    const pretty = this.formatExamCodeDisplay(codeRaw);
+    const start = exam.startAt ? new Date(typeof exam.startAt === 'number' ? exam.startAt : exam.startAt).toLocaleString() : '—';
+    const end = exam.endAt ? new Date(typeof exam.endAt === 'number' ? exam.endAt : exam.endAt).toLocaleString() : '—';
+    const lim = exam.durationMinutes != null ? (exam.durationMinutes + ' min') : '—';
+    let qr = '';
+    try {
+      const path = (location.pathname || '/').replace(/\/?$/, '/');
+      const url = location.origin + path + '?exam=' + encodeURIComponent(examId);
+      qr = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(url);
+    } catch (_) {}
+    const root = document.getElementById('ui-modal-root') || (() => {
+      const el = document.createElement('div');
+      el.id = 'ui-modal-root';
+      document.body.appendChild(el);
+      return el;
+    })();
+    root.style.cssText = 'position:fixed;inset:0;z-index:50000;pointer-events:auto;';
+    root.innerHTML = `<div class="modal-overlay ui-modal-overlay" style="z-index:50000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55)">
+      <div class="modal ui-modal" style="max-width:440px;width:92%;text-align:center;margin:1rem">
+        <h2 style="margin-top:0">Assessment published</h2>
+        <p style="font-weight:600;font-size:1.05rem">${escapeHtml(exam.title || 'Assessment')}</p>
+        <p class="publish-code-big" data-raw-code="${escapeHtml(codeRaw)}">${escapeHtml(pretty || codeRaw || '—')}</p>
+        <p class="text-muted" style="font-size:0.85rem;margin:0.5rem 0;line-height:1.5">Start: ${escapeHtml(start)}<br/>End: ${escapeHtml(end)}<br/>Time limit: ${escapeHtml(lim)}</p>
+        ${qr ? `<img src="${qr}" alt="QR code" width="200" height="200" style="border-radius:12px;background:#fff;padding:8px;margin:0.5rem auto;display:block" />` : ''}
+        <div class="action-btns" style="justify-content:center;margin-top:1rem;flex-wrap:wrap;gap:0.5rem">
+          <button type="button" class="btn btn-ghost" id="pub-copy-code">Copy code</button>
+          <button type="button" class="btn btn-ghost" id="pub-open-link">Link / URL</button>
+          <button type="button" class="btn btn-primary" id="pub-done">Done</button>
+        </div>
+      </div>
+    </div>`;
+    const copyBtn = root.querySelector('#pub-copy-code');
+    if (copyBtn) copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(codeRaw);
+        await UI.alert('Code copied.', 'Copied');
+      } catch (_) {}
+    };
+    const linkBtn = root.querySelector('#pub-open-link');
+    if (linkBtn) linkBtn.onclick = () => {
+      root.innerHTML = '';
+      this.showSharePanel(examId);
+    };
+    const done = root.querySelector('#pub-done');
+    if (done) done.onclick = () => {
+      root.innerHTML = '';
+      this.showTeacherHome();
+    };
+  },
+
   async showSharePanel(examId) {
     const exam = await Exam.getExam(examId);
-    const code = exam?.assessmentCode || examId.slice(0, 8);
+    const codeRaw = String(exam?.assessmentCode || exam?.code || '').replace(/\D/g, '').slice(0, 8);
+    const code = this.formatExamCodeDisplay(codeRaw) || codeRaw || examId.slice(0, 8);
     const url = `${window.location.origin}${window.location.pathname}?exam=${examId}`;
     const qr = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(url);
     this.renderShell(`
       <h2 class="page-title">Share assessment</h2>
       <div class="card share-panel">
-        <p class="text-muted" style="text-align:center">Assessment ID</p>
-        <div class="share-id-big">${escapeHtml(String(code))}</div>
+        <p class="text-muted" style="text-align:center">Assessment code</p>
+        <div class="share-id-big" data-raw-code="${escapeHtml(codeRaw)}">${escapeHtml(String(code))}</div>
         <div style="text-align:center;margin:1rem 0">
           <img src="${qr}" alt="QR code" width="220" height="220" style="border-radius:12px;background:#fff;padding:8px" />
         </div>
@@ -3181,8 +3281,10 @@ const App = {
 
     const isAnswered = (qid) => {
       if (!qid) return true;
+      if (!Object.prototype.hasOwnProperty.call(answers, qid)) return false;
       const v = answers[qid];
-      if (v == null || v === '') return false;
+      if (v === null) return true; // explicitly skipped
+      if (v === undefined || v === '') return false;
       if (Array.isArray(v)) return v.length > 0;
       if (typeof v === 'object') return Object.keys(v).length > 0;
       return true;
@@ -3338,7 +3440,27 @@ const App = {
           };
         });
       } else if (box) {
-        try { Regular.bindStudentMC(box, save); } catch (_) {}
+        try { Regular.bindStudentMC(box, save); } catch (e) { console.warn(e); }
+        // Passage: bind every nested MC/TF card
+        try {
+          document.querySelectorAll('.pass-q-list [data-qid], .pass-take-q, .passage-take-right').forEach(node => {
+            try { Regular.bindStudentMC(node, save); } catch (_) {}
+          });
+        } catch (e) { console.warn(e); }
+        // Word box drag / tap-to-place
+        try {
+          const wbRoot = box.matches?.('.wb-student') ? box : box.querySelector('.wb-student');
+          if (wbRoot && typeof Regular.bindWordBoxDrag === 'function') {
+            Regular.bindWordBoxDrag(wbRoot, save);
+          }
+        } catch (e) { console.warn(e); }
+        // Categorize drag / tap-to-place
+        try {
+          const catRoot = box.matches?.('.cat-student') ? box : box.querySelector('.cat-student');
+          if (catRoot && typeof Regular.bindCategorizeDrag === 'function') {
+            Regular.bindCategorizeDrag(catRoot, save);
+          }
+        } catch (e) { console.warn(e); }
         const mt = box.getAttribute('data-type') === 'match' ? box : box.querySelector('[data-type="match"]');
         if (mt && Regular.bindMatchTake) {
           Regular.bindMatchTake(mt, (pairs) => {
@@ -3360,8 +3482,31 @@ const App = {
       const goNext = async (skipPassage = false, isSkip = false) => {
         save();
         if (isSkip && !skipPassage) {
-          const n = findNextUnanswered(gi, g.kind === 'passage' ? pi : -1);
-          if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
+          // Mark current as skipped so findNext can move on; always advance
+          if (g.kind === 'passage') {
+            const list = g.questions || [];
+            list.forEach(q => {
+              if (q && answers[q.id] === undefined) answers[q.id] = null; // visited/skipped marker
+            });
+          } else if (g.question && answers[g.question.id] === undefined) {
+            answers[g.question.id] = null;
+          }
+          window._takeAnswers = answers;
+          // Prefer next unanswered; else next group
+          let n = findNextUnanswered(gi, g.kind === 'passage' ? 9999 : -1);
+          if (!n) {
+            gi += 1;
+            pi = 0;
+            window._passageTab = 0;
+            if (gi >= groups.length) {
+              n = findNextUnanswered(0, -1);
+              if (n) { gi = n.gi; pi = n.pi; }
+              else { gi = Math.max(0, groups.length - 1); }
+            }
+          } else {
+            gi = n.gi; pi = n.pi;
+          }
+          renderTake();
           return;
         }
         if (skipPassage && g.kind === 'passage') {

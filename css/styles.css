@@ -2941,3 +2941,19 @@ html, body {
     transform: translateX(0);
   }
 }
+
+/* v1.5.27 drag fix */
+.wb-chip, .wb-placed, .cat-item-chip {
+  cursor: grab !important;
+  -webkit-user-drag: element;
+  user-select: none;
+}
+.wb-chip:active, .cat-item-chip:active { cursor: grabbing !important; }
+.wb-inline-drop, .wb-drop-zone, .cat-col-drop {
+  cursor: copy !important;
+  pointer-events: auto !important;
+}
+.wb-chip.wb-used { opacity: 0.55; cursor: grab !important; }
+.take-stage, .take-q-stack, .wb-student, .cat-student {
+  pointer-events: auto !important;
+}
