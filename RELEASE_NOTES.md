@@ -215,3 +215,10 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Tighter live write budget for large classes
 - Passage: 100vh dual pane, left tabs, all questions on right, Skip passage only
 - Match question type with line pairing, 1 pt per correct pair
+
+## v1.5.24
+- Live: remove text snapshot on regular exam cards (quota)
+- Screen share required (mobile+desktop); no start without Allow; monitoring cue on take UI
+- Save draft/publish: Storage upload parked — inline images under 1MB only
+- Test as student: skip lock path, default examType regular when questions exist, surface errors
+- Login subtitle: Integrity - We live with honesty, truthfulness, and moral courage.

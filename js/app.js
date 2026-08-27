@@ -77,7 +77,7 @@ const App = {
       <div class="auth-container">
         <img src="assets/lvcc-logo.png" alt="LVCC Logo" class="brand-logo" width="120" height="120" />
         <h1>LVCC Assessment Portal</h1>
-        <p class="brand-subtitle">True to our name, true to our test</p>
+        <p class="brand-subtitle">Integrity - We live with honesty, truthfulness, and moral courage.</p>
         <button class="google-btn" id="google-signin">
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" />
           Sign in with Google
@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.23</div>
+          <div class="app-version">Build v1.5.24</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -203,7 +203,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.23</div>
+              <div class="app-version">v1.5.24</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -678,7 +678,7 @@ const App = {
 
     // Light compress first (smaller uploads), then move images to Firebase Storage
     // so the Firestore exam document stays under the 1 MB hard limit.
-    payload = await this.compressAssessmentPayload(payload, 50 * 1024 * 1024); // soft; Storage holds bulk
+    payload = await this.compressAssessmentPayload(payload, 900 * 1024); // keep under ~1MB Firestore doc
     delete payload._payloadBytes;
 
     let examId = window._editingExamId || sessionStorage.getItem('lvcc_editing_exam') || null;
@@ -696,31 +696,13 @@ const App = {
       try { sessionStorage.setItem('lvcc_editing_exam', examId); } catch (_) {}
     }
 
-    // Externalize data:image → Storage download URLs
-    if (window.MediaStore) {
-      try {
-        const result = await MediaStore.externalizeImages(examId, payload, (n) => {
-          console.log('Uploaded media', n);
-        });
-        payload = result.payload;
-        if (result.uploaded) {
-          console.log('Moved', result.uploaded, 'image(s) to Firebase Storage');
-        }
-      } catch (mediaErr) {
-        console.error(mediaErr);
-        throw new Error(
-          'Could not upload images to Storage. Enable Firebase Storage for this project, ' +
-          'set Storage rules for assessments/{examId}/**, and ensure storageBucket is set in firebase-config. ' +
-          (mediaErr.message || '')
-        );
-      }
-    }
-
+    // Storage upload PARKED — keep images inline in Firestore (must stay under 1 MB total)
+    // Do not call MediaStore.externalizeImages until Storage is configured and billing works.
     const bytes = this._payloadBytes(payload);
     if (bytes > 1048576) {
       throw new Error(
-        'Assessment text/metadata is still too large (' + Math.round(bytes / 1024) + ' KB). ' +
-        'Firestore max is 1 MB for the document itself. Images should be in Storage; remove extra large HTML if needed.'
+        'Assessment is too large (' + Math.round(bytes / 1024) + ' KB). Firestore max is 1 MB per document. ' +
+        'Reduce or remove images so the whole assessment is under 1 MB, then try again.'
       );
     }
 
@@ -2823,10 +2805,20 @@ const App = {
         window._testMode = true;
         if (window.Monitor) { Monitor.sessionId = session.id; Monitor.examId = exam.id; Monitor.started = true; Monitor.submitting = false; }
       }
-      if ((exam.examType || session.examType) === 'regular') {
-        return this.startRegularExam(session);
+      const et = exam.examType || session.examType ||
+        ((exam.questions && exam.questions.length) || (exam.sections && exam.sections.length) ? 'regular' : 'code');
+      try {
+        if (et === 'regular') {
+          return await this.startRegularExam(session);
+        }
+        return await this.startCodeExam(session);
+      } catch (inner) {
+        console.error('exam start', inner);
+        await UI.alert((inner && inner.message) || String(inner) || 'Could not open assessment.', 'Preview error');
+        this.clearExamQuery();
+        if (isTest) return this.showTeacherHome ? this.showTeacherHome() : this.showDashboard();
+        return this.showStudentHome();
       }
-      return this.startCodeExam(session);
     } catch (err) {
       this.clearExamQuery();
       if (err.code === 'already-submitted') {
@@ -3053,8 +3045,9 @@ const App = {
   },
 
   async startRegularExam(session) {
-    // Resume vs lock: intentional leave requires instructor Admit
-    if (session.lockedUntilAdmit && !session.instructorAdmitted) {
+    const isTestSession = !!(session._testMode || window._testMode || String(session.id || '').startsWith('test_'));
+    // Resume vs lock: intentional leave requires instructor Admit (not for Test as student)
+    if (!isTestSession && session.lockedUntilAdmit && !session.instructorAdmitted) {
       const msg = await UI.prompt(
         'Your assessment is locked because you left the page. Send a message to your instructor to request access:',
         '',
@@ -3075,7 +3068,7 @@ const App = {
     }
     // Promote leave flag to server lock once
     try {
-      const leaveRaw = sessionStorage.getItem('lvcc_leave_' + session.id);
+      const leaveRaw = !isTestSession && sessionStorage.getItem('lvcc_leave_' + session.id);
       if (leaveRaw && !session.instructorAdmitted && !session.lockedUntilAdmit) {
         const leave = JSON.parse(leaveRaw);
         if (leave.intentionalLeave) {
@@ -3087,7 +3080,7 @@ const App = {
         }
       }
     } catch (_) {}
-    if (session.lockedUntilAdmit && !session.instructorAdmitted) {
+    if (!isTestSession && session.lockedUntilAdmit && !session.instructorAdmitted) {
       // re-run lock UI path
       const msg = await UI.prompt(
         'Your assessment is locked because you left the page. Message your instructor to continue:',
@@ -3184,6 +3177,7 @@ const App = {
           <div class="take-topbar">
             <div class="take-progress"><div class="take-progress-bar" style="width:${progress}%"></div></div>
             <div class="take-topbar-meta">
+              <span class="monitor-live-cue" title="Screen monitoring"><span class="monitor-dot"></span> Screen Monitoring Enabled</span>
               <span class="take-count">${gi + 1} / ${groups.length}</span>
               <span id="exam-timer" class="timer-badge">--:--</span>
               <button type="button" class="btn btn-sm btn-danger" id="take-end-btn">End assessment</button>

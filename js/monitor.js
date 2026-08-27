@@ -122,23 +122,23 @@ const Monitor = {
         this._graceMs = 30000; // no join-time false positives
 
         try {
-          // 1) Prompt screen share immediately (desktop)
-          if (this.deviceType === 'desktop') {
+          // 1) Prompt screen share for desktop AND mobile (required; stream may be ignored by server)
+          {
             btn.textContent = 'Waiting for screen share…';
             const shared = await Promise.race([
               this.startDesktopCapture(),
               new Promise(r => setTimeout(() => r(false), 60000))
             ]);
             if (!shared && !this.stream) {
-              // still continue with UI snapshot fallback after confirm
               if (window.UI) {
-                const cont = await UI.confirm('Screen share was not started. Continue with limited monitoring?', 'Screen share');
-                if (!cont) {
-                  btn.disabled = false;
-                  btn.textContent = 'Accept Rules & Start Exam';
-                  return;
-                }
+                await UI.alert(
+                  'Screen sharing is required to start this assessment. Please click Allow on the browser prompt, then try again.',
+                  'Screen share required'
+                );
               }
+              btn.disabled = false;
+              btn.textContent = 'Accept Rules & Start Exam';
+              return;
             }
           }
 

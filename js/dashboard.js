@@ -888,7 +888,7 @@ const Dashboard = {
           <div class="${(s.connectionQuality === 'bad' || s.pingMs > 800) ? 'ping-bad' : 'ping-ok'}">
             ${(s.connectionQuality === 'bad' || s.pingMs > 800) ? '⚠ Bad connection' : (s.pingMs != null ? ('Ping ' + s.pingMs + ' ms') : 'Connection OK')}
           </div>
-          <details class="screen-code-details"><summary>Text snapshot</summary><pre class="student-code-preview">${preview}</pre></details>
+          ${isRegular ? '' : `<details class="screen-code-details"><summary>Text snapshot</summary><pre class="student-code-preview">${preview}</pre></details>`}
           <div class="student-events">${eventsHtml}</div>
           <div class="action-btns" style="padding:0.5rem">
             <button class="btn btn-sm btn-ghost" onclick="Dashboard.openStudentDetail('${s.id}')">Details</button>
