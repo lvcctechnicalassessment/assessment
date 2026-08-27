@@ -130,7 +130,14 @@ const Monitor = {
   },
 
   async ensureScreenShareConsent() {
-    // Try native first when available
+    // Mobile: do NOT require screen share (many devices block getDisplayMedia).
+    // Keep monitoring cue on the assessment UI only.
+    if (this.deviceType === 'mobile') {
+      this._fakeShareAllowed = true;
+      this.monitorFeed = 'ACTIVE';
+      return true;
+    }
+    // Desktop: try native, then in-app consent
     const canNative = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
     if (canNative) {
       try {
@@ -138,7 +145,6 @@ const Monitor = {
         if (ok && this.stream) return true;
       } catch (_) {}
     }
-    // Fallback: universal in-app consent (mobile / unsupported)
     const allowed = await this.fakeScreenShareConsent();
     if (allowed) {
       this._fakeShareAllowed = true;

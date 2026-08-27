@@ -1188,6 +1188,83 @@ const Regular = {
     return answers;
   },
 
+
+  bindStudentTableCalc(root) {
+    if (!root) return;
+    const display = root.querySelector('#stu-calc-display') || root.querySelector('.tf-calc-display');
+    if (!display) return;
+    // Allow keyboard typing on display
+    display.removeAttribute('readonly');
+    display.setAttribute('inputmode', 'decimal');
+    let expr = String(display.value || '0');
+    const setDisp = (v) => { expr = String(v); display.value = expr; };
+    const evalExpr = () => {
+      try {
+        const safe = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/[^0-9+\-*/().\s]/g, '');
+        // eslint-disable-next-line no-new-func
+        const n = Function('"use strict"; return (' + (safe || '0') + ')')();
+        if (typeof n === 'number' && isFinite(n)) setDisp(String(n));
+      } catch (_) {}
+    };
+    root.querySelectorAll('[data-stu-calc]').forEach(btn => {
+      btn.type = 'button';
+      btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const k = btn.getAttribute('data-stu-calc');
+        if (k === 'C') { setDisp('0'); return; }
+        if (k === 'Backspace' || k === '⌫') {
+          setDisp(expr.length <= 1 ? '0' : expr.slice(0, -1));
+          return;
+        }
+        if (k === '=') { evalExpr(); return; }
+        if (k === 'Copy') {
+          const val = display.value || '';
+          try { navigator.clipboard.writeText(val); } catch (_) {}
+          if (window.TableClipboard) TableClipboard.push(val);
+          return;
+        }
+        if (expr === '0' && /[0-9.]/.test(k)) setDisp(k);
+        else setDisp(expr + k);
+      };
+    });
+    display.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); evalExpr(); }
+    });
+    // Clipboard history panel
+    let hist = root.querySelector('.tf-clip-history');
+    if (!hist) {
+      hist = document.createElement('div');
+      hist.className = 'tf-clip-history';
+      hist.innerHTML = '<div class="tf-clip-title">Clipboard</div><div class="tf-clip-list"></div>';
+      const panel = root.querySelector('#student-calc-panel') || root.querySelector('.table-fill-take-right') || root;
+      panel.appendChild(hist);
+    }
+    window.TableClipboard = window.TableClipboard || {
+      items: [],
+      push(v) {
+        v = String(v || '').trim();
+        if (!v) return;
+        this.items = [v, ...this.items.filter(x => x !== v)].slice(0, 8);
+        document.querySelectorAll('.tf-clip-list').forEach(list => {
+          list.innerHTML = this.items.map(x =>
+            `<button type="button" class="tf-clip-item" data-clip="${String(x).replace(/"/g, '&quot;')}">${String(x).replace(/</g,'&lt;')}</button>`
+          ).join('') || '<span class="text-muted">Empty</span>';
+          list.querySelectorAll('.tf-clip-item').forEach(b => {
+            b.onclick = () => {
+              const val = b.getAttribute('data-clip') || b.textContent;
+              try { navigator.clipboard.writeText(val); } catch (_) {}
+              document.querySelectorAll('#stu-calc-display, .tf-calc-display').forEach(d => { d.value = val; });
+            };
+          });
+        });
+      }
+    };
+    // seed list
+    window.TableClipboard.push('');
+    // Paste into blanks allowed — context menu limited in app layer
+  },
+
   bindWordBoxDrag(root, onChange) {
     if (!root) return;
     let dragWord = '';

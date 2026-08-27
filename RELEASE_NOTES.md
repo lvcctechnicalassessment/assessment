@@ -245,3 +245,12 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Passage MC full bindStudentMC; points + multiCorrect per passage question
 - Skip always advances (skip markers)
 - Exam code 1234-5678 inputs bound; publish success modal retained
+
+## v1.5.28
+- Skip always advances to next question group
+- Table fill calculator keys + keyboard + clipboard history
+- Right-click blocked except table fill copy/paste
+- Passage MC event delegation
+- Mobile: no screen-share requirement (monitoring cue kept)
+- My Assessments: Closed label, Reopen with new schedule
+- Results: human labels for categorize, match, passage, table

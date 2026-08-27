@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.27</div>
+          <div class="app-version">Build v1.5.28</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -203,7 +203,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.27</div>
+              <div class="app-version">v1.5.28</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -2070,13 +2070,30 @@ const App = {
   },
 
   async toggleExamActive(examId, active) {
-    if (!(await UI.confirm(active ? 'Reopen this assessment?' : 'Close this assessment?', 'Confirm'))) return;
+    if (active) return this.reopenExam(examId);
+    if (!(await UI.confirm('Close this assessment now? Students will no longer be able to take it.', 'Close assessment'))) return;
     try {
-      await Exam.updateExam(examId, { active: !!active });
-      if (!active) {
-        try { await Exam.deactivateProctorsForExam(examId); } catch (_) {}
-      }
-      await UI.alert(active ? 'Assessment reopened.' : 'Assessment closed.', 'Done');
+      await Exam.updateExam(examId, { active: false, endAt: Date.now() });
+      try { await Exam.deactivateProctorsForExam(examId); } catch (_) {}
+      await UI.alert('Assessment closed.', 'Done');
+      this.showTeacherHome();
+    } catch (e) {
+      await UI.alert(e.message || String(e), 'Error');
+    }
+  },
+
+  async reopenExam(examId) {
+    const sched = await this.pickSchedule();
+    if (!sched) return;
+    try {
+      await Exam.updateExam(examId, {
+        active: true,
+        status: 'published',
+        startAt: sched.startAt,
+        endAt: sched.endAt,
+        durationMinutes: sched.durationMinutes || Math.max(1, Math.round((sched.endAt - sched.startAt) / 60000))
+      });
+      await UI.alert('Assessment reopened with the new schedule.', 'Reopened');
       this.showTeacherHome();
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
@@ -2622,12 +2639,67 @@ const App = {
       }
       return value != null && value !== '' ? String(value) : '—';
     }
-    if (q.type === 'categorize' && value && typeof value === 'object') {
+    if (q.type === 'categorize') {
+      const items = q.items || [];
+      const cats = q.categories || [];
+      const nameOfItem = (id) => {
+        const it = items.find(x => String(x.id) === String(id));
+        return (it && (it.name || it.label)) || String(id);
+      };
+      const nameOfCat = (id) => {
+        const c = cats.find(x => String(x.id) === String(id));
+        return (c && (c.name || c.label)) || String(id);
+      };
       if (isCorrectKey) {
-        const items = q.items || [];
-        return items.map(it => `${it.name || it.label} → ${it.category || ''}`).join('; ') || '—';
+        return items.map(it => `${it.name || it.label || it.id} → ${nameOfCat(it.category)}`).join('; ') || '—';
       }
-      return Object.entries(value).map(([item, cat]) => `${item} → ${cat}`).join('; ') || '—';
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return Object.entries(value).map(([itemId, catId]) => `${nameOfItem(itemId)} → ${nameOfCat(catId)}`).join('; ') || '—';
+      }
+      return value != null ? String(value) : '—';
+    }
+    if (q.type === 'match') {
+      const left = q.left || [];
+      const right = q.right || [];
+      const key = Array.isArray(q.correct) ? q.correct : left.map((_, i) => i);
+      if (isCorrectKey) {
+        return left.map((a, i) => `${a || ('A'+(i+1))} → ${right[key[i]] != null ? right[key[i]] : '—'}`).join('; ') || '—';
+      }
+      if (value && typeof value === 'object') {
+        return left.map((a, i) => {
+          const ri = value[i] != null ? value[i] : value[String(i)];
+          const b = ri != null ? right[Number(ri)] : null;
+          return `${a || ('A'+(i+1))} → ${b != null ? b : '—'}`;
+        }).join('; ') || '—';
+      }
+      return value != null ? String(value) : '—';
+    }
+    if (q.type === 'passage' || q.isPassageSet) {
+      const kids = q.questions || [];
+      if (isCorrectKey) {
+        return kids.map((kq, i) => `Q${i+1}: ${this.formatAnswerDisplay(kq, null, true)}`).join(' | ') || '—';
+      }
+      if (value && typeof value === 'object') {
+        return kids.map((kq, i) => {
+          const v = value[kq.id] != null ? value[kq.id] : value;
+          return `Q${i+1}: ${this.formatAnswerDisplay(kq, typeof v === 'object' && kq.id ? value[kq.id] : v, false)}`;
+        }).join(' | ') || (typeof value === 'object' ? JSON.stringify(value) : String(value));
+      }
+      return value != null ? String(value) : '—';
+    }
+    if (q.type === 'table') {
+      if (isCorrectKey) {
+        const cells = q.cells || {};
+        return Object.keys(cells).filter(k => cells[k] && cells[k].blank).map(k => {
+          const c = cells[k];
+          const ans = Array.isArray(c.correct) ? c.correct[0] : (c.correct || '');
+          return `${k}: ${ans}`;
+        }).join('; ') || '—';
+      }
+      if (value && typeof value === 'object') {
+        return Object.entries(value).map(([k, v]) => `${k}: ${v}`).join('; ') || '—';
+      }
+      return value != null ? String(value) : '—';
     }
     const rawOpts = q.options || [];
     const opts = rawOpts.map((o) => (o == null ? '' : String(o).trim()));
@@ -3443,9 +3515,42 @@ const App = {
         try { Regular.bindStudentMC(box, save); } catch (e) { console.warn(e); }
         // Passage: bind every nested MC/TF card
         try {
-          document.querySelectorAll('.pass-q-list [data-qid], .pass-take-q, .passage-take-right').forEach(node => {
-            try { Regular.bindStudentMC(node, save); } catch (_) {}
-          });
+          const passList = document.querySelector('.pass-q-list') || document.querySelector('.passage-take-right');
+          if (passList) {
+            Regular.bindStudentMC(passList, save);
+            passList.querySelectorAll('[data-qid], .gq-block, .q-card, .pass-take-q').forEach(node => {
+              try { Regular.bindStudentMC(node, save); } catch (_) {}
+            });
+            // Event delegation fallback for passage MC
+            if (!passList.dataset.mcDelegated) {
+              passList.dataset.mcDelegated = '1';
+              passList.addEventListener('click', (ev) => {
+                const btn = ev.target.closest('.gq-student, .gq-option');
+                if (!btn || !passList.contains(btn)) return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                const card = btn.closest('[data-qid]') || btn.closest('.gq-block') || btn.closest('.q-card');
+                if (!card) return;
+                const multi = btn.getAttribute('data-multi') === '1';
+                if (!multi) {
+                  card.querySelectorAll('.gq-student, .gq-option').forEach(b => {
+                    b.classList.remove('selected');
+                    const c = b.querySelector('.gq-student-check');
+                    if (c) c.textContent = '';
+                  });
+                  btn.classList.add('selected');
+                  const check = btn.querySelector('.gq-student-check');
+                  if (check) check.textContent = '✓';
+                } else {
+                  btn.classList.toggle('selected');
+                  const on = btn.classList.contains('selected');
+                  const check = btn.querySelector('.gq-student-check');
+                  if (check) check.textContent = on ? '✓' : '';
+                }
+                save();
+              });
+            }
+          }
         } catch (e) { console.warn(e); }
         // Word box drag / tap-to-place
         try {
@@ -3459,6 +3564,12 @@ const App = {
           const catRoot = box.matches?.('.cat-student') ? box : box.querySelector('.cat-student');
           if (catRoot && typeof Regular.bindCategorizeDrag === 'function') {
             Regular.bindCategorizeDrag(catRoot, save);
+          }
+        } catch (e) { console.warn(e); }
+        try {
+          const tfRoot = box.matches?.('.table-fill-take') ? box : (box.querySelector?.('.table-fill-take') || document.querySelector('.table-fill-take'));
+          if (tfRoot && typeof Regular.bindStudentTableCalc === 'function') {
+            Regular.bindStudentTableCalc(tfRoot);
           }
         } catch (e) { console.warn(e); }
         const mt = box.getAttribute('data-type') === 'match' ? box : box.querySelector('[data-type="match"]');
@@ -3482,29 +3593,23 @@ const App = {
       const goNext = async (skipPassage = false, isSkip = false) => {
         save();
         if (isSkip && !skipPassage) {
-          // Mark current as skipped so findNext can move on; always advance
+          // Always move to the NEXT group (never stay on the same question)
           if (g.kind === 'passage') {
-            const list = g.questions || [];
-            list.forEach(q => {
-              if (q && answers[q.id] === undefined) answers[q.id] = null; // visited/skipped marker
+            (g.questions || []).forEach(q => {
+              if (q && answers[q.id] === undefined) answers[q.id] = null;
             });
           } else if (g.question && answers[g.question.id] === undefined) {
             answers[g.question.id] = null;
           }
           window._takeAnswers = answers;
-          // Prefer next unanswered; else next group
-          let n = findNextUnanswered(gi, g.kind === 'passage' ? 9999 : -1);
-          if (!n) {
-            gi += 1;
-            pi = 0;
-            window._passageTab = 0;
-            if (gi >= groups.length) {
-              n = findNextUnanswered(0, -1);
-              if (n) { gi = n.gi; pi = n.pi; }
-              else { gi = Math.max(0, groups.length - 1); }
-            }
-          } else {
-            gi = n.gi; pi = n.pi;
+          gi += 1;
+          pi = 0;
+          window._passageTab = 0;
+          if (gi >= groups.length) {
+            // wrap to first still-unanswered, else last group
+            const n = findNextUnanswered(0, -1);
+            if (n) { gi = n.gi; pi = n.pi; }
+            else { gi = Math.max(0, groups.length - 1); }
           }
           renderTake();
           return;
@@ -3545,6 +3650,19 @@ const App = {
           await this.finishRegularTake(session, answers, 'manual');
         } else renderTake();
       };
+
+      // Disable right-click except inside table-fill (copy/paste only)
+      document.querySelectorAll('.exam-take-wrap').forEach(wrap => {
+        wrap.oncontextmenu = (e) => {
+          const inTable = e.target.closest('.table-fill-take, .tf-calculator, .tf-clip-history, .tf-student-blank');
+          if (inTable) {
+            // allow browser menu for copy/paste in table fill
+            return true;
+          }
+          e.preventDefault();
+          return false;
+        };
+      });
 
       const nextBtn = document.getElementById('take-next');
       const skipBtn = document.getElementById('take-skip');

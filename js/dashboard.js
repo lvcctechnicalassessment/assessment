@@ -22,9 +22,18 @@ const Dashboard = {
   },
 
   isExamLive(ex) {
-    // Allow opening Live for any published/active assessment (not only during window)
     if (!ex || ex.status === 'draft') return false;
+    if (ex.active === false) return false;
+    const now = Date.now();
+    const end = ex.endAt ? Number(ex.endAt) : null;
+    if (end && now > end) return false;
     return true;
+  },
+  isExamEnded(ex) {
+    if (!ex || ex.status === 'draft') return false;
+    if (ex.active === false) return true;
+    const end = ex.endAt ? Number(ex.endAt) : null;
+    return !!(end && Date.now() > end);
   },
 
   async renderMyExams(container) {
@@ -88,7 +97,7 @@ const Dashboard = {
               <div class="assess-meta">
                 <span class="chip">${type}${lang ? ' · ' + lang : ''}</span>
                 <span class="chip">${escapeHtml(ex.subject || 'General')}</span>
-                <span class="chip ${live ? 'chip-ok' : ''}">${live ? 'Live window open' : (ex.status === 'draft' ? 'Draft' : 'Closed / ended')}</span>
+                <span class="chip ${live ? 'chip-ok' : (ex.status === 'draft' ? '' : 'chip-danger')}">${live ? 'Live window open' : (ex.status === 'draft' ? 'Draft' : 'Closed')}</span>
               </div>
               <div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">${start} → ${end}</div>
             </div>
@@ -98,14 +107,14 @@ const Dashboard = {
                 <div class="btn-row">
                   <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
                   <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
-                  ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : `<button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', ${!ex.active})">${ex.active ? 'Close' : 'Reopen'}</button>`}
+                  ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : (this.isExamEnded(ex) || ex.active === false ? `<button class="btn btn-sm btn-primary" onclick="App.reopenExam('${ex.id}')">Reopen</button>` : `<button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', false)">Close</button>`)}
                   <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
                 </div>
               </div>
               <div class="action-group-box">
                 <span class="action-label">Monitor</span>
                 <div class="btn-row">
-                  <button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>
+                  ${live ? `<button class="btn btn-sm btn-ghost" onclick="App.openLiveDashboard('${ex.id}')">Live</button>` : `<button class="btn btn-sm btn-ghost" disabled title="Assessment closed">Closed</button>`}
                   <button class="btn btn-sm btn-ghost" onclick="App.testAsStudent('${ex.id}')">Test</button>
                   <button class="btn btn-sm btn-ghost" onclick="App.showIntegrityHistory('${ex.id}')">Integrity</button>
                   <button class="btn btn-sm btn-ghost" onclick="App.showExamResults('${ex.id}')">Results</button>
