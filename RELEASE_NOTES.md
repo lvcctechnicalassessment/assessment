@@ -222,3 +222,11 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Save draft/publish: Storage upload parked — inline images under 1MB only
 - Test as student: skip lock path, default examType regular when questions exist, surface errors
 - Login subtitle: Integrity - We live with honesty, truthfulness, and moral courage.
+
+## v1.5.25
+- Fix renderTake is not defined (rebuild take engine)
+- Universal fake screen-share consent when getDisplayMedia unavailable
+- Chrome/Edge only + multi-monitor block before exam start
+- Integrity rules title, padding, Security Notice
+- Superadmin: remove non-school accounts + retention policy
+- Unpublished / not-started assessment messages

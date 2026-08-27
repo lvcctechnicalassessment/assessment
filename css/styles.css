@@ -2878,3 +2878,23 @@ html, body {
   0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
   50% { opacity: 0.45; box-shadow: 0 0 0 6px rgba(239,68,68,0); }
 }
+
+/* v1.5.25 */
+.monitor-gate-padded .monitor-gate-body {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+  text-align: justify;
+  line-height: 1.55;
+}
+.monitor-gate-title {
+  text-align: center;
+  padding: 0 1rem;
+}
+.monitor-security-notice {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  text-align: left !important;
+}

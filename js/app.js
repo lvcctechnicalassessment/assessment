@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.24</div>
+          <div class="app-version">Build v1.5.25</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -203,7 +203,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.24</div>
+              <div class="app-version">v1.5.25</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -438,6 +438,27 @@ const App = {
         </div>
         <button class="btn btn-primary" id="add-teacher-btn">Add Instructor</button>
         <p id="add-teacher-msg" class="mt-1 text-muted"></p>
+      </div>
+      <div class="card mt-2">
+        <div class="card-title">Non–La Verdad account access</div>
+        <p class="text-muted" style="font-size:0.9rem">Remove users whose email is not @student.laverdad.edu.ph or @laverdad.edu.ph (except accounts you keep as invited/superadmin).</p>
+        <div class="form-group" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:end">
+          <div>
+            <label>Auto-remove after</label>
+            <div style="display:flex;gap:0.35rem">
+              <input type="number" min="1" id="purge-amount" class="form-control" value="30" style="width:80px" />
+              <select id="purge-unit" class="form-control" style="width:auto">
+                <option value="days">Days</option>
+                <option value="weeks">Weeks</option>
+                <option value="months" selected>Months</option>
+                <option value="years">Years</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-ghost" id="btn-save-purge-policy">Save auto-remove policy</button>
+          <button class="btn btn-danger" id="btn-purge-now">Remove non-school accounts now</button>
+        </div>
+        <p id="purge-msg" class="text-muted mt-1"></p>
       </div>
       <div class="card mt-2">
         <div class="card-title">Instructors & Admins</div>
@@ -2768,12 +2789,20 @@ const App = {
       }
       const exam = await Exam.getExam(examId);
       if (!exam) { await UI.alert('Assessment not found.', 'Error'); return this.showStudentHome(); }
+      if (!isTest && exam.status === 'draft') {
+        await UI.alert('This assessment is not published yet. Please wait until your instructor publishes it.', 'Assessment not started');
+        return this.showStudentHome();
+      }
+      if (!isTest && exam.status && exam.status !== 'published' && exam.status !== 'active') {
+        await UI.alert('This assessment is not available yet. It has not been published or started.', 'Assessment not started');
+        return this.showStudentHome();
+      }
       const { startAt, endAt } = Exam.getExamWindow(exam);
       const now = Date.now();
-      if (!isTest && now < startAt) {
+      if (!isTest && startAt && now < startAt) {
         return this.showExamCountdown(exam, startAt);
       }
-      if (!isTest && now > endAt) {
+      if (!isTest && endAt && now > endAt) {
         await UI.alert('This assessment has ended.', 'Closed');
         return this.showStudentHome();
       }
@@ -3061,12 +3090,11 @@ const App = {
           chatPing: Date.now(),
           lastStudentMessage: String(msg).trim(),
           awaitingAdmit: true
-        });
+        }).catch(() => {});
         await UI.alert('Message sent. Wait for your instructor to Admit you back into the assessment.', 'Sent');
       }
       return this.showStudentHome();
     }
-    // Promote leave flag to server lock once
     try {
       const leaveRaw = !isTestSession && sessionStorage.getItem('lvcc_leave_' + session.id);
       if (leaveRaw && !session.instructorAdmitted && !session.lockedUntilAdmit) {
@@ -3075,13 +3103,12 @@ const App = {
           await window.db.collection('sessions').doc(session.id).update({
             lockedUntilAdmit: true,
             leaveAt: leave.at || Date.now()
-          });
+          }).catch(() => {});
           session.lockedUntilAdmit = true;
         }
       }
     } catch (_) {}
     if (!isTestSession && session.lockedUntilAdmit && !session.instructorAdmitted) {
-      // re-run lock UI path
       const msg = await UI.prompt(
         'Your assessment is locked because you left the page. Message your instructor to continue:',
         '',
@@ -3095,7 +3122,7 @@ const App = {
           chatPing: Date.now(),
           lastStudentMessage: String(msg).trim(),
           awaitingAdmit: true
-        });
+        }).catch(() => {});
         await UI.alert('Message sent. Wait for your instructor to Admit you.', 'Sent');
       }
       return this.showStudentHome();
@@ -3108,27 +3135,91 @@ const App = {
       : (Regular.flattenQuestions(exam) || []).map(q => ({ kind: 'single', question: q }));
     if (!groups.length) {
       await UI.alert('This assessment has no questions yet.', 'Empty');
-      return this.showStudentHome();
+      return isTestSession ? (this.showTeacherHome ? this.showTeacherHome() : this.showDashboard()) : this.showStudentHome();
     }
+
     let gi = 0;
     let pi = 0;
     const answers = { ...(session.answers || {}) };
     window._takeAnswers = answers;
+    window._passageTab = 0;
 
-    const qIdOf = (g, pidx = 0) => {
+    const isAnswered = (qid) => {
+      if (!qid) return true;
+      const v = answers[qid];
+      if (v == null || v === '') return false;
+      if (Array.isArray(v)) return v.length > 0;
+      if (typeof v === 'object') return Object.keys(v).length > 0;
+      return true;
+    };
+    const allAnswered = () => {
+      for (const g of groups) {
+        if (g.kind === 'passage') {
+          const list = g.questions || [];
+          if (list.some(q => q && !isAnswered(q.id))) return false;
+        } else if (g.question && !isAnswered(g.question.id)) return false;
+      }
+      return true;
+    };
+    const findNextUnanswered = (fromGi, fromPi) => {
+      for (let i = fromGi; i < groups.length; i++) {
+        const g = groups[i];
+        if (g.kind === 'passage') {
+          const list = g.questions || [];
+          const startP = (i === fromGi) ? Math.max(0, (fromPi == null ? -1 : fromPi) + 1) : 0;
+          for (let p = startP; p < list.length; p++) {
+            if (list[p] && !isAnswered(list[p].id)) return { gi: i, pi: p };
+          }
+        } else if (g.question && !isAnswered(g.question.id)) {
+          if (i > fromGi || fromPi < 0) return { gi: i, pi: 0 };
+        }
+      }
+      return null;
+    };
+
+    const colors = (window.OPTION_COLORS || ['#3b82f6','#14b8a6','#eab308','#f43f5e','#8b5cf6','#06b6d4','#f97316','#84cc16']);
+    const renderMcKahoot = (q) => {
+      const multi = q.multiCorrect === true;
+      const opts = q.options || [];
+      const val = answers[q.id];
+      const cards = opts.map((o, i) => {
+        const color = colors[i % colors.length];
+        const selected = multi
+          ? (Array.isArray(val) && (val.includes(i) || val.includes(String(i))))
+          : (val == i || val === String(i));
+        return `<button type="button" class="take-opt gq-option ${selected ? 'selected' : ''}" style="background:${color}" data-opt="${i}" data-multi="${multi ? '1' : '0'}">${escapeHtml((o && String(o).trim()) ? o : ('Option ' + (i + 1)))}</button>`;
+      }).join('');
+      return `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(q.prompt || q.statement || 'Question')}</div>
+        <div class="take-options-grid" id="take-q-box" data-qid="${q.id}">${cards}</div>`;
+    };
+
+    const renderTake = () => {
+      if (gi >= groups.length) {
+        const next = findNextUnanswered(0, -1);
+        if (next) { gi = next.gi; pi = next.pi; }
+        else {
+          this.finishRegularTake(session, answers, 'manual');
+          return;
+        }
+      }
+      const g = groups[gi];
+      const progress = Math.round((gi / Math.max(groups.length, 1)) * 100);
+      let body = '';
+      let currentQ = null;
+
       if (g.kind === 'passage') {
         const list = g.questions && g.questions.length ? g.questions : [];
-        const tabs = (g.passage.passages && g.passage.passages.length)
+        const tabs = (g.passage && g.passage.passages && g.passage.passages.length)
           ? g.passage.passages
-          : [{ title: 'Passage 1', html: g.passage.passageHtml || g.passage.prompt || '' }];
+          : [{ title: 'Passage 1', html: (g.passage && (g.passage.passageHtml || g.passage.prompt)) || '' }];
         const activeTab = window._passageTab || 0;
         const tabBar = tabs.map((pp, i) =>
           `<button type="button" class="passage-tab ${i === activeTab ? 'active' : ''}" data-pass-tab="${i}">${escapeHtml(pp.title || ('Passage ' + (i + 1)))}</button>`
         ).join('');
         const activeHtml = (tabs[activeTab] && tabs[activeTab].html) || '';
-        const kidsHtml = list.map((kq, ki) => {
-          return `<div class="pass-take-q" data-pass-qi="${ki}">${Regular.renderStudentQuestion(kq, answers[kq.id])}</div>`;
-        }).join('') || '<p class="text-muted">No questions for this passage</p>';
+        const kidsHtml = list.map((kq) =>
+          `<div class="pass-take-q">${Regular.renderStudentQuestion(kq, answers[kq.id])}</div>`
+        ).join('') || '<p class="text-muted">No questions for this passage</p>';
         body = `<div class="take-passage passage-take-dual vh-lock-inner" id="take-q-box" data-passage-take="1">
           <div class="take-passage-left passage-take-left">
             <div class="passage-tab-bar">${tabBar}</div>
@@ -3140,7 +3231,9 @@ const App = {
         </div>`;
       } else {
         currentQ = g.question;
-        if (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf') {
+        if (!currentQ) {
+          body = '<p class="text-muted">Missing question</p>';
+        } else if (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf') {
           body = renderMcKahoot(currentQ);
         } else if (currentQ.type === 'wordbox') {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentWordBox(currentQ, answers[currentQ.id])}</div>`;
@@ -3152,18 +3245,6 @@ const App = {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentTable(currentQ, answers[currentQ.id])}</div>`;
         } else if (currentQ.type === 'match') {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentMatch(currentQ, answers[currentQ.id])}</div>`;
-        } else if (currentQ.type === 'passage' || currentQ.isPassageSet) {
-          const html = currentQ.passageHtml || (currentQ.passages && currentQ.passages[0] && currentQ.passages[0].html) || '';
-          const kids = currentQ.questions || [];
-          const kidsHtml = kids.map((kq, ki) => {
-            const ans = answers[kq.id];
-            if (kq.type === 'multiple' || kq.type === 'truefalse') return `<div class="pass-take-q">${Regular.renderStudentQuestion(kq, ans)}</div>`;
-            return `<div class="pass-take-q">${Regular.renderStudentQuestion(kq, ans)}</div>`;
-          }).join('');
-          body = `<div class="passage-take-dual" id="take-q-box" data-passage-take="1">
-            <div class="passage-take-left"><div class="passage-doc">${html}</div></div>
-            <div class="passage-take-right">${kidsHtml || '<p class="text-muted">No questions</p>'}</div>
-          </div>`;
         } else {
           body = `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(currentQ.prompt || 'Question')}</div>
             <div class="take-single" id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
@@ -3171,7 +3252,6 @@ const App = {
       }
 
       const showSkip = !allAnswered();
-      // Full-screen take: replace entire app chrome
       document.getElementById('app').innerHTML = `
         <div class="exam-take-wrap take-fullscreen">
           <div class="take-topbar">
@@ -3187,7 +3267,7 @@ const App = {
           <div class="take-nav">
             ${g.kind === 'passage' ? '<button type="button" class="btn btn-primary btn-skip-passage" id="take-skip-passage">Skip passage</button>' : ''}
             ${showSkip && g.kind !== 'passage' ? '<button type="button" class="btn btn-ghost" id="take-skip">Skip</button>' : ''}
-            ${g.kind !== 'passage' ? `<button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>` : `<button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>`}
+            <button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>
           </div>
         </div>`;
 
@@ -3201,7 +3281,7 @@ const App = {
           if (multi) answers[qid] = selected;
           else if (selected.length) answers[qid] = selected[0];
         } else {
-          Object.assign(answers, Regular.collectAnswers(box));
+          try { Object.assign(answers, Regular.collectAnswers(box)); } catch (_) {}
         }
         window._takeAnswers = answers;
         if (!String(session.id).startsWith('test_')) {
@@ -3223,9 +3303,9 @@ const App = {
           };
         });
       } else if (box) {
-        Regular.bindStudentMC(box, save);
-        if (box.getAttribute('data-type') === 'match' || box.querySelector('[data-type="match"]')) {
-          const mt = box.getAttribute('data-type') === 'match' ? box : box.querySelector('[data-type="match"]');
+        try { Regular.bindStudentMC(box, save); } catch (_) {}
+        const mt = box.getAttribute('data-type') === 'match' ? box : box.querySelector('[data-type="match"]');
+        if (mt && Regular.bindMatchTake) {
           Regular.bindMatchTake(mt, (pairs) => {
             answers[mt.getAttribute('data-qid')] = pairs;
             window._takeAnswers = answers;
@@ -3236,57 +3316,38 @@ const App = {
           el.addEventListener('change', save);
           el.addEventListener('input', save);
         });
-        if (box.querySelector('.wb-student') || document.querySelector('.wb-student')) {
-          const root = box.querySelector('.wb-student') || document.querySelector('.wb-student');
-          Regular.bindWordBoxDrag(root, save);
-        }
-      }
-      // Word box may be outside take-q-box
-      const wbRoot = document.querySelector('.wb-student');
-      if (wbRoot) Regular.bindWordBoxDrag(wbRoot, save);
-      const catRoot = document.querySelector('.cat-student');
-      if (catRoot) Regular.bindCategorizeDrag(catRoot, save);
-      // Table fill calculator + no integrity paste while focused here
-      window._tableFillActive = !!document.querySelector('[data-table-fill="1"]');
-      const stuCalc = document.getElementById('student-calculator');
-      if (stuCalc) {
-        let expr = '0';
-        const disp = document.getElementById('stu-calc-display');
-        stuCalc.querySelectorAll('[data-stu-calc]').forEach(btn => {
-          btn.onclick = () => {
-            const k = btn.getAttribute('data-stu-calc');
-            if (k === 'C') { expr = '0'; }
-            else if (k === '⌫') { expr = expr.slice(0, -1) || '0'; }
-            else if (k === '=') {
-              try { expr = String(Function('"use strict";return (' + expr + ')')()); }
-              catch (_) { expr = 'Error'; }
-            } else if (k === 'Copy') {
-              try { navigator.clipboard.writeText(disp.value); } catch (_) {}
-              return;
-            } else {
-              expr = (expr === '0' ? '' : expr) + k;
-            }
-            if (disp) disp.value = expr;
-          };
-        });
-        document.getElementById('calc-collapse-btn')?.addEventListener('click', () => {
-          document.getElementById('student-calc-panel')?.classList.toggle('collapsed');
+        document.querySelectorAll('.pass-q-list input, .pass-q-list textarea').forEach(el => {
+          el.addEventListener('change', save);
+          el.addEventListener('input', save);
         });
       }
-      // Passage: bind MC inside dual panel
-      document.querySelectorAll('.passage-take-right .gq-student, .passage-take-right .take-opt').forEach(btn => {
-        btn.addEventListener('click', () => setTimeout(save, 0));
-      });
-      document.querySelectorAll('.passage-take-right input, .passage-take-right textarea').forEach(el => {
-        el.addEventListener('change', save);
-        el.addEventListener('input', save);
-      });
 
       const goNext = async (skipPassage = false, isSkip = false) => {
         save();
-        if (isSkip) {
+        if (isSkip && !skipPassage) {
           const n = findNextUnanswered(gi, g.kind === 'passage' ? pi : -1);
           if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
+          return;
+        }
+        if (skipPassage && g.kind === 'passage') {
+          gi += 1; pi = 0; window._passageTab = 0;
+          if (gi >= groups.length) {
+            const n = findNextUnanswered(0, -1);
+            if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
+            const ok = await UI.confirm('Submit this assessment? You will not be able to change answers after submitting.', 'Submit assessment');
+            if (!ok) return;
+            await this.finishRegularTake(session, answers, 'manual');
+          } else renderTake();
+          return;
+        }
+        if (g.kind === 'passage') {
+          const list = g.questions || [];
+          if (list.find(q => q && !isAnswered(q.id))) {
+            await UI.alert('Please answer all questions in this passage before continuing, or press Skip passage.', 'Answer required');
+            return;
+          }
+        } else if (g.question && !isAnswered(g.question.id)) {
+          await UI.alert('Please answer this question before continuing, or press Skip.', 'Answer required');
           return;
         }
         if (!showSkip) {
@@ -3295,12 +3356,7 @@ const App = {
           await this.finishRegularTake(session, answers, 'manual');
           return;
         }
-        if (g.kind === 'passage' && !skipPassage) {
-          const list = g.questions && g.questions.length ? g.questions : [g.passage];
-          if (pi < list.length - 1) { pi += 1; renderTake(); return; }
-        }
-        gi += 1;
-        pi = 0;
+        gi += 1; pi = 0; window._passageTab = 0;
         if (gi >= groups.length) {
           const n = findNextUnanswered(0, -1);
           if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
@@ -3320,10 +3376,9 @@ const App = {
       document.querySelectorAll('[data-pass-tab]').forEach(btn => {
         btn.onclick = () => {
           window._passageTab = Number(btn.dataset.passTab) || 0;
-          // Only swap left content without full re-render if possible
-          const tabs = (g.passage.passages && g.passage.passages.length)
+          const tabs = (g.passage && g.passage.passages && g.passage.passages.length)
             ? g.passage.passages
-            : [{ title: 'Passage 1', html: g.passage.passageHtml || g.passage.prompt || '' }];
+            : [{ title: 'Passage 1', html: (g.passage && (g.passage.passageHtml || g.passage.prompt)) || '' }];
           const html = (tabs[window._passageTab] && tabs[window._passageTab].html) || '';
           const doc = document.querySelector('.passage-doc-scroll .passage-doc');
           if (doc) doc.innerHTML = html;
@@ -3351,10 +3406,10 @@ const App = {
           await UI.alert(err.message || String(err), 'Error');
         }
       };
-      this.injectTestModeBar();
+      try { this.injectTestModeBar(); } catch (_) {}
       if (!String(session.id).startsWith('test_')) {
-        this.injectStudentChatFab(session.id);
-        this._watchTeacherEnd(session.id);
+        try { this.injectStudentChatFab(session.id); } catch (_) {}
+        try { this._watchTeacherEnd(session.id); } catch (_) {}
       }
       try {
         if (window.IdleGuard) {
@@ -3364,7 +3419,6 @@ const App = {
           });
         }
       } catch (_) {}
-      // Keep fullscreen during take
       try {
         if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
           document.documentElement.requestFullscreen().catch(() => {});
@@ -3373,21 +3427,11 @@ const App = {
     };
 
     this._endedHandled = false;
-    this._watchTeacherEnd(session.id);
-    try {
-      const el = document.documentElement;
-      if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
-      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    } catch (_) {}
     try {
       if (window.Monitor) {
         Monitor.sessionId = session.id;
         Monitor.examId = session.examId || session.exam?.id;
         Monitor.submitting = false;
-        Monitor.bindLockListeners();
-        if (!Monitor.timer && !String(session.id).startsWith('test_')) {
-          Monitor.timer = setInterval(() => Monitor.pushLiveThumbs(), 12000);
-        }
       }
     } catch (_) {}
     renderTake();

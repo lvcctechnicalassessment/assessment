@@ -80,6 +80,74 @@ const Monitor = {
     }
   },
 
+  isSupportedBrowser() {
+    const ua = navigator.userAgent || '';
+    const isEdge = ua.indexOf('Edg/') >= 0 || ua.indexOf('EdgiOS/') >= 0;
+    const isChrome = (ua.indexOf('Chrome/') >= 0 || ua.indexOf('CriOS/') >= 0) && ua.indexOf('OPR/') < 0 && !isEdge;
+    return isChrome || isEdge;
+  },
+
+  async detectMultiMonitor() {
+    try {
+      if (window.screen && typeof window.screen.isExtended === 'boolean') {
+        return !!window.screen.isExtended;
+      }
+      // Heuristic: very wide virtual screen vs window
+      const aw = window.screen.availWidth || 0;
+      const iw = window.innerWidth || 0;
+      if (aw > 0 && iw > 0 && aw > iw * 1.6 && aw > 2200) return true;
+    } catch (_) {}
+    return false;
+  },
+
+  /** Universal consent UI when native getDisplayMedia is unavailable (common on mobile) */
+  fakeScreenShareConsent() {
+    return new Promise((resolve) => {
+      const existing = document.getElementById('fake-share-modal');
+      if (existing) existing.remove();
+      const root = document.createElement('div');
+      root.id = 'fake-share-modal';
+      root.className = 'modal-overlay ui-modal-overlay';
+      root.style.cssText = 'position:fixed;inset:0;z-index:60000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);padding:1rem';
+      root.innerHTML = `<div class="modal ui-modal" style="max-width:440px;width:100%">
+        <h2 style="margin-top:0">Screen sharing required</h2>
+        <p style="text-align:left;line-height:1.5">
+          <strong>${location.hostname || 'This site'}</strong> wants to share the contents of your screen for assessment integrity monitoring.
+        </p>
+        <p style="text-align:left;font-size:0.9rem;opacity:0.9">
+          By tapping <strong>Allow</strong>, you consent to screen monitoring while this assessment is open.
+          Your screen will be monitored for the duration of the exam.
+        </p>
+        <div class="action-btns" style="justify-content:flex-end;gap:0.5rem;margin-top:1.25rem">
+          <button type="button" class="btn btn-ghost" id="fake-share-deny">Block</button>
+          <button type="button" class="btn btn-primary" id="fake-share-allow">Allow</button>
+        </div>
+      </div>`;
+      document.body.appendChild(root);
+      root.querySelector('#fake-share-deny').onclick = () => { root.remove(); resolve(false); };
+      root.querySelector('#fake-share-allow').onclick = () => { root.remove(); resolve(true); };
+    });
+  },
+
+  async ensureScreenShareConsent() {
+    // Try native first when available
+    const canNative = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+    if (canNative) {
+      try {
+        const ok = await this.startDesktopCapture();
+        if (ok && this.stream) return true;
+      } catch (_) {}
+    }
+    // Fallback: universal in-app consent (mobile / unsupported)
+    const allowed = await this.fakeScreenShareConsent();
+    if (allowed) {
+      this._fakeShareAllowed = true;
+      this.monitorFeed = 'ACTIVE';
+      return true;
+    }
+    return false;
+  },
+
   async showEntryGate(sessionId, examId) {
     this.sessionId = sessionId;
     this.examId = examId;
@@ -96,16 +164,17 @@ const Monitor = {
       overlay.id = 'monitor-gate';
       overlay.className = 'monitor-gate';
       overlay.innerHTML = `
-        <div class="monitor-gate-card">
+        <div class="monitor-gate-card monitor-gate-padded">
           <div class="monitor-gate-center">
             <img src="assets/lvcc-logo.png" width="72" height="72" alt="LVCC" />
           </div>
-          <h1 class="monitor-gate-title">Assessment integrity rules</h1>
+          <h1 class="monitor-gate-title">Assessment Integrity Rules</h1>
           <div class="monitor-gate-body">
             <p>Full screen is required for the entire assessment on desktop devices.</p>
             <p>Your screen may be monitored so instructors can protect exam integrity. Do not exit full screen, switch tabs, or open other windows.</p>
             <p>Violations are logged in real time. Screen stills may be captured for monitoring when a violation is detected.</p>
             <p>By continuing, you agree to these rules and to remain in the assessment environment until you submit or time expires.</p>
+            <p class="monitor-security-notice"><strong>Security Notice:</strong> This assessment portal requires <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong>. Please copy the link and open it in a supported browser.</p>
           </div>
           <p class="monitor-gate-device">Device detected: <strong>${this.deviceType}</strong></p>
           <div class="monitor-gate-center">
@@ -122,24 +191,44 @@ const Monitor = {
         this._graceMs = 30000; // no join-time false positives
 
         try {
-          // 1) Prompt screen share for desktop AND mobile (required; stream may be ignored by server)
-          {
-            btn.textContent = 'Waiting for screen share…';
-            const shared = await Promise.race([
-              this.startDesktopCapture(),
-              new Promise(r => setTimeout(() => r(false), 60000))
-            ]);
-            if (!shared && !this.stream) {
-              if (window.UI) {
-                await UI.alert(
-                  'Screen sharing is required to start this assessment. Please click Allow on the browser prompt, then try again.',
-                  'Screen share required'
-                );
-              }
-              btn.disabled = false;
-              btn.textContent = 'Accept Rules & Start Exam';
-              return;
+          // 0) Browser + multi-monitor checks
+          if (!this.isSupportedBrowser()) {
+            if (window.UI) {
+              await UI.alert(
+                'This assessment portal requires Google Chrome or Microsoft Edge. Please copy the link and open it in a supported browser.',
+                'Unsupported browser'
+              );
             }
+            btn.disabled = false;
+            btn.textContent = 'Accept Rules & Start Exam';
+            return;
+          }
+          const multi = await this.detectMultiMonitor();
+          if (multi) {
+            if (window.UI) {
+              await UI.alert(
+                'A second display or extended desktop was detected. Please disconnect extra monitors and use a single screen, then try again.',
+                'Multiple monitors detected'
+              );
+            }
+            btn.disabled = false;
+            btn.textContent = 'Accept Rules & Start Exam';
+            return;
+          }
+
+          // 1) Screen share consent (native or universal fake prompt)
+          btn.textContent = 'Waiting for screen share…';
+          const shared = await this.ensureScreenShareConsent();
+          if (!shared) {
+            if (window.UI) {
+              await UI.alert(
+                'Screen sharing consent is required to start this assessment. Please tap Allow, then try again.',
+                'Screen share required'
+              );
+            }
+            btn.disabled = false;
+            btn.textContent = 'Accept Rules & Start Exam';
+            return;
           }
 
           // 2) Force fullscreen after share prompt
