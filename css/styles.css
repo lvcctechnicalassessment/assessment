@@ -3192,3 +3192,109 @@ body.nav-collapsed .nav-label { display: none; }
     max-height: none !important;
   }
 }
+
+/* v1.5.30 */
+.fill-student-center {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: calc(100vh - 10rem);
+  min-height: calc(100dvh - 10rem);
+  padding: 1rem;
+  box-sizing: border-box;
+}
+.fill-student-inner {
+  max-width: 900px;
+  width: 100%;
+  text-align: center;
+  line-height: 2;
+  font-size: 1.15rem;
+}
+.fill-inline-input {
+  display: inline-block;
+  width: auto;
+  min-width: 6rem;
+  max-width: 12rem;
+  margin: 0 0.25rem;
+  vertical-align: middle;
+  text-align: center;
+}
+.fill-inline-text { display: inline; }
+
+.fib-builder-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.fib-seg { display: inline-flex; align-items: center; gap: 0.25rem; }
+.fib-inline-input { min-width: 8rem; max-width: 14rem; }
+
+/* Passage MC selected: black border */
+.pass-q-list .gq-student.selected,
+.pass-q-list .gq-option.selected,
+.passage-take-right .gq-student.selected,
+.take-opt.selected {
+  border: 3px solid #111 !important;
+  box-shadow: 0 0 0 1px #111;
+}
+[data-theme="dark"] .pass-q-list .gq-student.selected,
+[data-theme="dark"] .take-opt.selected {
+  border-color: #fff !important;
+  box-shadow: 0 0 0 1px #fff;
+}
+
+/* Wordbox dual like passage */
+.wb-dual {
+  display: grid !important;
+  grid-template-columns: minmax(180px, 32%) 1fr;
+  gap: 0.75rem;
+  height: calc(100vh - 9rem);
+  max-height: calc(100dvh - 9rem);
+  width: 100%;
+  overflow: hidden;
+}
+.wb-dual-left, .wb-dual-right {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.75rem;
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+}
+.wb-bank-title { font-weight: 600; margin-bottom: 0.5rem; text-align: center; }
+.wb-child-q { margin-bottom: 1rem; padding: 0.75rem; }
+
+/* Table fill full height fill */
+.table-fill-take {
+  height: calc(100vh - 8.5rem) !important;
+  max-height: calc(100dvh - 8.5rem) !important;
+}
+.table-fill-take.tf-full-width {
+  grid-template-columns: 1fr !important;
+}
+.table-fill-take-left,
+.table-fill-take-right {
+  height: 100% !important;
+}
+.tf-subheader-row th {
+  background: #6BA3D4 !important;
+  color: #fff !important;
+  font-weight: 500;
+  font-size: 0.9em;
+}
+[data-theme="dark"] .tf-subheader-row th {
+  background: #3d6f9c !important;
+}
+.table-fill-cfg-side {
+  max-width: 280px;
+}
+
+@media (max-width: 800px) {
+  .wb-dual { grid-template-columns: 1fr; height: auto !important; max-height: none !important; }
+}

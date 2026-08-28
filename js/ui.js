@@ -123,7 +123,7 @@ const UI = {
 window.UI = UI;
 
 
-/** 5 min idle → 10s countdown → end session (saves Firestore quota) */
+/** Idle → 10s countdown → end session (saves Firestore quota). idleMs set by App (5 or 10 min). */
 window.IdleGuard = {
   idleMs: 5 * 60 * 1000,
   warnMs: 10 * 1000,
@@ -173,7 +173,7 @@ window.IdleGuard = {
     root.style.cssText = 'position:fixed;inset:0;z-index:60000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55)';
     root.innerHTML = `<div class="modal ui-modal" style="max-width:420px;text-align:center">
       <h2>Are you still there?</h2>
-      <p>No activity detected for 5 minutes. Session will end in <strong id="idle-count">${left}</strong>s to save resources.</p>
+      <p>No activity detected for ${Math.round((this.idleMs||300000)/60000)} minutes. Session will end in <strong id="idle-count">${left}</strong>s to save resources.</p>
       <div class="action-btns" style="justify-content:center;gap:0.75rem;margin-top:1rem">
         <button type="button" class="btn btn-danger" id="idle-end">End session</button>
         <button type="button" class="btn btn-primary" id="idle-continue">Continue</button>

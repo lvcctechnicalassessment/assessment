@@ -263,3 +263,11 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Fill/wordbox centering; word bank table cells
 - Passage builder tabs + Add Question fixed bottom
 - FUNCTIONAL_SPECIFICATIONS.md added (update each release)
+
+## v1.5.30
+- Removed Skip (kept Skip passage)
+- Publish randomize option (per section; not passage/table)
+- FIB centered; inline builder + Alt popover
+- Passage MC border; wordbox dual layout
+- Staff idle 10 min; test-as-student idle ends session
+- Table subheader; show/hide student calculator

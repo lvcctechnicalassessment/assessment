@@ -125,8 +125,11 @@ const App = {
       if (window.IdleGuard) {
         const role0 = Auth.userProfile?.role;
         const isStaff = role0 === 'superadmin' || role0 === 'teacher' || role0 === 'proctor';
-        // Instructors / proctors / test sessions: no idle sign-out
-        if (!isStaff && !window._testMode) {
+        if (window.IdleGuard) {
+          IdleGuard.idleMs = isStaff ? (10 * 60 * 1000) : (5 * 60 * 1000);
+        }
+        // Staff and students both use idle guard; staff = 10 min
+        if (!window._testMode) {
           IdleGuard.start(async () => {
             try { if (window.Monitor) Monitor.stop(); } catch (_) {}
             try { await Auth.signOut(); } catch (_) {}
@@ -734,6 +737,7 @@ const App = {
       payload.startAt = schedule.startAt;
       payload.endAt = schedule.endAt;
       payload.durationMinutes = schedule.durationMinutes || Math.max(1, Math.round((schedule.endAt - schedule.startAt) / 60000));
+      if (schedule.randomizeQuestions != null) payload.randomizeQuestions = !!schedule.randomizeQuestions;
     } else if (status === 'draft') {
       payload.startAt = payload.startAt || Date.now();
       payload.endAt = payload.endAt || (Date.now() + 3600000);
@@ -1159,6 +1163,104 @@ const App = {
       box.querySelectorAll('[data-pointsmode]').forEach(el => {
         el.onchange = () => { const q = flat[Number(el.dataset.pointsmode)]; if (q) q.pointsMode = el.value; };
       });
+      
+      // Fill-in-the-blank segments builder
+      const syncFibParts = (gi) => {
+        const q = (window._builderQuestions || [])[gi];
+        if (!q) return;
+        // rebuild blanks/template from parts for grading compatibility
+        const parts = q.parts || [];
+        const blanks = [];
+        let tpl = '';
+        parts.forEach((s) => {
+          if (s.kind === 'blank') {
+            const id = s.id || String(blanks.length + 1);
+            blanks.push({ id, correct: s.correct || '', alternatives: s.alternatives || [] });
+            tpl += '{{' + id + '}}';
+          } else {
+            tpl += s.text || '';
+          }
+        });
+        q.blanks = blanks;
+        q.template = tpl;
+        q.sentence = tpl;
+        q.prompt = q.prompt || tpl;
+      };
+      box.querySelectorAll('[data-fib-add-text]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.fibAddText);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return;
+          q.parts = q.parts || [];
+          q.parts.push({ kind: 'text', text: '' });
+          syncFibParts(gi);
+          if (window._renderAssessmentBuilder) window._renderAssessmentBuilder();
+        };
+      });
+      box.querySelectorAll('[data-fib-add-blank]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.fibAddBlank);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return;
+          q.parts = q.parts || [];
+          const id = String((q.parts.filter(p => p.kind === 'blank').length) + 1);
+          q.parts.push({ kind: 'blank', id, correct: '', alternatives: [] });
+          syncFibParts(gi);
+          if (window._renderAssessmentBuilder) window._renderAssessmentBuilder();
+        };
+      });
+      box.querySelectorAll('[data-fib-text]').forEach(el => {
+        el.oninput = () => {
+          const [gi, si] = el.dataset.fibText.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q && q.parts && q.parts[si]) { q.parts[si].text = el.value; syncFibParts(gi); }
+        };
+      });
+      box.querySelectorAll('[data-fib-correct]').forEach(el => {
+        el.oninput = () => {
+          const [gi, si] = el.dataset.fibCorrect.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q && q.parts && q.parts[si]) { q.parts[si].correct = el.value; syncFibParts(gi); }
+        };
+      });
+      box.querySelectorAll('[data-fib-del-seg]').forEach(el => {
+        el.onclick = () => {
+          const [gi, si] = el.dataset.fibDelSeg.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q && q.parts) {
+            q.parts.splice(si, 1);
+            syncFibParts(gi);
+            if (window._renderAssessmentBuilder) window._renderAssessmentBuilder();
+          }
+        };
+      });
+      box.querySelectorAll('[data-fib-alt-pop]').forEach(el => {
+        el.onclick = async () => {
+          const [gi, si] = el.dataset.fibAltPop.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q || !q.parts || !q.parts[si]) return;
+          const cur = (q.parts[si].alternatives || []).join(', ');
+          const v = await UI.prompt('Alternate answers (comma-separated):', cur, 'Alternate answers', 'ans1, ans2');
+          if (v == null) return;
+          q.parts[si].alternatives = String(v).split(',').map(s => s.trim()).filter(Boolean);
+          syncFibParts(gi);
+        };
+      });
+      box.querySelectorAll('[data-tf-show-calc]').forEach(el => {
+        el.onchange = () => {
+          const gi = Number(el.dataset.tfShowCalc);
+          const q = (window._builderQuestions || [])[gi];
+          if (q) q.showCalculator = !!el.checked;
+        };
+      });
+      box.querySelectorAll('[data-tf-subheader]').forEach(el => {
+        el.oninput = () => {
+          const gi = Number(el.dataset.tfSubheader);
+          const q = (window._builderQuestions || [])[gi];
+          if (q) q.subheaders = String(el.value || '').split('|').map(s => s.trim());
+        };
+      });
+
       box.querySelectorAll('[data-points]').forEach(el => {
         el.oninput = () => { const q = flat[Number(el.dataset.points)]; if (q) q.points = Number(el.value) || 1; };
       });
@@ -3380,9 +3482,65 @@ const App = {
     try { sessionStorage.removeItem('lvcc_leave_' + session.id); } catch (_) {}
 
     const exam = session.exam || await Exam.getExam(session.examId);
-    const groups = (typeof Regular.groupQuestionsForTake === 'function')
+    let groups = (typeof Regular.groupQuestionsForTake === 'function')
       ? Regular.groupQuestionsForTake(exam)
       : (Regular.flattenQuestions(exam) || []).map(q => ({ kind: 'single', question: q }));
+    // Per-student section-aware randomization (passage & table locked)
+    if (exam.randomizeQuestions && !isTestSession) {
+      const shuffle = (arr) => {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      };
+      // groups may already be section-ordered; shuffle only movable singles within contiguous section blocks
+      // Prefer sections from exam
+      if (exam.sections && exam.sections.length) {
+        const out = [];
+        for (const sec of exam.sections) {
+          const qs = (sec.questions || []).slice();
+          const fixed = [];
+          const movable = [];
+          qs.forEach((q, qi) => {
+            if (!q) return;
+            if (q.type === 'passage' || q.type === 'table' || q.isPassageSet) fixed.push({ q, qi, lock: true });
+            else movable.push({ q, qi, lock: false });
+          });
+          const shuffled = shuffle(movable);
+          let mi = 0;
+          const ordered = qs.map((q) => {
+            if (!q) return null;
+            if (q.type === 'passage' || q.type === 'table' || q.isPassageSet) return q;
+            return shuffled[mi++]?.q || q;
+          }).filter(Boolean);
+          ordered.forEach(q => {
+            if (q.type === 'passage' || q.isPassageSet) {
+              out.push({ kind: 'passage', passage: q, questions: q.questions || [] });
+            } else {
+              out.push({ kind: 'single', question: q });
+            }
+          });
+        }
+        if (out.length) groups = out;
+      } else {
+        // no sections: shuffle only non-passage/table among singles
+        const locked = [];
+        const free = [];
+        groups.forEach((g, i) => {
+          if (g.kind === 'passage' || (g.question && (g.question.type === 'table' || g.question.type === 'passage'))) {
+            locked.push({ g, i });
+          } else free.push(g);
+        });
+        const shuffled = shuffle(free);
+        let fi = 0;
+        groups = groups.map((g) => {
+          if (g.kind === 'passage' || (g.question && (g.question.type === 'table' || g.question.type === 'passage'))) return g;
+          return shuffled[fi++] || g;
+        });
+      }
+    }
     if (!groups.length) {
       await UI.alert('This assessment has no questions yet.', 'Empty');
       return isTestSession ? (this.showTeacherHome ? this.showTeacherHome() : this.showDashboard()) : this.showStudentHome();
@@ -3756,14 +3914,18 @@ const App = {
         if (window.IdleGuard) {
           const isTest = !!(session._testMode || window._testMode || String(session.id || '').startsWith('test_'));
           const staff = Auth.userProfile && ['superadmin','teacher','proctor'].includes(Auth.userProfile.role);
-          if (!isTest && !staff) {
-            IdleGuard.start(async () => {
-              try { if (window.Monitor) Monitor.stop(); } catch (_) {}
-              await this.finishRegularTake(session, window._takeAnswers || {}, 'idle-timeout');
-            });
-          } else {
-            IdleGuard.stop();
-          }
+          IdleGuard.idleMs = (isTest || staff) ? (10 * 60 * 1000) : (5 * 60 * 1000);
+          IdleGuard.start(async () => {
+            try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+            if (isTest) {
+              try { await this.finishRegularTake(session, window._takeAnswers || {}, 'idle-timeout'); } catch (_) {}
+              try { window._testMode = false; } catch (_) {}
+              try { await Auth.signOut(); } catch (_) {}
+              location.reload();
+              return;
+            }
+            await this.finishRegularTake(session, window._takeAnswers || {}, 'idle-timeout');
+          });
         }
       } catch (_) {}
       try {
@@ -3897,6 +4059,13 @@ const App = {
           <input type="datetime-local" id="sched-end" class="form-control" value="${toLocal(later)}" /></div>
         <div class="form-group"><label>Time limit (minutes)</label>
           <input type="number" id="sched-mins" class="form-control" min="1" value="60" /></div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+            <input type="checkbox" id="sched-randomize" />
+            Randomize questions for students
+          </label>
+          <p class="text-muted" style="font-size:0.8rem;margin:0.35rem 0 0">Sections stay in order. Questions inside each section are shuffled per student. Passage and Table fill blocks are not shuffled.</p>
+        </div>
         <div class="modal-actions">
           <button class="btn btn-ghost" id="sched-cancel">Cancel</button>
           <button class="btn btn-primary" id="sched-ok">Publish</button>
@@ -3916,8 +4085,14 @@ const App = {
           UI.alert('Start cannot be in the past.', 'Schedule');
           return;
         }
+        const randomizeQuestions = !!document.getElementById('sched-randomize')?.checked;
         UI.close();
-        resolve({ startAt, endAt, durationMinutes: Math.max(1, Math.round((endAt - startAt) / 60000)) });
+        resolve({
+          startAt,
+          endAt,
+          durationMinutes: Math.max(1, Math.round((endAt - startAt) / 60000)),
+          randomizeQuestions
+        });
       };
     });
   },

@@ -234,41 +234,49 @@ const Regular = {
   },
 
   renderBuilderFill(q, index) {
-    const sentence = q.sentence || q.template || '';
-    let vis = '';
-    let last = 0;
-    const re = /\{\{(\d+)\}\}/g;
-    let m;
-    while ((m = re.exec(sentence)) !== null) {
-      if (m.index > last) vis += `<span class="wb-cfg-text">${escapeHtml(sentence.slice(last, m.index))}</span>`;
-      const bid = m[1];
-      const blank = (q.blanks || []).find(b => String(b.id) === String(bid));
-      const filled = blank && blank.correct ? escapeHtml(String(Array.isArray(blank.correct) ? blank.correct[0] : blank.correct)) : '';
-      vis += `<span class="wb-cfg-blank fill-blank ${filled ? 'filled' : ''}">${filled || '____'}</span>`;
-      last = m.index + m[0].length;
+    let segments = Array.isArray(q.parts) ? q.parts : null;
+    if (!segments || !segments.length) {
+      const tpl = q.template || q.sentence || q.prompt || '';
+      segments = [];
+      let last = 0;
+      const re = /\{\{(\d+)\}\}/g;
+      let m;
+      while ((m = re.exec(tpl)) !== null) {
+        if (m.index > last) segments.push({ kind: 'text', text: tpl.slice(last, m.index) });
+        const bid = String(m[1]);
+        const blank = (q.blanks || []).find(b => String(b.id) === bid) || {};
+        const corr = Array.isArray(blank.correct) ? blank.correct[0] : (blank.correct || '');
+        const alts = Array.isArray(blank.correct) && blank.correct.length > 1
+          ? blank.correct.slice(1)
+          : (blank.alternatives || []);
+        segments.push({ kind: 'blank', id: bid, correct: corr || '', alternatives: alts || [] });
+        last = m.index + m[0].length;
+      }
+      if (last < tpl.length) segments.push({ kind: 'text', text: tpl.slice(last) });
+      if (!segments.length) segments = [{ kind: 'text', text: tpl || '' }];
+      q.parts = segments;
     }
-    if (last < sentence.length) vis += `<span class="wb-cfg-text">${escapeHtml(sentence.slice(last))}</span>`;
-    const blankCfg = (q.blanks || []).map((b, bi) => {
-      const corr = Array.isArray(b.correct) ? b.correct[0] : (b.correct || '');
-      const alts = Array.isArray(b.correct) && b.correct.length > 1 ? b.correct.slice(1) : (b.alternatives || []);
-      return `<div class="mt-1" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
-        <span class="text-muted">Blank {{${escapeHtml(String(b.id))}}}</span>
-        <input class="form-control" style="max-width:180px" data-fill-correct="${index}:${bi}" value="${escapeHtml(String(corr))}" placeholder="Correct answer" />
-        <input class="form-control" style="max-width:200px" data-fill-alt="${index}:${bi}" value="${escapeHtml((alts||[]).join(', '))}" placeholder="Alternatives" />
-        <button type="button" class="btn btn-sm btn-danger" data-fill-del="${index}:${bi}">×</button>
-      </div>`;
+    const segsHtml = segments.map((s, si) => {
+      if (s.kind === 'blank') {
+        return `<span class="fib-seg fib-blank" data-fib-seg="${index}:${si}">
+          <input class="form-control fib-inline-input" data-fib-correct="${index}:${si}" value="${escapeHtml(s.correct||'')}" placeholder="Correct answer" />
+          <button type="button" class="btn btn-sm btn-ghost fib-alt-btn" data-fib-alt-pop="${index}:${si}" title="Alternate answers">Alt…</button>
+          <button type="button" class="btn btn-sm btn-danger" data-fib-del-seg="${index}:${si}">×</button>
+        </span>`;
+      }
+      return `<span class="fib-seg fib-text" data-fib-seg="${index}:${si}">
+        <input class="form-control fib-text-input" data-fib-text="${index}:${si}" value="${escapeHtml(s.text||'')}" placeholder="Text…" />
+        <button type="button" class="btn btn-sm btn-danger" data-fib-del-seg="${index}:${si}">×</button>
+      </span>`;
     }).join('');
     return `<div class="builder-fill" data-gidx="${index}">
-      <div class="wb-cfg-preview">${vis || '<span class="text-muted">Type sentence with blanks</span>'}</div>
-      <label>Sentence (use Insert blank for open-ended blanks — no word bank)</label>
-      <textarea class="form-control" data-fill-sentence="${index}" rows="2">${escapeHtml(sentence)}</textarea>
-      <button type="button" class="btn btn-sm btn-primary mt-1" data-fill-insert="${index}">+ Insert blank</button>
-      <div class="mt-1"><strong>Correct answers</strong></div>
-      ${blankCfg || '<p class="text-muted">Insert blanks first</p>'}
-      <div class="points-row mt-1">
-        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
-        <label>Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
+      <p class="text-muted" style="font-size:0.85rem">Add text and answer boxes inline. Use Alt… for alternate answers.</p>
+      <div class="fib-builder-row">${segsHtml || '<span class="text-muted">Empty</span>'}</div>
+      <div class="action-btns mt-1" style="flex-wrap:wrap;gap:0.35rem">
+        <button type="button" class="btn btn-sm btn-ghost" data-fib-add-text="${index}">+ Text</button>
+        <button type="button" class="btn btn-sm btn-primary" data-fib-add-blank="${index}">+ Answer box</button>
       </div>
+      <label class="mt-1">Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:80px;display:inline-block"/></label>
     </div>`;
   },
 
@@ -446,19 +454,15 @@ const Regular = {
           <label class="tf-each-pts" style="${(q.pointsMode || 'all') === 'each' ? '' : 'opacity:0.5'}">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
         </div>
       </div>
-      <div class="table-fill-right" id="tf-calc-panel-${index}">
-        <div class="tf-calc-head">
-          <strong>Calculator</strong>
-          <button type="button" class="btn btn-sm btn-ghost" data-tf-calc-toggle="${index}" title="Collapse">⌄</button>
-        </div>
-        <div class="tf-calculator">
-          <input class="form-control tf-calc-display" data-tf-calc-display="${index}" readonly value="0" />
-          <div class="tf-calc-keys">
-            ${['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+','C','⌫','Copy'].map(k =>
-              `<button type="button" class="btn btn-sm btn-ghost tf-calc-key" data-tf-calc-key="${index}:${k}">${k}</button>`
-            ).join('')}
-          </div>
-        </div>
+      <div class="table-fill-right table-fill-cfg-side" id="tf-calc-panel-${index}">
+        <label class="mt-1" style="display:flex;align-items:center;gap:0.5rem">
+          <input type="checkbox" data-tf-show-calc="${index}" ${q.showCalculator !== false ? 'checked' : ''}/>
+          Show calculator during student assessment
+        </label>
+        <p class="text-muted" style="font-size:0.8rem">If unchecked, the table uses full width on the student view. Calculator is not shown in this configuration panel.</p>
+        <label class="mt-1">Subheader row (same color as header)
+          <input class="form-control" data-tf-subheader="${index}" value="${escapeHtml((q.subheaders||[]).join(' | '))}" placeholder="Sub1 | Sub2 | Sub3" />
+        </label>
       </div>
     </div>`;
   },
@@ -475,7 +479,15 @@ const Regular = {
     for (let c = 0; c < cols; c++) {
       grid += `<th>${escapeHtml((q.headers && q.headers[c]) || ('Col ' + (c + 1)))}</th>`;
     }
-    grid += '</tr></thead><tbody>';
+    grid += '</tr>';
+    if (q.subheaders && q.subheaders.some(s => String(s||'').trim())) {
+      grid += '<tr class="tf-subheader-row">';
+      for (let c = 0; c < cols; c++) {
+        grid += `<th>${escapeHtml((q.subheaders[c]) || '')}</th>`;
+      }
+      grid += '</tr>';
+    }
+    grid += '</thead><tbody>';
     for (let r = 0; r < rows; r++) {
       grid += '<tr>';
       for (let c = 0; c < cols; c++) {
@@ -490,11 +502,8 @@ const Regular = {
       grid += '</tr>';
     }
     grid += '</tbody></table>';
-    return `<div class="table-fill-take" data-qid="${q.id}" data-table-fill="1">
-      <div class="table-fill-take-left">
-        <div class="table-fill-scroll table-fill-center">${grid}</div>
-      </div>
-      <aside class="table-fill-take-right" id="student-calc-panel">
+    const showCalc = q.showCalculator !== false;
+    const calcHtml = showCalc ? `<aside class="table-fill-take-right" id="student-calc-panel">
         <div class="tf-calculator tf-calc-pro" id="student-calculator">
           <div class="tf-calc-title">Calculator</div>
           <input class="form-control tf-calc-display" id="stu-calc-display" value="0" inputmode="decimal" autocomplete="off" />
@@ -505,7 +514,12 @@ const Regular = {
           </div>
           <p class="tf-calc-hint">Numbers only · Copy/paste with table is allowed</p>
         </div>
-      </aside>
+      </aside>` : '';
+    return `<div class="table-fill-take ${showCalc ? '' : 'tf-full-width'}" data-qid="${q.id}" data-table-fill="1">
+      <div class="table-fill-take-left">
+        <div class="table-fill-scroll table-fill-center">${grid}</div>
+      </div>
+      ${calcHtml}
     </div>`;
   },
 
@@ -684,22 +698,34 @@ const Regular = {
   },
 
   renderStudentFill(q, answer) {
-    const sentence = q.sentence || q.template || '';
+    // Centered fill-in-the-blank take UI
     const ans = (answer && typeof answer === 'object') ? answer : {};
-    let parts = [];
-    let last = 0;
-    const re = /\{\{(\d+)\}\}/g;
-    let m;
-    while ((m = re.exec(sentence)) !== null) {
-      if (m.index > last) parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last, m.index))}</span>`);
-      const bid = m[1];
-      const val = ans[bid] || '';
-      parts.push(`<input class="wb-fill-input" data-qid="${q.id}" data-blank="${bid}" value="${escapeHtml(val)}" placeholder="…" />`);
-      last = m.index + m[0].length;
+    let html = '';
+    if (Array.isArray(q.parts) && q.parts.length) {
+      html = q.parts.map((s, si) => {
+        if (s.kind === 'blank') {
+          const id = s.id || String(si + 1);
+          return `<input class="form-control fill-inline-input" data-qid="${q.id}" data-blank="${id}" value="${escapeHtml(ans[id]||'')}" placeholder="…" />`;
+        }
+        return `<span class="fill-inline-text">${escapeHtml(s.text||'')}</span>`;
+      }).join(' ');
+    } else {
+      const tpl = q.template || q.prompt || '';
+      let last = 0;
+      const re = /\{\{(\d+)\}\}/g;
+      let m;
+      const chunks = [];
+      while ((m = re.exec(tpl)) !== null) {
+        if (m.index > last) chunks.push(`<span class="fill-inline-text">${escapeHtml(tpl.slice(last, m.index))}</span>`);
+        const id = m[1];
+        chunks.push(`<input class="form-control fill-inline-input" data-qid="${q.id}" data-blank="${id}" value="${escapeHtml(ans[id]||'')}" placeholder="…" />`);
+        last = m.index + m[0].length;
+      }
+      if (last < tpl.length) chunks.push(`<span class="fill-inline-text">${escapeHtml(tpl.slice(last))}</span>`);
+      html = chunks.join(' ') || escapeHtml(tpl);
     }
-    if (last < sentence.length) parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last))}</span>`);
-    return `<div class="wb-student wb-inline fill-student" data-qid="${q.id}">
-      <div class="wb-sentence-bar">${parts.join('')}</div>
+    return `<div class="fill-student-center" data-qid="${q.id}" data-type="fill">
+      <div class="fill-student-inner">${html}</div>
     </div>`;
   },
 
@@ -734,45 +760,57 @@ const Regular = {
     </div>`;
   },
 
-  renderStudentWordBox(q, answer) {
+  renderStudentWordBoxSentence(q, answer) {
     const sentence = q.sentence || q.prompt || '';
-    const bank = (q.wordBank || []).filter(w => String(w || '').trim());
     const ans = (answer && typeof answer === 'object') ? answer : {};
-    // Build sentence with drop zones for {{n}}
     const parts = [];
     let last = 0;
     const re = /\{\{(\d+)\}\}/g;
     let m;
     while ((m = re.exec(sentence)) !== null) {
-      if (m.index > last) {
-        parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last, m.index))}</span>`);
-      }
+      if (m.index > last) parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last, m.index))}</span>`);
       const bid = m[1];
       const filled = ans[bid] || ans['b'+bid] || '';
       parts.push(`<span class="wb-inline-drop ${filled ? 'filled' : ''}" data-qid="${q.id}" data-blank="${bid}" data-drop="1">${
-        filled
-          ? `<span class="wb-placed" draggable="true" data-word="${escapeHtml(filled)}">${escapeHtml(filled)}</span>`
-          : '<span class="wb-placeholder">&nbsp;</span>'
+        filled ? `<span class="wb-placed" draggable="true" data-word="${escapeHtml(filled)}">${escapeHtml(filled)}</span>` : '<span class="wb-placeholder">&nbsp;</span>'
       }</span>`);
       last = m.index + m[0].length;
     }
-    if (last < sentence.length) {
-      parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last))}</span>`);
+    if (last < sentence.length) parts.push(`<span class="wb-text">${escapeHtml(sentence.slice(last))}</span>`);
+    return `<div class="wb-sentence-bar">${parts.join('') || escapeHtml(sentence)}</div>`;
+  },
+
+  renderStudentWordBox(q, answer) {
+    const bank = (q.wordBank || []).filter(w => String(w || '').trim());
+    const ans = (answer && typeof answer === 'object') ? answer : {};
+    const bankTable = bank.map((w) => {
+      const used = Object.values(ans).some(v => String(v).toLowerCase() === String(w).toLowerCase())
+        || (Array.isArray(q.questions) && q.questions.some(kq => {
+          const a = ans[kq.id];
+          return a && typeof a === 'object' && Object.values(a).some(v => String(v).toLowerCase() === String(w).toLowerCase());
+        }));
+      return `<div class="wb-chip wb-bank-cell ${used ? 'wb-used' : ''}" draggable="true" data-word="${escapeHtml(w)}">${escapeHtml(w)}</div>`;
+    }).join('') || '<span class="text-muted">No words</span>';
+    const kids = Array.isArray(q.questions) && q.questions.length ? q.questions : null;
+    let rightHtml;
+    if (kids) {
+      rightHtml = kids.map((kq) => {
+        const ka = (ans && ans[kq.id] && typeof ans[kq.id] === 'object') ? ans[kq.id] : {};
+        return `<div class="wb-child-q card" data-qid="${kq.id}">
+          <div class="wb-child-prompt">${escapeHtml(kq.prompt || '')}</div>
+          ${this.renderStudentWordBoxSentence({ ...kq, id: kq.id }, ka)}
+        </div>`;
+      }).join('');
+    } else {
+      rightHtml = this.renderStudentWordBoxSentence(q, ans) +
+        '<p class="wb-hint">Drag a word into a blank, or tap a word then tap a blank</p>';
     }
-    const bankHtml = bank.map((w, i) => {
-      const used = Object.values(ans).some(v => String(v).toLowerCase() === String(w).toLowerCase());
-      return `<div class="wb-chip ${used ? 'wb-used' : ''}" draggable="true" data-word="${escapeHtml(w)}" id="wb-chip-${q.id}-${i}">${escapeHtml(w)}</div>`;
-    }).join('');
-    const bankTable = bank.length
-      ? `<div class="wb-bank-table">${bank.map((w, i) => {
-          const used = Object.values(ans).some(v => String(v).toLowerCase() === String(w).toLowerCase());
-          return `<div class="wb-chip wb-bank-cell ${used ? 'wb-used' : ''}" draggable="true" data-word="${escapeHtml(w)}" id="wb-chip-${q.id}-${i}">${escapeHtml(w)}</div>`;
-        }).join('')}</div>`
-      : '<span class="text-muted">No words</span>';
-    return `<div class="wb-student wb-inline wb-centered" data-qid="${q.id}">
-      <div class="wb-sentence-bar">${parts.join('') || escapeHtml(sentence)}</div>
-      <p class="wb-hint">Drag a word into a blank, or tap a word then tap a blank</p>
-      <div class="wb-bank-student">${bankTable}</div>
+    return `<div class="wb-student wb-dual" data-qid="${q.id}" data-type="wordbox">
+      <div class="wb-dual-left">
+        <div class="wb-bank-title">Word bank</div>
+        <div class="wb-bank-table">${bankTable}</div>
+      </div>
+      <div class="wb-dual-right">${rightHtml}</div>
     </div>`;
   },
 
