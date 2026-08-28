@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.28</div>
+          <div class="app-version">Build v1.5.29</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -123,11 +123,18 @@ const App = {
   routeAfterLogin() {
     try {
       if (window.IdleGuard) {
-        IdleGuard.start(async () => {
-          try { if (window.Monitor) Monitor.stop(); } catch (_) {}
-          try { await Auth.signOut(); } catch (_) {}
-          location.reload();
-        });
+        const role0 = Auth.userProfile?.role;
+        const isStaff = role0 === 'superadmin' || role0 === 'teacher' || role0 === 'proctor';
+        // Instructors / proctors / test sessions: no idle sign-out
+        if (!isStaff && !window._testMode) {
+          IdleGuard.start(async () => {
+            try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+            try { await Auth.signOut(); } catch (_) {}
+            location.reload();
+          });
+        } else {
+          IdleGuard.stop();
+        }
       }
     } catch (_) {}
     const role = Auth.userProfile.role;
@@ -161,32 +168,32 @@ const App = {
     let navItems = '';
     if (role === 'superadmin') {
       navItems = `
-        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
-          <span class="nav-ico">📈</span><span>Dashboard</span></div>
-        <div class="nav-item ${activeNav==='teachers'?'active':''}" onclick="App.showSuperAdmin();App.closeNav()">
-          <span class="nav-ico">👥</span><span>Instructors</span></div>
-        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.closeNav()">
-          <span class="nav-ico">📝</span><span>My Assessments</span></div>`;
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" title="Dashboard" onclick="App.showDashboard();App.closeNav()">
+          <span class="nav-ico" aria-hidden="true">▣</span><span class="nav-label">Dashboard</span></div>
+        <div class="nav-item ${activeNav==='teachers'?'active':''}" title="Instructors" onclick="App.showSuperAdmin();App.closeNav()">
+          <span class="nav-ico" aria-hidden="true">◎</span><span class="nav-label">Instructors</span></div>
+        <div class="nav-item ${activeNav==='exams'?'active':''}" title="My Assessments" onclick="App.showTeacherHome();App.closeNav()">
+          <span class="nav-ico" aria-hidden="true">▤</span><span class="nav-label">My Assessments</span></div>`;
     } else if (role === 'teacher') {
       navItems = `
-        <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
-          <span class="nav-ico">📈</span><span>Dashboard</span></div>
-        <div class="nav-item ${activeNav==='exams'?'active':''}" onclick="App.showTeacherHome();App.closeNav()">
-          <span class="nav-ico">📝</span><span>My Assessments</span></div>`;
+        <div class="nav-item ${activeNav==='dashboard'?'active':''}" title="Dashboard" onclick="App.showDashboard();App.closeNav()">
+          <span class="nav-ico" aria-hidden="true">▣</span><span class="nav-label">Dashboard</span></div>
+        <div class="nav-item ${activeNav==='exams'?'active':''}" title="My Assessments" onclick="App.showTeacherHome();App.closeNav()">
+          <span class="nav-ico" aria-hidden="true">▤</span><span class="nav-label">My Assessments</span></div>`;
     } else if (role === 'proctor') {
       navItems = `
         <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
-          <span class="nav-ico">📈</span><span>Dashboard</span></div>
+          <span class="nav-ico" aria-hidden="true">▣</span><span>Dashboard</span></div>
         <div class="nav-item ${activeNav==='proctor'?'active':''}" onclick="App.showProctorHome();App.closeNav()">
-          <span class="nav-ico">◉</span><span>Proctor</span></div>`;
+          <span class="nav-ico" aria-hidden="true">◉</span><span>Proctor</span></div>`;
     } else {
       navItems = `
         <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
-          <span class="nav-ico">📈</span><span>Dashboard</span></div>
+          <span class="nav-ico" aria-hidden="true">▣</span><span>Dashboard</span></div>
         <div class="nav-item ${activeNav==='history'?'active':''}" onclick="App.showStudentHistory();App.closeNav()">
-          <span class="nav-ico">📝</span><span>Assessments</span></div>
+          <span class="nav-ico" aria-hidden="true">▤</span><span>Assessments</span></div>
         <div class="nav-item ${activeNav==='mock'?'active':''}" onclick="App.showMockHistory();App.closeNav()">
-          <span class="nav-ico">◐</span><span>Mock History</span></div>`;
+          <span class="nav-ico" aria-hidden="true">◐</span><span>Mock History</span></div>`;
     }
 
     const avatar = photo
@@ -203,7 +210,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.28</div>
+              <div class="app-version">v1.5.29</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -1396,6 +1403,42 @@ const App = {
           inp.value = '';
         };
       });
+      
+      box.querySelectorAll('[data-pass-add-tab]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.passAddTab);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return;
+          q.passages = q.passages || [{ id: 'p1', title: 'Passage 1', html: q.passageHtml || '' }];
+          const n = q.passages.length + 1;
+          q.passages.push({ id: 'p' + n, title: 'Passage ' + n, html: '<p></p>' });
+          if (typeof renderBuilder === 'function') renderBuilder();
+          else if (window._renderAssessmentBuilder) window._renderAssessmentBuilder();
+        };
+      });
+      box.querySelectorAll('[data-pass-tab-cfg]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ti] = el.dataset.passTabCfg.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q || !q.passages) return;
+          const wrap = el.closest('.passage-dual');
+          if (!wrap) return;
+          // save current editor to active tab
+          const ed = wrap.querySelector('.rte-editor');
+          const cur = Number(ed?.dataset.passActiveTab || 0);
+          if (ed && q.passages[cur]) {
+            q.passages[cur].html = ed.innerHTML;
+            if (cur === 0) q.passageHtml = ed.innerHTML;
+          }
+          wrap.querySelectorAll('[data-pass-tab-cfg]').forEach(b => b.classList.remove('active'));
+          el.classList.add('active');
+          if (ed && q.passages[ti]) {
+            ed.innerHTML = q.passages[ti].html || '';
+            ed.dataset.passActiveTab = String(ti);
+          }
+        };
+      });
+
       box.querySelectorAll('[data-pass-add-q]').forEach(el => {
         el.onclick = (e) => {
           e.preventDefault(); e.stopPropagation();
@@ -3474,9 +3517,9 @@ const App = {
           </div>
           <div class="take-stage">${body}</div>
           <div class="take-nav">
-            ${g.kind === 'passage' ? '<button type="button" class="btn btn-primary btn-skip-passage" id="take-skip-passage">Skip passage</button>' : ''}
+            ${g.kind === 'passage' ? '<button type="button" class="btn btn-ghost btn-skip-passage" id="take-skip-passage">Skip passage</button>' : ''}
             ${showSkip && g.kind !== 'passage' ? '<button type="button" class="btn btn-ghost" id="take-skip">Skip</button>' : ''}
-            <button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Next'}</button>
+            <button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Submit Answer'}</button>
           </div>
         </div>`;
 
@@ -3711,10 +3754,16 @@ const App = {
       }
       try {
         if (window.IdleGuard) {
-          IdleGuard.start(async () => {
-            try { if (window.Monitor) Monitor.stop(); } catch (_) {}
-            await this.finishRegularTake(session, window._takeAnswers || {}, 'idle-timeout');
-          });
+          const isTest = !!(session._testMode || window._testMode || String(session.id || '').startsWith('test_'));
+          const staff = Auth.userProfile && ['superadmin','teacher','proctor'].includes(Auth.userProfile.role);
+          if (!isTest && !staff) {
+            IdleGuard.start(async () => {
+              try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+              await this.finishRegularTake(session, window._takeAnswers || {}, 'idle-timeout');
+            });
+          } else {
+            IdleGuard.stop();
+          }
         }
       } catch (_) {}
       try {

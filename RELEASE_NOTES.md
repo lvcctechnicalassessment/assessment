@@ -254,3 +254,12 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Mobile: no screen-share requirement (monitoring cue kept)
 - My Assessments: Closed label, Reopen with new schedule
 - Results: human labels for categorize, match, passage, table
+
+## v1.5.29
+- Table fill: numbers-only calc, blue headers, no row nums, equal panel heights
+- Take: Submit Answer; Skip passage ghost style; passage equal panes; white option labels
+- Idle: instructors/test not signed out after 5 min
+- Aesthetic scrollbars; collapsed nav full-width hover + titles; minimalist icons
+- Fill/wordbox centering; word bank table cells
+- Passage builder tabs + Add Question fixed bottom
+- FUNCTIONAL_SPECIFICATIONS.md added (update each release)

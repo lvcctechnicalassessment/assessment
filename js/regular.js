@@ -303,8 +303,15 @@ const Regular = {
         <button type="button" class="btn btn-sm btn-danger mt-1" data-pass-del-q="${index}:${ki}">Delete Question</button>
       </div>`;
     }).join('');
+    const passages = (q.passages && q.passages.length) ? q.passages : [{ id: 'p1', title: 'Passage 1', html: html }];
+    if (!q.passages || !q.passages.length) q.passages = passages;
+    const tabBar = passages.map((pp, ti) =>
+      `<button type="button" class="passage-tab ${ti === 0 ? 'active' : ''}" data-pass-tab-cfg="${index}:${ti}">${escapeHtml(pp.title || ('Passage ' + (ti + 1)))}</button>`
+    ).join('') + `<button type="button" class="passage-tab passage-tab-add" data-pass-add-tab="${index}" title="Add passage tab">+</button>`;
+    const activeHtml = passages[0] ? (passages[0].html || html) : html;
     return `<div class="passage-dual" data-gidx="${index}">
       <div class="passage-dual-left">
+        <div class="passage-tab-bar">${tabBar}</div>
         <div class="rte-toolbar">
           <button type="button" data-rte="${index}:bold"><b>B</b></button>
           <button type="button" data-rte="${index}:italic"><i>I</i></button>
@@ -321,11 +328,13 @@ const Regular = {
             <input type="file" accept="image/*" data-pass-upload="${index}" hidden />
           </label>
         </div>
-        <div class="rte-editor" contenteditable="true" data-pass-html="${index}">${html}</div>
+        <div class="rte-editor" contenteditable="true" data-pass-html="${index}" data-pass-active-tab="0">${activeHtml}</div>
       </div>
       <div class="passage-dual-right">
-        <button type="button" class="btn btn-primary" data-pass-add-q="${index}">+ Add New Question</button>
-        <div class="pass-q-list">${qCards}</div>
+        <div class="pass-q-list pass-q-list-scroll">${qCards}</div>
+        <div class="pass-q-add-bar">
+          <button type="button" class="btn btn-primary" data-pass-add-q="${index}">+ Add New Question</button>
+        </div>
       </div>
     </div>`;
   },
@@ -461,20 +470,19 @@ const Regular = {
     const ans = (answer && typeof answer === 'object') ? answer : {};
     const instr = q.prompt || 'Fill in the blank cells.';
     let grid = '<table class="table-fill-student table-fill-grid"><thead>';
-    // Instruction row: merge all columns
-    grid += `<tr class="tf-instr-row"><td colspan="${cols + 1}">${escapeHtml(instr)}</td></tr>`;
-    grid += '<tr class="tf-header-row"><th class="tf-corner"></th>';
+    grid += `<tr class="tf-instr-row"><td colspan="${cols}">${escapeHtml(instr)}</td></tr>`;
+    grid += '<tr class="tf-header-row">';
     for (let c = 0; c < cols; c++) {
       grid += `<th>${escapeHtml((q.headers && q.headers[c]) || ('Col ' + (c + 1)))}</th>`;
     }
     grid += '</tr></thead><tbody>';
     for (let r = 0; r < rows; r++) {
-      grid += `<tr><th class="tf-row-h">${r + 1}</th>`;
+      grid += '<tr>';
       for (let c = 0; c < cols; c++) {
         const key = r + '-' + c;
         const cell = cells[key] || {};
         if (cell.blank) {
-          grid += `<td class="tf-cell tf-blank"><input class="tf-student-blank" data-qid="${q.id}" data-cell="${key}" value="${escapeHtml(ans[key] || '')}" /></td>`;
+          grid += `<td class="tf-cell tf-blank"><input class="tf-student-blank" data-qid="${q.id}" data-cell="${key}" value="${escapeHtml(ans[key] || '')}" inputmode="decimal" /></td>`;
         } else {
           grid += `<td class="tf-cell tf-fixed">${escapeHtml(cell.value || '')}</td>`;
         }
@@ -487,21 +495,19 @@ const Regular = {
         <div class="table-fill-scroll table-fill-center">${grid}</div>
       </div>
       <aside class="table-fill-take-right" id="student-calc-panel">
-        <button type="button" class="btn btn-sm btn-ghost calc-collapse-btn" id="calc-collapse-btn" title="Calculator">计算器</button>
         <div class="tf-calculator tf-calc-pro" id="student-calculator">
           <div class="tf-calc-title">Calculator</div>
-          <input class="form-control tf-calc-display" id="stu-calc-display" readonly value="0" />
+          <input class="form-control tf-calc-display" id="stu-calc-display" value="0" inputmode="decimal" autocomplete="off" />
           <div class="tf-calc-keys">
             ${['7','8','9','÷','4','5','6','×','1','2','3','−','0','.','=','+','C','⌫','Copy'].map(k =>
               `<button type="button" class="tf-calc-key" data-stu-calc="${k === '÷' ? '/' : k === '×' ? '*' : k === '−' ? '-' : k}">${k}</button>`
             ).join('')}
           </div>
-          <p class="tf-calc-hint">Copy/paste with table is allowed</p>
+          <p class="tf-calc-hint">Numbers only · Copy/paste with table is allowed</p>
         </div>
       </aside>
     </div>`;
   },
-
 
   renderBuilderMatch(q, index) {
     const left = q.left || ['', ''];
@@ -757,10 +763,16 @@ const Regular = {
       const used = Object.values(ans).some(v => String(v).toLowerCase() === String(w).toLowerCase());
       return `<div class="wb-chip ${used ? 'wb-used' : ''}" draggable="true" data-word="${escapeHtml(w)}" id="wb-chip-${q.id}-${i}">${escapeHtml(w)}</div>`;
     }).join('');
-    return `<div class="wb-student wb-inline" data-qid="${q.id}">
+    const bankTable = bank.length
+      ? `<div class="wb-bank-table">${bank.map((w, i) => {
+          const used = Object.values(ans).some(v => String(v).toLowerCase() === String(w).toLowerCase());
+          return `<div class="wb-chip wb-bank-cell ${used ? 'wb-used' : ''}" draggable="true" data-word="${escapeHtml(w)}" id="wb-chip-${q.id}-${i}">${escapeHtml(w)}</div>`;
+        }).join('')}</div>`
+      : '<span class="text-muted">No words</span>';
+    return `<div class="wb-student wb-inline wb-centered" data-qid="${q.id}">
       <div class="wb-sentence-bar">${parts.join('') || escapeHtml(sentence)}</div>
-      <p class="wb-hint">Drag these tiles and drop them in the correct blank above</p>
-      <div class="wb-bank-student">${bankHtml || '<span class="text-muted">No words</span>'}</div>
+      <p class="wb-hint">Drag a word into a blank, or tap a word then tap a blank</p>
+      <div class="wb-bank-student">${bankTable}</div>
     </div>`;
   },
 
@@ -1196,8 +1208,19 @@ const Regular = {
     // Allow keyboard typing on display
     display.removeAttribute('readonly');
     display.setAttribute('inputmode', 'decimal');
-    let expr = String(display.value || '0');
-    const setDisp = (v) => { expr = String(v); display.value = expr; };
+    let expr = String(display.value || '0').replace(/[^0-9+\-*/().]/g, '') || '0';
+    const setDisp = (v) => {
+      expr = String(v).replace(/[^0-9+\-*/().]/g, '');
+      display.value = expr || '0';
+    };
+    display.addEventListener('input', () => {
+      const cleaned = display.value.replace(/[^0-9+\-*/().]/g, '');
+      if (cleaned !== display.value) display.value = cleaned;
+      expr = display.value || '0';
+    });
+    display.addEventListener('keypress', (e) => {
+      if (!/[0-9+\-*/().]/.test(e.key) && e.key !== 'Enter') e.preventDefault();
+    });
     const evalExpr = () => {
       try {
         const safe = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/[^0-9+\-*/().\s]/g, '');
