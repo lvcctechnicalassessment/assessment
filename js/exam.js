@@ -101,6 +101,9 @@ const Exam = {
     return { id: snap.id, ...snap.data() };
   },
 
+  async listInstructorExams(...args) { return this.listMyExams(...args); },
+  async listTeacherExams(...args) { return this.listMyExams(...args); },
+
   async listMyExams() {
     try {
       const snap = await window.db.collection('exams')

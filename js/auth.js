@@ -218,6 +218,8 @@ const Auth = {
   isTeacher() {
     return this.userProfile?.role === 'teacher' || this.userProfile?.role === 'superadmin';
   },
+  isInstructor() { return this.isTeacher(); },
+
 
   isStudent() {
     return this.userProfile?.role === 'student';
@@ -261,6 +263,8 @@ const Auth = {
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   },
 
+  async addInstructor(email) { return this.addTeacher(email); },
+
   async addTeacher(email) {
     if (!this.isSuperAdmin()) throw new Error('Only superadmin can add teachers');
     email = email.trim().toLowerCase();
@@ -291,6 +295,8 @@ const Auth = {
     return { success: true, message: 'Invitation stored for ' + email + '. They will become teacher on first login.' };
   },
 
+  async removeInstructor(uid) { return this.removeTeacher(uid); },
+
   async removeTeacher(uid) {
     if (!this.isSuperAdmin()) throw new Error('Only superadmin');
     await window.db.collection('users').doc(uid).update({
@@ -309,10 +315,14 @@ const Auth = {
     });
   },
 
+  async listInstructors() { return this.listTeachers(); },
+
   async listTeachers() {
     const snap = await window.db.collection('users').where('role', 'in', ['teacher', 'superadmin']).get();
     return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
   },
+
+  async checkPendingInstructor(user) { return this.checkPendingTeacher(user); },
 
   async checkPendingTeacher(user) {
     const pending = await window.db.collection('pendingTeachers').doc(user.email.toLowerCase()).get();

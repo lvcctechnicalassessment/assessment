@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.31</div>
+          <div class="app-version">Build v1.5.32</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -213,7 +213,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.31</div>
+              <div class="app-version">v1.5.32</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -399,6 +399,8 @@ const App = {
     return this.showInstructorDashboard();
   },
 
+  async showTeacherDashboard() { return this.showInstructorDashboard(); },
+
   async showInstructorDashboard() {
     let exams = [];
     try {
@@ -528,6 +530,8 @@ const App = {
     this.loadInstructorsList();
   },
 
+  async loadTeachersList() { return this.loadInstructorsList(); },
+
   async loadInstructorsList() {
     const el = document.getElementById('teachers-list');
     try {
@@ -568,6 +572,8 @@ const App = {
   },
 
   // ---- Instructor ----
+  async showTeacherHome() { return this.showInstructorHome(); },
+
   async showInstructorHome() {
     this.renderShell(`<div id="exams-container">Loading...</div>`, 'exams');
     await Dashboard.renderMyExams(document.getElementById('exams-container'));
@@ -2095,6 +2101,8 @@ const App = {
     try { navigator.clipboard.writeText(url); } catch (_) {}
   },
 
+  async shareToCoTeacher(...args) { return this.shareToCoInstructor(...args); },
+
   async shareToCoInstructor(examId) {
     const email = await UI.prompt('Co-instructor email (La Verdad account):', '', 'Share to Co-instructor');
     if (!email) return;
@@ -3372,6 +3380,8 @@ const App = {
     this._runTimer(session);
   },
 
+
+  _watchTeacherEnd(sessionId) { return this._watchInstructorEnd(sessionId); },
 
   _watchInstructorEnd(sessionId) {
     if (!sessionId || String(sessionId).startsWith('test_')) return;
