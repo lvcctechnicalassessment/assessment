@@ -85,7 +85,7 @@ const Exam = {
     return this.createExam({
       ...rest,
       ...overrides,
-      title: (overrides.title || rest.title) + ' (Copy)',
+      title: String(overrides.title || rest.title || 'Assessment').replace(/(\s*\(Copy\))+$/i, '').trim() + ' (Copy)',
       startAt: startMs,
       endAt: endMs
     });

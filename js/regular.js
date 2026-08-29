@@ -392,72 +392,104 @@ const Regular = {
   },
 
 
-  renderBuilderTable(q, index) {
-    const rows = Math.min(20, Math.max(1, Number(q.rows) || 3));
-    const cols = Math.min(10, Math.max(1, Number(q.cols) || 3));
+  ensureTableLayout(q) {
+    if (!q) return q;
+    q.cols = Math.min(10, Math.max(1, Number(q.cols) || 3));
+    q.headers = Array.isArray(q.headers) ? q.headers : [];
+    while (q.headers.length < q.cols) q.headers.push('Col ' + (q.headers.length + 1));
+    q.headers = q.headers.slice(0, q.cols);
     q.cells = q.cells || {};
+    if (!Array.isArray(q.tableRows) || !q.tableRows.length) {
+      q.tableRows = [];
+      if (q.subheaders && q.subheaders.some(s => String(s || '').trim())) {
+        const vals = [];
+        for (let c = 0; c < q.cols; c++) vals.push(q.subheaders[c] || '');
+        q.tableRows.push({ type: 'subheader', values: vals });
+      }
+      const n = Math.min(20, Math.max(1, Number(q.rows) || 3));
+      for (let i = 0; i < n; i++) q.tableRows.push({ type: 'data' });
+    }
+    q.tableRows.forEach(row => {
+      if (row && row.type === 'subheader') {
+        row.values = Array.isArray(row.values) ? row.values : [];
+        while (row.values.length < q.cols) row.values.push('');
+        row.values = row.values.slice(0, q.cols);
+      }
+    });
+    q.rows = q.tableRows.filter(r => r && r.type === 'data').length || 1;
+    return q;
+  },
+
+  renderBuilderTable(q, index) {
+    this.ensureTableLayout(q);
+    const cols = q.cols;
     let blankCount = 0;
     Object.keys(q.cells).forEach(k => { if (q.cells[k] && q.cells[k].blank) blankCount++; });
-    let grid = '<table class="table-fill-cfg"><thead><tr><th></th>';
+    let grid = '<table class="table-fill-cfg"><thead><tr>';
     for (let c = 0; c < cols; c++) {
-      const h = (q.headers && q.headers[c]) || ('Col ' + (c + 1));
+      const h = q.headers[c] || ('Col ' + (c + 1));
       grid += `<th><input class="form-control" data-tf-header="${index}:${c}" value="${escapeHtml(h)}" /></th>`;
     }
-    grid += '</tr></thead><tbody>';
-    for (let r = 0; r < rows; r++) {
-      grid += `<tr><th>${r + 1}</th>`;
+    grid += `<th class="tf-col-actions">
+      <button type="button" class="btn btn-sm btn-ghost" data-tf-add-col="${index}">Add column</button>
+      <button type="button" class="btn btn-sm btn-ghost" data-tf-del-col="${index}">Remove column</button>
+    </th></tr></thead><tbody>`;
+    let dataIdx = 0;
+    (q.tableRows || []).forEach((row, ri) => {
+      if (row.type === 'subheader') {
+        grid += '<tr class="tf-cfg-sub">';
+        for (let c = 0; c < cols; c++) {
+          grid += `<td class="tf-sub-cell"><input class="form-control" data-tf-subcell="${index}:${ri}:${c}" value="${escapeHtml(row.values[c] || '')}" placeholder="Subheader" /></td>`;
+        }
+        grid += '<td></td></tr>';
+        return;
+      }
+      const r = dataIdx++;
+      grid += '<tr>';
       for (let c = 0; c < cols; c++) {
         const key = r + '-' + c;
         const cell = q.cells[key] || {};
         const isBlank = !!cell.blank;
         const val = isBlank ? (Array.isArray(cell.correct) ? cell.correct[0] : (cell.correct || '')) : (cell.value || '');
-        const alts = isBlank ? (Array.isArray(cell.correct) && cell.correct.length > 1 ? cell.correct.slice(1) : (cell.alternatives || [])) : [];
         grid += `<td class="${isBlank ? 'is-blank' : ''}">
-          <label class="tf-blank-toggle"><input type="checkbox" data-tf-blank="${index}:${key}" ${isBlank ? 'checked' : ''}/> Blank</label>
+          <div class="tf-cell-tools">
+            <label class="tf-blank-toggle"><input type="checkbox" data-tf-blank="${index}:${key}" ${isBlank ? 'checked' : ''}/> Blank</label>
+            ${isBlank ? `<button type="button" class="btn btn-sm btn-ghost" data-tf-alt-pop="${index}:${key}">Add alternative</button>` : ''}
+          </div>
           <input class="form-control" data-tf-cell="${index}:${key}" value="${escapeHtml(String(val || ''))}" placeholder="${isBlank ? 'Correct answer' : 'Cell text'}" />
-          ${isBlank ? `<input class="form-control mt-1" data-tf-alt="${index}:${key}" value="${escapeHtml((alts || []).join(', '))}" placeholder="Alternatives" />` : ''}
         </td>`;
       }
-      grid += '</tr>';
-    }
-    grid += '</tbody></table>';
-    return `<div class="table-fill-dual" data-gidx="${index}">
-      <div class="table-fill-left">
-        <label class="text-muted" style="font-size:0.8rem">Instruction (shown as first merged row of the table)</label>
-        <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions for students — appears as top row spanning all columns">${escapeHtml(q.prompt || '')}</textarea>
-        <div class="form-group mt-1" style="display:flex;gap:0.5rem;flex-wrap:wrap">
-          <label>Rows <input type="number" min="1" max="20" class="form-control" style="width:70px" data-tf-rows="${index}" value="${rows}" /></label>
-          <label>Cols <input type="number" min="1" max="10" class="form-control" style="width:70px" data-tf-cols="${index}" value="${cols}" /></label>
-          <button type="button" class="btn btn-sm btn-ghost" data-tf-resize="${index}">Apply size</button>
-          <span class="text-muted" style="font-size:0.8rem">Blanks: ${blankCount}/50</span>
-        </div>
-        <div class="table-fill-scroll">${grid}</div>
-        <div class="points-row mt-1" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
-          <label>Scoring
-            <select class="form-control" data-pointsmode="${index}" style="width:auto;display:inline-block">
-              <option value="all" ${(q.pointsMode || 'all') === 'all' ? 'selected' : ''}>Full points only if all blanks correct</option>
-              <option value="each" ${q.pointsMode === 'each' ? 'selected' : ''}>Points for every correct blank</option>
-            </select>
-          </label>
-          <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
-          <label class="tf-each-pts" style="${(q.pointsMode || 'all') === 'each' ? '' : 'opacity:0.5'}">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
-        </div>
-      </div>
-      <div class="table-fill-right table-fill-cfg-side" id="tf-calc-panel-${index}">
-        <label class="mt-1" style="display:flex;align-items:center;gap:0.5rem">
-          <input type="checkbox" data-tf-show-calc="${index}" ${q.showCalculator !== false ? 'checked' : ''}/>
-          Show calculator during student assessment
+      grid += '<td></td></tr>';
+    });
+    grid += `<tr class="tf-row-actions"><td colspan="${cols}">
+      <button type="button" class="btn btn-sm btn-ghost" data-tf-add-row="${index}">Add row</button>
+      <button type="button" class="btn btn-sm btn-ghost" data-tf-add-sub="${index}">Add subheader</button>
+      <button type="button" class="btn btn-sm btn-ghost" data-tf-del-row="${index}">Remove row</button>
+      <span class="text-muted" style="font-size:0.8rem;margin-left:0.5rem">Blanks: ${blankCount}/50</span>
+    </td><td></td></tr></tbody></table>`;
+    return `<div class="table-fill-single" data-gidx="${index}">
+      <label class="text-muted" style="font-size:0.8rem">Instruction (shown as first merged row of the table)</label>
+      <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions for students — appears as top row spanning all columns">${escapeHtml(q.prompt || '')}</textarea>
+      <label class="mt-1" style="display:flex;align-items:center;gap:0.5rem">
+        <input type="checkbox" data-tf-show-calc="${index}" ${q.showCalculator !== false ? 'checked' : ''}/>
+        Show calculator during student assessment
+      </label>
+      <div class="table-fill-scroll mt-1">${grid}</div>
+      <div class="points-row mt-1" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+        <label>Scoring
+          <select class="form-control" data-pointsmode="${index}" style="width:auto;display:inline-block">
+            <option value="all" ${(q.pointsMode || 'all') === 'all' ? 'selected' : ''}>Full points only if all blanks correct</option>
+            <option value="each" ${q.pointsMode === 'each' ? 'selected' : ''}>Points for every correct blank</option>
+          </select>
         </label>
-        <p class="text-muted" style="font-size:0.8rem">If unchecked, the table uses full width on the student view. Calculator is not shown in this configuration panel.</p>
-        <label class="mt-1">Subheader row (same color as header)
-          <input class="form-control" data-tf-subheader="${index}" value="${escapeHtml((q.subheaders||[]).join(' | '))}" placeholder="Sub1 | Sub2 | Sub3" />
-        </label>
+        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+        <label class="tf-each-pts" style="${(q.pointsMode || 'all') === 'each' ? '' : 'opacity:0.5'}">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
       </div>
     </div>`;
   },
 
   renderStudentTable(q, answer) {
-    const rows = Number(q.rows) || 3;
+    this.ensureTableLayout(q);
     const cols = Number(q.cols) || 3;
     const cells = q.cells || {};
     const ans = (answer && typeof answer === 'object') ? answer : {};
@@ -468,16 +500,18 @@ const Regular = {
     for (let c = 0; c < cols; c++) {
       grid += `<th>${escapeHtml((q.headers && q.headers[c]) || ('Col ' + (c + 1)))}</th>`;
     }
-    grid += '</tr>';
-    if (q.subheaders && q.subheaders.some(s => String(s||'').trim())) {
-      grid += '<tr class="tf-subheader-row">';
-      for (let c = 0; c < cols; c++) {
-        grid += `<th>${escapeHtml((q.subheaders[c]) || '')}</th>`;
+    grid += '</tr></thead><tbody>';
+    let dataIdx = 0;
+    (q.tableRows || []).forEach(row => {
+      if (row.type === 'subheader') {
+        grid += '<tr class="tf-subheader-row">';
+        for (let c = 0; c < cols; c++) {
+          grid += `<th>${escapeHtml((row.values && row.values[c]) || '')}</th>`;
+        }
+        grid += '</tr>';
+        return;
       }
-      grid += '</tr>';
-    }
-    grid += '</thead><tbody>';
-    for (let r = 0; r < rows; r++) {
+      const r = dataIdx++;
       grid += '<tr>';
       for (let c = 0; c < cols; c++) {
         const key = r + '-' + c;
@@ -489,7 +523,7 @@ const Regular = {
         }
       }
       grid += '</tr>';
-    }
+    });
     grid += '</tbody></table>';
     const showCalc = q.showCalculator !== false;
     const calcHtml = showCalc ? `<aside class="table-fill-take-right" id="student-calc-panel">
@@ -502,6 +536,10 @@ const Regular = {
             ).join('')}
           </div>
           <p class="tf-calc-hint">Numbers only · Copy/paste with table is allowed</p>
+        </div>
+        <div class="tf-clip-history">
+          <div class="tf-clip-title">Clipboard</div>
+          <div class="tf-clip-list"><span class="text-muted">Empty</span></div>
         </div>
       </aside>` : '';
     return `<div class="table-fill-take ${showCalc ? '' : 'tf-full-width'}" data-qid="${q.id}" data-table-fill="1">
@@ -528,9 +566,10 @@ const Regular = {
         <input class="form-control" data-match-right="${index}:${i}" value="${escapeHtml(t)}" placeholder="Column B item ${i + 1}" />
         <button type="button" class="btn btn-sm btn-ghost" data-match-del-right="${index}:${i}">×</button>
       </div>`).join('');
-    const keyRows = left.map((_, i) => {
-      const opts = right.map((t, j) => `<option value="${j}" ${Number(correct[i]) === j ? 'selected' : ''}>${escapeHtml(t || ('B' + (j + 1)))}</option>`).join('');
-      return `<div class="form-group"><label>A${i + 1} → <select class="form-control" data-match-key="${index}:${i}">${opts}</select></label></div>`;
+    const keyRows = left.map((t, i) => {
+      const opts = right.map((rt, j) => `<option value="${j}" ${Number(correct[i]) === j ? 'selected' : ''}>${escapeHtml(rt || ('B' + (j + 1)))}</option>`).join('');
+      const aLabel = (t && String(t).trim()) ? t : ('A' + (i + 1));
+      return `<div class="form-group"><label>${escapeHtml(aLabel)} → <select class="form-control" data-match-key="${index}:${i}">${opts}</select></label></div>`;
     }).join('');
     return `<div class="match-builder" data-gidx="${index}">
       <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions (e.g. Match Column A with Column B)">${escapeHtml(q.prompt || '')}</textarea>
@@ -923,46 +962,68 @@ const Regular = {
 
   collectAnswers(container) {
     const answers = {};
-    container.querySelectorAll('[data-qid]').forEach(el => {
-      const qid = el.getAttribute('data-qid');
-      if (!qid) return;
-      if (el.classList && el.classList.contains('q-card')) {
-        // handled via children
-      }
-    });
+    if (!container) return answers;
 
-    // MC / TF buttons
-    container.querySelectorAll('.q-card, .gq-block[data-qid]').forEach(card => {
+    const ensureObj = (qid) => {
+      if (!answers[qid] || typeof answers[qid] !== 'object' || Array.isArray(answers[qid])) answers[qid] = {};
+      return answers[qid];
+    };
+
+    container.querySelectorAll('.take-options-grid[data-qid], .gq-block[data-qid], .q-card[data-qid]').forEach(card => {
       const qid = card.getAttribute('data-qid');
       if (!qid) return;
-      const selected = [...card.querySelectorAll('.gq-student.selected')];
-      if (selected.length) {
-        const multi = selected[0].dataset.multi === '1';
-        const choice = multi ? selected.map(s => Number(s.dataset.opt)) : Number(selected[0].dataset.opt);
-        const mod = card.querySelector('[data-tf-mod]');
-        if (mod) answers[qid] = { choice, modified: mod.value };
-        else answers[qid] = choice;
-        return;
-      }
-      const fillInputs = card.querySelectorAll('.fill-blank, .fill-inline-input');
-      if (fillInputs.length) {
-        const obj = {};
-        fillInputs.forEach(inp => { obj[inp.dataset.blank] = inp.value; });
-        answers[qid] = obj;
-        return;
-      }
-      const tableInputs = card.querySelectorAll('.table-blank');
-      if (tableInputs.length) {
-        const obj = {};
-        tableInputs.forEach(inp => { obj[inp.dataset.cell] = inp.value; });
-        answers[qid] = obj;
-        return;
-      }
-      const essay = card.querySelector('[data-essay]');
-      if (essay) { answers[qid] = essay.value; return; }
-      const one = card.querySelector(`textarea[data-qid="${qid}"], input[data-qid="${qid}"], select[data-qid="${qid}"]`);
-      if (one) answers[qid] = one.value;
+      const selected = [...card.querySelectorAll('.take-opt.selected, .gq-student.selected')];
+      if (!selected.length) return;
+      const multi = selected[0].getAttribute('data-multi') === '1';
+      const choice = multi ? selected.map(s => Number(s.dataset.opt)) : Number(selected[0].dataset.opt);
+      const mod = card.querySelector('[data-tf-mod]');
+      answers[qid] = mod ? { choice, modified: mod.value } : choice;
     });
+
+    container.querySelectorAll('.fill-inline-input, .fill-blank').forEach(inp => {
+      const qid = inp.getAttribute('data-qid') || inp.closest('[data-qid]')?.getAttribute('data-qid');
+      const blank = inp.getAttribute('data-blank');
+      if (!qid || blank == null) return;
+      const v = (inp.value || '').trim();
+      if (v) ensureObj(qid)[blank] = v;
+    });
+
+    container.querySelectorAll('.tf-student-blank, .table-blank').forEach(inp => {
+      const qid = inp.getAttribute('data-qid') || inp.closest('[data-qid]')?.getAttribute('data-qid');
+      const key = inp.getAttribute('data-cell');
+      if (!qid || key == null) return;
+      const v = (inp.value || '').trim();
+      if (v) ensureObj(qid)[key] = v;
+    });
+
+    container.querySelectorAll('.wb-inline-drop[data-blank]').forEach(z => {
+      const qid = z.getAttribute('data-qid') || z.closest('[data-qid]')?.getAttribute('data-qid');
+      const blank = z.getAttribute('data-blank');
+      if (!qid || blank == null) return;
+      const placed = z.querySelector('.wb-placed');
+      const word = (placed && (placed.getAttribute('data-word') || placed.textContent) || '').trim();
+      if (word) ensureObj(qid)[blank] = word;
+    });
+
+    container.querySelectorAll('.cat-student[data-qid]').forEach(root => {
+      const qid = root.getAttribute('data-qid');
+      if (!qid) return;
+      const map = {};
+      root.querySelectorAll('.cat-col-drop').forEach(zone => {
+        const cat = zone.getAttribute('data-cat-id');
+        zone.querySelectorAll('.cat-item-chip').forEach(ch => {
+          const id = ch.getAttribute('data-item-id');
+          if (id) map[id] = cat;
+        });
+      });
+      if (Object.keys(map).length) answers[qid] = map;
+    });
+
+    container.querySelectorAll('[data-essay]').forEach(el => {
+      const qid = el.getAttribute('data-qid') || el.closest('[data-qid]')?.getAttribute('data-qid');
+      if (qid && (el.value || '').trim()) answers[qid] = el.value;
+    });
+
     return answers;
   },
 
@@ -1056,7 +1117,7 @@ const Regular = {
     if (!hist) {
       hist = document.createElement('div');
       hist.className = 'tf-clip-history';
-      hist.innerHTML = '<div class="tf-clip-title">Clipboard</div><div class="tf-clip-list"></div>';
+      hist.innerHTML = '<div class="tf-clip-title">Clipboard</div><div class="tf-clip-list"><span class="text-muted">Empty</span></div>';
       const panel = root.querySelector('#student-calc-panel') || root.querySelector('.table-fill-take-right') || root;
       panel.appendChild(hist);
     }

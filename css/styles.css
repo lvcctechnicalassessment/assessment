@@ -3299,16 +3299,16 @@ body.nav-collapsed .nav-label { display: none; }
   .wb-dual { grid-template-columns: 1fr; height: auto !important; max-height: none !important; }
 }
 
-/* v1.5.31 */
+/* v1.5.34 — options left-aligned (not centered) */
 .take-options-grid, .gq-options, .pass-q-list .gq-block {
-  justify-items: center;
-  text-align: center;
+  justify-items: stretch;
+  text-align: left;
 }
 .take-opt, .gq-option, .gq-student {
   display: flex !important;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
 }
 .gq-student-check { display: none !important; }
 
@@ -3334,3 +3334,96 @@ body.nav-collapsed .nav-label { display: none; }
 }
 .tf-calculator { flex: 1 1 auto; display: flex; flex-direction: column; }
 .tf-clip-history { flex: 0 1 40%; max-height: 40%; }
+
+
+/* v1.5.34 table fill layout + fill font */
+.table-fill-take {
+  display: grid !important;
+  grid-template-columns: 1fr 280px !important;
+  height: calc(100vh - 9rem) !important;
+  max-height: calc(100dvh - 9rem) !important;
+  overflow: hidden !important;
+  align-items: stretch !important;
+}
+.table-fill-take.tf-full-width {
+  grid-template-columns: 1fr !important;
+}
+.table-fill-take-left {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+  display: flex;
+  flex-direction: column;
+}
+.table-fill-take-left .table-fill-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none !important;
+  overflow: auto;
+}
+.table-fill-take-right {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0.5rem;
+  box-sizing: border-box;
+}
+.tf-calculator, .tf-calc-pro {
+  flex: 0 0 auto !important;
+  max-height: none;
+}
+.tf-clip-history {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  margin-top: 0.5rem;
+}
+.table-fill-single { width: 100%; }
+.tf-cell-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+.tf-col-actions {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.tf-cfg-sub td, .tf-sub-cell input {
+  background: #6BA3D4;
+  color: #fff;
+}
+[data-theme="dark"] .tf-cfg-sub td, [data-theme="dark"] .tf-sub-cell input {
+  background: #3d6f9c;
+  color: #fff;
+}
+.fill-student-center .fill-inline-text,
+.fill-student-center .fill-inline-input,
+.fill-student-inner .fill-inline-text,
+.fill-student-inner .fill-inline-input {
+  font-size: 1.45rem !important;
+  line-height: 1.6;
+}
+.fill-inline-input {
+  min-width: 6rem;
+  display: inline-block;
+  width: auto;
+  vertical-align: baseline;
+}
+@media (max-width: 800px) {
+  .table-fill-take {
+    grid-template-columns: 1fr !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .table-fill-take-right {
+    height: auto !important;
+    max-height: 50vh;
+  }
+}

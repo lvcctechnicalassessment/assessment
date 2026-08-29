@@ -285,3 +285,13 @@ If features seem missing, replace **all** app files from the zip (not only one J
 
 ## v1.5.33
 - Restore Regular.flattenQuestions and Regular.groupQuestionsForTake (fixes Test as student / preview error)
+
+## v1.5.34
+- Fix answer acceptance so Submit Answer advances after student answers
+- Passage MC uses same take-opt selection as regular MC
+- Options left-aligned (not centered)
+- Table fill: fixed calculator height; clipboard scrolls inside panel; table left panel full height
+- Table config: single panel, add/remove column/row/subheader, alternative popup
+- Match answer key labels use Column A values
+- Duplicate title only one "(Copy)"
+- Larger fill-in-the-blank font on student take

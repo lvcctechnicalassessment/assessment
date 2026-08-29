@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.33</div>
+          <div class="app-version">Build v1.5.34</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -213,7 +213,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.33</div>
+              <div class="app-version">v1.5.34</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -1782,19 +1782,111 @@ const App = {
           if (q?.items?.[ii]) { q.items[ii].image = ''; syncFlat(); renderBuilder(); }
         };
       });
-      // Table fill config
-      box.querySelectorAll('[data-tf-rows], [data-tf-cols]').forEach(el => {
-        el.onchange = () => {};
-      });
-      box.querySelectorAll('[data-tf-resize]').forEach(el => {
-        el.onclick = () => {
-          const gi = Number(el.dataset.tfResize);
+      // Table fill config — single panel: add/remove col/row/subheader + alt popup
+      box.querySelectorAll('[data-tf-add-col]').forEach(el => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const gi = Number(el.dataset.tfAddCol);
           const q = (window._builderQuestions || [])[gi]; if (!q) return;
-          q.rows = Math.min(20, Math.max(1, Number(box.querySelector(`[data-tf-rows="${gi}"]`)?.value) || 3));
-          q.cols = Math.min(10, Math.max(1, Number(box.querySelector(`[data-tf-cols="${gi}"]`)?.value) || 3));
-          q.headers = q.headers || [];
-          while (q.headers.length < q.cols) q.headers.push('Col ' + (q.headers.length + 1));
-          q.headers = q.headers.slice(0, q.cols);
+          if (typeof Regular.ensureTableLayout === 'function') Regular.ensureTableLayout(q);
+          if ((q.cols || 3) >= 10) return;
+          q.cols = (q.cols || 3) + 1;
+          if (typeof Regular.ensureTableLayout === 'function') Regular.ensureTableLayout(q);
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-tf-del-col]').forEach(el => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const gi = Number(el.dataset.tfDelCol);
+          const q = (window._builderQuestions || [])[gi]; if (!q) return;
+          if (typeof Regular.ensureTableLayout === 'function') Regular.ensureTableLayout(q);
+          if ((q.cols || 3) <= 1) return;
+          q.cols = (q.cols || 3) - 1;
+          Object.keys(q.cells || {}).forEach(k => {
+            const parts = k.split('-').map(Number);
+            if (parts[1] >= q.cols) delete q.cells[k];
+          });
+          if (typeof Regular.ensureTableLayout === 'function') Regular.ensureTableLayout(q);
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-tf-add-row]').forEach(el => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const gi = Number(el.dataset.tfAddRow);
+          const q = (window._builderQuestions || [])[gi]; if (!q) return;
+          if (typeof Regular.ensureTableLayout === 'function') Regular.ensureTableLayout(q);
+          q.tableRows = q.tableRows || [];
+          if (q.tableRows.filter(r => r && r.type === 'data').length >= 20) return;
+          q.tableRows.push({ type: 'data' });
+          q.rows = q.tableRows.filter(r => r && r.type === 'data').length;
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-tf-add-sub]').forEach(el => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const gi = Number(el.dataset.tfAddSub);
+          const q = (window._builderQuestions || [])[gi]; if (!q) return;
+          if (typeof Regular.ensureTableLayout === 'function') Regular.ensureTableLayout(q);
+          q.tableRows = q.tableRows || [];
+          q.tableRows.push({ type: 'subheader', values: Array(q.cols || 3).fill('') });
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-tf-del-row]').forEach(el => {
+        el.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const gi = Number(el.dataset.tfDelRow);
+          const q = (window._builderQuestions || [])[gi]; if (!q) return;
+          if (typeof Regular.ensureTableLayout === 'function') Regular.ensureTableLayout(q);
+          if (!q.tableRows || !q.tableRows.length) return;
+          const last = q.tableRows[q.tableRows.length - 1];
+          if (last && last.type === 'data') {
+            const di = q.tableRows.filter(r => r && r.type === 'data').length - 1;
+            Object.keys(q.cells || {}).forEach(k => {
+              if (k.startsWith(di + '-')) delete q.cells[k];
+            });
+          }
+          q.tableRows.pop();
+          q.rows = q.tableRows.filter(r => r && r.type === 'data').length || 1;
+          syncFlat(); renderBuilder();
+        };
+      });
+      box.querySelectorAll('[data-tf-subcell]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ri, c] = el.dataset.tfSubcell.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi]; if (!q) return;
+          if (typeof Regular.ensureTableLayout === 'function') Regular.ensureTableLayout(q);
+          if (q.tableRows && q.tableRows[ri] && q.tableRows[ri].type === 'subheader') {
+            q.tableRows[ri].values = q.tableRows[ri].values || [];
+            q.tableRows[ri].values[c] = el.value;
+          }
+        };
+      });
+      box.querySelectorAll('[data-tf-alt-pop]').forEach(el => {
+        el.onclick = async (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const [gi, key] = el.dataset.tfAltPop.split(':');
+          const q = (window._builderQuestions || [])[Number(gi)]; if (!q) return;
+          q.cells = q.cells || {};
+          const cell = q.cells[key] || { blank: true };
+          const alts = Array.isArray(cell.alternatives) ? cell.alternatives.slice()
+            : (Array.isArray(cell.correct) && cell.correct.length > 1 ? cell.correct.slice(1) : []);
+          const primary = Array.isArray(cell.correct) ? (cell.correct[0] || '') : (cell.correct || '');
+          const cur = alts.join(', ');
+          const v = await UI.prompt(
+            'Alternative answers (comma-separated). Leave blank to clear.',
+            cur,
+            'Add alternative',
+            'alt1, alt2'
+          );
+          if (v == null) return;
+          cell.alternatives = String(v).split(',').map(s => s.trim()).filter(Boolean);
+          cell.correct = [primary, ...cell.alternatives].filter((x, i, a) => x !== '' || i === 0);
+          cell.blank = true;
+          q.cells[key] = cell;
           syncFlat(); renderBuilder();
         };
       });
@@ -2127,7 +2219,7 @@ const App = {
         const now = Date.now();
         await Exam.createExam({
           ...rest,
-          title: (exam.title || 'Assessment') + ' (Copy)',
+          title: String(exam.title || 'Assessment').replace(/(\s*\(Copy\))+$/i, '').trim() + ' (Copy)',
           startAt: now,
           endAt: now + (Number(rest.durationMinutes) || 60) * 60000
         });
@@ -2136,7 +2228,7 @@ const App = {
         const ref = window.db.collection('exams').doc();
         await ref.set({
           ...rest,
-          title: (exam.title || 'Assessment') + ' (Copy)',
+          title: String(exam.title || 'Assessment').replace(/(\s*\(Copy\))+$/i, '').trim() + ' (Copy)',
           teacherId: uid,
           teacherEmail: email.trim().toLowerCase(),
           teacherName: q.docs[0].data().name || email,
@@ -2329,7 +2421,7 @@ const App = {
       const src = await Exam.getExam(examId);
       if (!src) throw new Error('Assessment not found');
       const copy = await Exam.duplicateExam(examId, {
-        title: (src.title || 'Assessment') + ' (Copy)',
+        title: src.title || 'Assessment',
         status: 'draft',
         active: false,
         startAt: Date.now(),
@@ -3638,11 +3730,15 @@ const App = {
       if (!qid) return true;
       if (!Object.prototype.hasOwnProperty.call(answers, qid)) return false;
       const v = answers[qid];
-      if (v === null) return true; // explicitly skipped
+      if (v === null) return true;
       if (v === undefined || v === '') return false;
+      if (typeof v === 'number') return true;
+      if (typeof v === 'boolean') return true;
       if (Array.isArray(v)) return v.length > 0;
-      if (typeof v === 'object') return Object.keys(v).length > 0;
-      return true;
+      if (typeof v === 'object') {
+        return Object.values(v).some(x => x != null && String(x).trim() !== '');
+      }
+      return String(v).trim() !== '';
     };
     const allAnswered = () => {
       for (const g of groups) {
@@ -3670,10 +3766,12 @@ const App = {
     };
 
     const colors = (window.OPTION_COLORS || ['#3b82f6','#14b8a6','#eab308','#f43f5e','#8b5cf6','#06b6d4','#f97316','#84cc16']);
-    const renderMcKahoot = (q) => {
-      const multi = q.multiCorrect === true;
-      const opts = q.options || [];
-      const val = answers[q.id];
+    const renderMcOptions = (q, withBanner) => {
+      const isTf = q.type === 'truefalse' || q.type === 'modified_tf';
+      const multi = isTf ? false : q.multiCorrect === true;
+      const opts = isTf ? ['True', 'False'] : (q.options || []);
+      const raw = answers[q.id];
+      const val = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw.choice : raw;
       const cards = opts.map((o, i) => {
         const color = colors[i % colors.length];
         const selected = multi
@@ -3681,8 +3779,10 @@ const App = {
           : (val == i || val === String(i));
         return `<button type="button" class="take-opt gq-option ${selected ? 'selected' : ''}" style="background:${color}" data-opt="${i}" data-multi="${multi ? '1' : '0'}">${escapeHtml((o && String(o).trim()) ? o : ('Option ' + (i + 1)))}</button>`;
       }).join('');
-      return `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(q.prompt || q.statement || 'Question')}</div>
-        <div class="take-options-grid" id="take-q-box" data-qid="${q.id}">${cards}</div>`;
+      const head = withBanner
+        ? `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(q.prompt || q.statement || 'Question')}</div>`
+        : `<div class="gq-question-box"><div class="gq-question-text">${escapeHtml(q.prompt || 'Question')} <span class="text-muted">(${q.points ?? 1} pt)</span></div></div>`;
+      return `${head}<div class="take-options-grid" data-qid="${q.id}">${cards}</div>`;
     };
 
     const renderTake = () => {
@@ -3709,9 +3809,12 @@ const App = {
           `<button type="button" class="passage-tab ${i === activeTab ? 'active' : ''}" data-pass-tab="${i}">${escapeHtml(pp.title || ('Passage ' + (i + 1)))}</button>`
         ).join('');
         const activeHtml = (tabs[activeTab] && tabs[activeTab].html) || '';
-        const kidsHtml = list.map((kq) =>
-          `<div class="pass-take-q">${Regular.renderStudentQuestion(kq, answers[kq.id])}</div>`
-        ).join('') || '<p class="text-muted">No questions for this passage</p>';
+        const kidsHtml = list.map((kq) => {
+          if (kq.type === 'multiple' || kq.type === 'truefalse' || kq.type === 'modified_tf') {
+            return `<div class="pass-take-q" data-qid="${kq.id}">${renderMcOptions(kq, false)}</div>`;
+          }
+          return `<div class="pass-take-q">${Regular.renderStudentQuestion(kq, answers[kq.id])}</div>`;
+        }).join('') || '<p class="text-muted">No questions for this passage</p>';
         body = `<div class="take-passage passage-take-dual vh-lock-inner" id="take-q-box" data-passage-take="1">
           <div class="take-passage-left passage-take-left">
             <div class="passage-tab-bar">${tabBar}</div>
@@ -3726,7 +3829,7 @@ const App = {
         if (!currentQ) {
           body = '<p class="text-muted">Missing question</p>';
         } else if (currentQ.type === 'multiple' || currentQ.type === 'truefalse' || currentQ.type === 'modified_tf') {
-          body = renderMcKahoot(currentQ);
+          body = `<div id="take-q-box">${renderMcOptions(currentQ, true)}</div>`;
         } else if (currentQ.type === 'wordbox') {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentWordBox(currentQ, answers[currentQ.id])}</div>`;
         } else if (currentQ.type === 'fill') {
@@ -3763,28 +3866,32 @@ const App = {
 
       const box = document.getElementById('take-q-box');
       const save = () => {
-        if (!box) return;
-        if (box.classList.contains('take-options-grid')) {
-          const qid = box.getAttribute('data-qid');
-          const multi = box.querySelector('.take-opt')?.getAttribute('data-multi') === '1';
-          const selected = [...box.querySelectorAll('.take-opt.selected')].map(b => Number(b.dataset.opt));
+        const root = document.querySelector('.take-stage') || box;
+        try {
+          if (root && Regular.collectAnswers) Object.assign(answers, Regular.collectAnswers(root));
+        } catch (_) {}
+        document.querySelectorAll('.take-options-grid[data-qid]').forEach(grid => {
+          const qid = grid.getAttribute('data-qid');
+          if (!qid) return;
+          const multi = grid.querySelector('.take-opt')?.getAttribute('data-multi') === '1';
+          const selected = [...grid.querySelectorAll('.take-opt.selected')].map(b => Number(b.dataset.opt));
           if (multi) answers[qid] = selected;
           else if (selected.length) answers[qid] = selected[0];
-        } else {
-          try { Object.assign(answers, Regular.collectAnswers(box)); } catch (_) {}
-        }
+        });
         window._takeAnswers = answers;
         if (!String(session.id).startsWith('test_')) {
           Exam.updateSessionAnswers(session.id, answers).catch(() => {});
         }
       };
 
-      if (box?.classList.contains('take-options-grid')) {
-        box.querySelectorAll('.take-opt').forEach(btn => {
-          btn.onclick = () => {
+      document.querySelectorAll('.take-options-grid').forEach(grid => {
+        grid.querySelectorAll('.take-opt').forEach(btn => {
+          btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             const multi = btn.getAttribute('data-multi') === '1';
             if (!multi) {
-              box.querySelectorAll('.take-opt').forEach(b => b.classList.remove('selected'));
+              grid.querySelectorAll('.take-opt').forEach(b => b.classList.remove('selected'));
               btn.classList.add('selected');
             } else {
               btn.classList.toggle('selected');
@@ -3792,40 +3899,17 @@ const App = {
             save();
           };
         });
-      } else if (box) {
+      });
+
+      if (box) {
         try { Regular.bindStudentMC(box, save); } catch (e) { console.warn(e); }
-        // Passage: bind every nested MC/TF card
         try {
           const passList = document.querySelector('.pass-q-list') || document.querySelector('.passage-take-right');
           if (passList) {
-            Regular.bindStudentMC(passList, save);
-            passList.querySelectorAll('[data-qid], .gq-block, .q-card, .pass-take-q').forEach(node => {
-              try { Regular.bindStudentMC(node, save); } catch (_) {}
+            passList.querySelectorAll('input, textarea').forEach(el => {
+              el.addEventListener('change', save);
+              el.addEventListener('input', save);
             });
-            // Event delegation fallback for passage MC
-            if (!passList.dataset.mcDelegated) {
-              passList.dataset.mcDelegated = '1';
-              passList.addEventListener('click', (ev) => {
-                const btn = ev.target.closest('.gq-student, .gq-option');
-                if (!btn || !passList.contains(btn)) return;
-                ev.preventDefault();
-                ev.stopPropagation();
-                const card = btn.closest('[data-qid]') || btn.closest('.gq-block') || btn.closest('.q-card');
-                if (!card) return;
-                const multi = btn.getAttribute('data-multi') === '1';
-                if (!multi) {
-                  card.querySelectorAll('.gq-student, .gq-option').forEach(b => {
-                    b.classList.remove('selected');
-                    b.querySelectorAll('.gq-student-check').forEach(c => c.remove());
-                  });
-                  btn.classList.add('selected');
-                } else {
-                  btn.classList.toggle('selected');
-                  btn.querySelectorAll('.gq-student-check').forEach(c => c.remove());
-                }
-                save();
-              });
-            }
           }
         } catch (e) { console.warn(e); }
         // Word box drag / tap-to-place
