@@ -282,3 +282,6 @@ If features seem missing, replace **all** app files from the zip (not only one J
 
 ## v1.5.32
 - Fix Auth.checkPendingInstructor is not a function (and related Instructor/Teacher API aliases)
+
+## v1.5.33
+- Restore Regular.flattenQuestions and Regular.groupQuestionsForTake (fixes Test as student / preview error)

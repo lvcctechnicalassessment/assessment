@@ -1252,6 +1252,55 @@ const Regular = {
     });
   },
 
+
+  /** Flatten sections/questions into a single ordered list of question objects */
+  flattenQuestions(exam) {
+    if (!exam) return [];
+    const out = [];
+    const seen = new Set();
+    const push = (q) => {
+      if (!q || typeof q !== 'object') return;
+      const id = q.id || JSON.stringify(q).slice(0, 40);
+      if (seen.has(id)) return;
+      seen.add(id);
+      out.push(q);
+    };
+    if (Array.isArray(exam.sections) && exam.sections.length) {
+      exam.sections.forEach(sec => {
+        (sec.questions || []).forEach(push);
+      });
+    }
+    if (Array.isArray(exam.questions) && exam.questions.length) {
+      exam.questions.forEach(push);
+    }
+    return out;
+  },
+
+  /**
+   * Group questions for the student take UI.
+   * Passage blocks become one group with nested questions.
+   */
+  groupQuestionsForTake(exam) {
+    const groups = [];
+    const list = this.flattenQuestions(exam);
+    list.forEach(q => {
+      if (!q) return;
+      if (q.type === 'passage' || q.isPassageSet) {
+        groups.push({
+          kind: 'passage',
+          passage: q,
+          questions: Array.isArray(q.questions) ? q.questions : []
+        });
+      } else if (q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
+        // Wordbox section with multiple child sentences still one take group
+        groups.push({ kind: 'single', question: q });
+      } else {
+        groups.push({ kind: 'single', question: q });
+      }
+    });
+    return groups;
+  },
+
 };
 
 window.Regular = Regular;
