@@ -271,3 +271,11 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Passage MC border; wordbox dual layout
 - Staff idle 10 min; test-as-student idle ends session
 - Table subheader; show/hide student calculator
+
+## v1.5.31
+- Version badge v1.5.31; Skip/Skip passage removed
+- Passage MC same as normal MC (no sticky checks)
+- Drag rebind; table/clipboard heights; FIB collect + display
+- Wordbox dual config + reusable bank; section order randomization
+- Publish: Copy code / Copy link only; Edit published uses Save (stays published)
+- Teacher→Instructor in UI copy

@@ -174,62 +174,51 @@ const Regular = {
 
 
   renderBuilderWordBox(q, index) {
-    const sentence = q.sentence || '';
     const rows = Number(q.wordBankRows) || 2;
-    const cols = Number(q.wordBankCols) || 2;
+    const cols = Number(q.wordBankCols) || 4;
     let bank = q.wordBank || [];
     while (bank.length < rows * cols) bank.push('');
     bank = bank.slice(0, rows * cols);
-    // Visual sentence with rectangle blanks
-    let vis = '';
-    let last = 0;
-    const re = /\{\{(\d+)\}\}/g;
-    let m;
-    while ((m = re.exec(sentence)) !== null) {
-      if (m.index > last) vis += `<span class="wb-cfg-text">${escapeHtml(sentence.slice(last, m.index))}</span>`;
-      const bid = m[1];
-      const blank = (q.blanks || []).find(b => String(b.id) === String(bid));
-      const filled = blank && blank.correct ? escapeHtml(blank.correct) : '';
-      vis += `<span class="wb-cfg-blank ${filled ? 'filled' : ''}" data-wb-drop-blank="${index}:${bid}" data-blank-id="${bid}">${filled || '&nbsp;'}</span>`;
-      last = m.index + m[0].length;
+    const bankCells = bank.map((w, i) =>
+      `<div class="wb-cfg-chip"><input class="form-control" data-wb-bank="${index}:${i}" value="${escapeHtml(w||'')}" placeholder="Word ${i+1}" /></div>`
+    ).join('');
+    q.questions = Array.isArray(q.questions) ? q.questions : [];
+    if (!q.questions.length && (q.sentence || q.prompt)) {
+      q.questions = [{
+        id: 'wbq1',
+        type: 'wordbox',
+        prompt: '',
+        sentence: q.sentence || '',
+        blanks: q.blanks || []
+      }];
     }
-    if (last < sentence.length) vis += `<span class="wb-cfg-text">${escapeHtml(sentence.slice(last))}</span>`;
-    if (!sentence) vis = '<span class="text-muted">Type the sentence below, then use Insert blank</span>';
-
-    let cells = '';
-    for (let i = 0; i < rows * cols; i++) {
-      cells += `<div class="wb-cfg-chip" draggable="true" data-wb-chip="${index}:${i}" data-word="${escapeHtml(bank[i] || '')}">
-        <input class="form-control" data-wb-bank="${index}:${i}" value="${escapeHtml(bank[i] || '')}" placeholder="Word ${i+1}" onclick="event.stopPropagation()" />
+    const qCards = q.questions.map((kq, ki) => {
+      const sent = kq.sentence || '';
+      return `<div class="card pass-q-card" data-wb-qi="${ki}">
+        <label>Question prompt</label>
+        <input class="form-control" data-wb-child-prompt="${index}:${ki}" value="${escapeHtml(kq.prompt||'')}" placeholder="Optional prompt" />
+        <label class="mt-1">Sentence (use {{1}}, {{2}} for blanks — shared word bank on the left)</label>
+        <textarea class="form-control" data-wb-child-sentence="${index}:${ki}" rows="2">${escapeHtml(sent)}</textarea>
+        <button type="button" class="btn btn-sm btn-primary mt-1" data-wb-child-blank="${index}:${ki}">+ Insert blank</button>
+        <button type="button" class="btn btn-sm btn-danger mt-1" data-wb-child-del="${index}:${ki}">Delete question</button>
       </div>`;
-    }
-    const blankCfg = (q.blanks || []).map((b, bi) => `
-      <div class="mt-1" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
-        <span class="text-muted">Blank {{${escapeHtml(String(b.id))}}}</span>
-        <input class="form-control" style="max-width:180px" data-wb-blank-correct="${index}:${bi}" value="${escapeHtml(b.correct||'')}" placeholder="Correct" />
-        <input class="form-control" style="max-width:200px" data-wb-blank-alt="${index}:${bi}" value="${escapeHtml((b.alternatives||[]).join(', '))}" placeholder="Alternatives" />
-        <button type="button" class="btn btn-sm btn-danger" data-wb-del-blank="${index}:${bi}">×</button>
-      </div>`).join('');
-
-    return `<div class="builder-wordbox" data-gidx="${index}">
-      <div class="wb-cfg-preview">${vis}</div>
-      <label class="mt-1">Sentence text (blanks appear as boxes above)</label>
-      <textarea class="form-control" data-wb-sentence="${index}" rows="2">${escapeHtml(sentence)}</textarea>
-      <div class="action-btns mt-1">
-        <button type="button" class="btn btn-sm btn-primary" data-wb-insert-blank="${index}">+ Insert blank</button>
+    }).join('');
+    return `<div class="builder-wordbox wb-cfg-dual" data-gidx="${index}">
+      <div class="wb-cfg-left">
+        <label>Word bank (${rows}×${cols}) — reusable for all questions</label>
+        <div class="wb-bank-table" style="grid-template-columns:repeat(${cols},1fr)">${bankCells}</div>
+        <div class="mt-1" style="display:flex;gap:0.5rem">
+          <label>Rows <input type="number" min="1" max="8" class="form-control" style="width:70px" data-wb-rows="${index}" value="${rows}"/></label>
+          <label>Cols <input type="number" min="1" max="8" class="form-control" style="width:70px" data-wb-cols="${index}" value="${cols}"/></label>
+        </div>
       </div>
-      <div class="form-group mt-1" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end">
-        <label>Rows <input type="number" min="1" max="8" class="form-control" style="width:70px" data-wb-rows="${index}" value="${rows}" /></label>
-        <label>Columns <input type="number" min="1" max="6" class="form-control" style="width:70px" data-wb-cols="${index}" value="${cols}" /></label>
-        <button type="button" class="btn btn-sm btn-ghost" data-wb-resize="${index}">Apply grid</button>
+      <div class="wb-cfg-right">
+        <div class="pass-q-list-scroll">${qCards || '<p class="text-muted">No questions yet</p>'}</div>
+        <div class="pass-q-add-bar">
+          <button type="button" class="btn btn-primary" data-wb-add-q="${index}">+ Add New Question</button>
+        </div>
       </div>
-      <label>Word bank — drag a word onto a blank above</label>
-      <div class="wb-cfg-bank" style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:0.4rem">${cells}</div>
-      <div class="mt-1"><strong>Blank answers</strong></div>
-      ${blankCfg || '<p class="text-muted">Insert blanks first</p>'}
-      <div class="points-row mt-1">
-        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
-        <label class="ml-1">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? q.pointsPerBlank ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
-      </div>
+      <label class="mt-1">Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:80px;display:inline-block"/></label>
     </div>`;
   },
 
@@ -307,7 +296,7 @@ const Regular = {
         ${isMc ? `<label class="mt-1" style="display:block"><input type="checkbox" data-pass-q-multi="${index}:${ki}" ${kq.multiCorrect ? 'checked' : ''}/> Multiple correct answers</label>
           <div class="mt-1">${opts}<button type="button" class="btn btn-sm btn-ghost" data-pass-add-opt="${index}:${ki}">+ Add Option</button></div>`
           : `<textarea class="form-control mt-1" data-pass-rubric="${index}:${ki}" rows="2" placeholder="Suggested answer / rubric">${escapeHtml(kq.correct||kq.rubric||'')}</textarea>
-          <p class="text-muted" style="font-size:0.8rem">Note: Open-ended scores may be adjusted by your teacher based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.</p>`}
+          <p class="text-muted" style="font-size:0.8rem">Note: Open-ended scores may be adjusted by your instructor based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.</p>`}
         <button type="button" class="btn btn-sm btn-danger mt-1" data-pass-del-q="${index}:${ki}">Delete Question</button>
       </div>`;
     }).join('');
@@ -783,14 +772,9 @@ const Regular = {
   renderStudentWordBox(q, answer) {
     const bank = (q.wordBank || []).filter(w => String(w || '').trim());
     const ans = (answer && typeof answer === 'object') ? answer : {};
-    const bankTable = bank.map((w) => {
-      const used = Object.values(ans).some(v => String(v).toLowerCase() === String(w).toLowerCase())
-        || (Array.isArray(q.questions) && q.questions.some(kq => {
-          const a = ans[kq.id];
-          return a && typeof a === 'object' && Object.values(a).some(v => String(v).toLowerCase() === String(w).toLowerCase());
-        }));
-      return `<div class="wb-chip wb-bank-cell ${used ? 'wb-used' : ''}" draggable="true" data-word="${escapeHtml(w)}">${escapeHtml(w)}</div>`;
-    }).join('') || '<span class="text-muted">No words</span>';
+    const bankTable = bank.map((w) =>
+      `<div class="wb-chip wb-bank-cell" draggable="true" data-word="${escapeHtml(w)}">${escapeHtml(w)}</div>`
+    ).join('') || '<span class="text-muted">No words</span>';
     const kids = Array.isArray(q.questions) && q.questions.length ? q.questions : null;
     let rightHtml;
     if (kids) {
@@ -834,7 +818,7 @@ const Regular = {
           <button type="button" class="gq-option gq-student ${selected ? 'selected' : ''}"
             style="background:${color}" data-qid="${q.id}" data-opt="${i}" data-multi="${multi ? '1' : '0'}"
             role="${multi ? 'checkbox' : 'radio'}" name="q_${q.id}">
-            <span class="gq-student-check">${selected ? '✓' : ''}</span>
+            
             <span>${escapeHtml((o && String(o).trim()) ? o : ('Option ' + (i + 1)))}</span>
           </button>`;
       }).join('');
@@ -856,10 +840,10 @@ const Regular = {
           <div class="gq-options-row">
             <button type="button" class="gq-option gq-student ${selected == 0 || selected === 'true' ? 'selected' : ''}"
               style="background:${OPTION_COLORS[0]}" data-qid="${q.id}" data-opt="0" data-multi="0">
-              <span class="gq-student-check">${selected == 0 ? '✓' : ''}</span>True</button>
+              True</button>
             <button type="button" class="gq-option gq-student ${selected == 1 || selected === 'false' ? 'selected' : ''}"
               style="background:${OPTION_COLORS[3]}" data-qid="${q.id}" data-opt="1" data-multi="0">
-              <span class="gq-student-check">${selected == 1 ? '✓' : ''}</span>False</button>
+              False</button>
           </div>
           ${cat === 'modified' ? `
             <div class="form-group mt-1">
@@ -891,7 +875,7 @@ const Regular = {
     if (q.type === 'essay') {
       const max = q.maxChars || 1000;
       const text = typeof val === 'string' ? val : '';
-      const caption = q.caption || 'Note: Open-ended scores may be adjusted by your teacher based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.';
+      const caption = q.caption || 'Note: Open-ended scores may be adjusted by your instructor based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.';
       return `
         <div class="q-card" data-qid="${q.id}" data-type="essay">
           <div class="q-prompt"><strong>${escapeHtml(q.prompt || 'Essay')}</strong> <span class="text-muted">(${q.points ?? 1} pt)</span></div>
@@ -960,7 +944,7 @@ const Regular = {
         else answers[qid] = choice;
         return;
       }
-      const fillInputs = card.querySelectorAll('.fill-blank');
+      const fillInputs = card.querySelectorAll('.fill-blank, .fill-inline-input');
       if (fillInputs.length) {
         const obj = {};
         fillInputs.forEach(inp => { obj[inp.dataset.blank] = inp.value; });
@@ -983,261 +967,36 @@ const Regular = {
   },
 
   bindStudentMC(container, onChange) {
-    // Unbind previous handlers by cloning options row buttons
-    container.querySelectorAll('.gq-student').forEach(btn => {
+    if (!container) return;
+    container.querySelectorAll('.gq-student, .gq-option.take-opt, button.gq-option').forEach(btn => {
+      // strip check spans so they never stick
+      const chk = btn.querySelector('.gq-student-check');
+      if (chk) chk.remove();
       const multi = btn.getAttribute('data-multi') === '1';
       btn.setAttribute('role', multi ? 'checkbox' : 'radio');
       btn.onclick = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        const card = btn.closest('[data-qid]');
+        const card = btn.closest('[data-qid]') || btn.closest('.gq-block') || btn.closest('.q-card') || btn.parentElement;
         if (!card) return;
-        const isMulti = btn.getAttribute('data-multi') === '1';
-        if (!isMulti) {
-          // RADIO behavior — only one selected
-          card.querySelectorAll('.gq-student').forEach(b => {
+        if (!multi) {
+          card.querySelectorAll('.gq-student, .gq-option').forEach(b => {
             b.classList.remove('selected');
             b.setAttribute('aria-checked', 'false');
-            const c = b.querySelector('.gq-student-check');
-            if (c) c.textContent = '';
           });
           btn.classList.add('selected');
           btn.setAttribute('aria-checked', 'true');
-          const check = btn.querySelector('.gq-student-check');
-          if (check) check.textContent = '✓';
         } else {
-          // CHECKBOX behavior
           btn.classList.toggle('selected');
-          const on = btn.classList.contains('selected');
-          btn.setAttribute('aria-checked', on ? 'true' : 'false');
-          const check = btn.querySelector('.gq-student-check');
-          if (check) check.textContent = on ? '✓' : '';
+          btn.setAttribute('aria-checked', btn.classList.contains('selected') ? 'true' : 'false');
         }
-        if (onChange) onChange();
+        if (typeof onChange === 'function') onChange();
       };
     });
-    container.querySelectorAll('[data-essay]').forEach(ta => {
-      ta.oninput = () => {
-        const span = container.querySelector(`[data-count="${ta.dataset.qid}"]`);
-        if (span) span.textContent = ta.value.length;
-        if (onChange) onChange();
-      };
+    container.querySelectorAll('[data-essay], textarea[data-qid]').forEach(ta => {
+      ta.oninput = () => { if (onChange) onChange(); };
     });
   },
-
-  answersPreview(answers, questions) {
-    if (!answers) return '(no answers yet)';
-    const qs = questions || [];
-    return qs.map((q, i) => `Q${i + 1}: ${JSON.stringify(answers[q.id] ?? '—')}`).join('\n');
-  },
-
-  gradeAnswers(questions, answers) {
-    let earned = 0, total = 0;
-    (questions || []).forEach(q => {
-      const pts = Number(q.points) || 1;
-      total += pts;
-      const a = answers?.[q.id];
-      if (a === undefined || a === null || a === '') return;
-      let ok = false;
-      if (q.type === 'wordbox' || q.type === 'fill') {
-        const blanks = q.blanks || [];
-        const n = blanks.length || 1;
-        const itemPts = (q.pointsPerItem != null && q.pointsPerItem !== '') ? Number(q.pointsPerItem) : (pts / n);
-        total -= pts;
-        blanks.forEach(b => {
-          total += itemPts;
-          const got = String((a && (a[b.id] || a['b'+b.id])) || '').trim().toLowerCase();
-          if (!got) return;
-          let corrects = [];
-          if (Array.isArray(b.correct)) corrects = b.correct;
-          else corrects = [b.correct, ...(b.alternatives || [])];
-          const okList = corrects.map(x => String(x || '').trim().toLowerCase()).filter(Boolean);
-          if (okList.includes(got)) earned += itemPts;
-        });
-        return;
-      }
-      if (q.type === 'categorize') {
-        const items = q.items || [];
-        const n = items.length || 1;
-        const itemPts = (q.pointsPerItem != null && q.pointsPerItem !== '') ? Number(q.pointsPerItem) : (pts / n);
-        total -= pts;
-        items.forEach(it => {
-          total += itemPts;
-          const got = a && (a[it.id] || a[it.name]);
-          if (got && (got === it.category || got === (q.categories||[]).find(c=>c.id===it.category)?.name)) earned += itemPts;
-        });
-        return;
-      }
-      if (q.type === 'table') {
-        const cells = q.cells || {};
-        const blanks = Object.keys(cells).filter(k => cells[k] && cells[k].blank);
-        const n = blanks.length || 1;
-        const mode = q.pointsMode || 'all';
-        const itemPts = (q.pointsPerItem != null && q.pointsPerItem !== '')
-          ? Number(q.pointsPerItem)
-          : (n ? pts / n : pts);
-        let correctCount = 0;
-        blanks.forEach(key => {
-          const cell = cells[key];
-          const got = String((a && a[key]) || '').trim().toLowerCase();
-          if (!got) return;
-          let corrects = [];
-          if (Array.isArray(cell.correct)) corrects = cell.correct;
-          else corrects = [cell.correct, ...(cell.alternatives || [])];
-          const okList = corrects.map(x => String(x || '').trim().toLowerCase()).filter(Boolean);
-          if (okList.includes(got)) correctCount++;
-        });
-        if (mode === 'each') {
-          // Replace default full-question pts with sum of per-blank awards
-          total -= pts;
-          total += itemPts * n;
-          earned += itemPts * correctCount;
-        } else {
-          // Full points only if every blank is correct
-          if (n > 0 && correctCount === n) earned += pts;
-        }
-        return;
-      }
-      if (q.type === 'match') {
-        const left = q.left || [];
-        const key = Array.isArray(q.correct) ? q.correct : left.map((_, i) => i);
-        const pairPts = 1;
-        const maxPairs = left.length;
-        total -= pts;
-        total += pairPts * maxPairs;
-        let hits = 0;
-        left.forEach((_, i) => {
-          const got = a != null ? (a[i] != null ? a[i] : a[String(i)]) : null;
-          if (got != null && Number(got) === Number(key[i])) hits++;
-        });
-        earned += pairPts * hits;
-        return;
-      }
-      if (q.type === 'multiple' || q.type === 'dropdown') {
-        if (q.multiCorrect) {
-          const ca = Array.isArray(q.correct) ? [...q.correct].map(Number).sort() : [];
-          const aa = Array.isArray(a) ? [...a].map(Number).sort() : [];
-          if (q.pointsMode === 'each') {
-            const hit = aa.filter(x => ca.includes(x)).length;
-            earned += Math.min(pts, hit * (pts / Math.max(ca.length, 1)));
-            return;
-          }
-          ok = JSON.stringify(ca) === JSON.stringify(aa);
-        } else {
-          ok = Number(a) === Number(q.correct);
-        }
-      } else if (q.type === 'truefalse') {
-        const choice = typeof a === 'object' ? a.choice : a;
-        ok = Number(choice) === Number(q.correct);
-      } else if (q.type === 'fill') {
-        const blanks = q.blanks || [];
-        ok = blanks.every(b => {
-          const ans = String((a && a[b.id]) || '').trim().toLowerCase();
-          const opts = [b.correct, ...(b.alternatives || [])].flat().map(x => String(x).trim().toLowerCase());
-          return opts.includes(ans);
-        });
-      } else if (typeof q.correct === 'string' && q.correct) {
-        ok = String(a).trim().toLowerCase() === String(q.correct).trim().toLowerCase();
-      }
-      if (ok) earned += pts;
-    });
-    const percent = total ? Math.round((earned / total) * 1000) / 10 : 0;
-    return { score: Math.round(earned * 10) / 10, maxScore: total, percent };
-  },
-
-  /** Flatten sections → questions list for grading/live */
-  flattenQuestions(exam) {
-    if (exam.sections && exam.sections.length) {
-      return exam.sections.flatMap(s => s.questions || []);
-    }
-    return exam.questions || [];
-  },
-
-  /** Group questions for single-item take UI. Passages stay as one unit. */
-  groupQuestionsForTake(exam) {
-    const sections = exam.sections || [];
-    const groups = [];
-    if (sections.length) {
-      sections.forEach(sec => {
-        (sec.questions || []).forEach(q => {
-          if (q.type === 'passage' || q.isPassageSet) {
-            const kids = (q.questions || []).length ? q.questions : [];
-            groups.push({ kind: 'passage', passage: q, questions: kids.length ? kids : [q], section: sec });
-          } else {
-            groups.push({ kind: 'single', question: q, section: sec });
-          }
-        });
-      });
-    } else {
-      (exam.questions || []).forEach(q => {
-        if (q.type === 'passage' || q.isPassageSet) {
-          groups.push({ kind: 'passage', passage: q, questions: q.questions || [q] });
-        } else {
-          groups.push({ kind: 'single', question: q });
-        }
-      });
-    }
-    return groups;
-  },
-
-  collectAnswers(container) {
-    const answers = {};
-    if (!container) return answers;
-    const wb = container.querySelector('.wb-student');
-    if (wb) {
-      const qid = wb.getAttribute('data-qid');
-      const map = {};
-      wb.querySelectorAll('.wb-drop-zone, .wb-inline-drop').forEach(z => {
-        const item = z.getAttribute('data-item') || z.getAttribute('data-blank');
-        const placed = z.querySelector('.wb-placed');
-        if (item) map[item] = placed ? (placed.getAttribute('data-word') || placed.textContent || '').trim() : '';
-      });
-      wb.querySelectorAll('.wb-fill-input').forEach(inp => {
-        const item = inp.getAttribute('data-blank');
-        if (item) map[item] = (inp.value || '').trim();
-      });
-      if (qid) answers[qid] = map;
-      return answers;
-    }
-    const cat = container.querySelector('.cat-student');
-    if (cat) {
-      const qid = cat.getAttribute('data-qid');
-      const map = {};
-      cat.querySelectorAll('.cat-col-drop .cat-item-chip').forEach(chip => {
-        const id = chip.getAttribute('data-item-id');
-        const catId = chip.closest('[data-cat-id]')?.getAttribute('data-cat-id');
-        if (id && catId) map[id] = catId;
-      });
-      if (qid) answers[qid] = map;
-      return answers;
-    }
-    const tf = container.querySelector('.table-fill-take, [data-table-fill="1"]');
-    if (tf) {
-      const qid = tf.getAttribute('data-qid');
-      const map = {};
-      tf.querySelectorAll('.tf-student-blank').forEach(inp => {
-        const key = inp.getAttribute('data-cell');
-        if (key) map[key] = (inp.value || '').trim();
-      });
-      if (qid) answers[qid] = map;
-      return answers;
-    }
-    container.querySelectorAll('textarea[data-qid], input[data-qid], select[data-qid]').forEach(el => {
-      const qid = el.getAttribute('data-qid');
-      if (qid) answers[qid] = el.value;
-    });
-    // Multiple choice / TF gamified cards
-    container.querySelectorAll('.gq-block[data-qid], .q-card[data-qid][data-type="multiple"], .q-card[data-qid][data-type="truefalse"]').forEach(card => {
-      const qid = card.getAttribute('data-qid');
-      if (!qid) return;
-      const multi = card.querySelector('.gq-student')?.getAttribute('data-multi') === '1';
-      const selected = [...card.querySelectorAll('.gq-student.selected')].map(b => Number(b.getAttribute('data-opt')));
-      if (multi) answers[qid] = selected;
-      else if (selected.length) answers[qid] = selected[0];
-    });
-    return answers;
-  },
-
 
   bindStudentTableCalc(root) {
     if (!root) return;

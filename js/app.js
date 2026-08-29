@@ -25,7 +25,7 @@ const App = {
       }
       const profile = await Auth.init();
       if (profile) {
-        await Auth.checkPendingTeacher(Auth.currentUser);
+        await Auth.checkPendingInstructor(Auth.currentUser);
         await Auth.resolveProctorState(Auth.currentUser);
         await Theme.loadFromProfile();
         this.routeAfterLogin();
@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.29</div>
+          <div class="app-version">Build v1.5.31</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -97,7 +97,7 @@ const App = {
       try {
         await Auth.signInWithGoogle();
         if (Auth.currentUser) {
-          await Auth.checkPendingTeacher(Auth.currentUser);
+          await Auth.checkPendingInstructor(Auth.currentUser);
           await Auth.resolveProctorState(Auth.currentUser);
         }
         if (Auth.userProfile) {
@@ -175,13 +175,13 @@ const App = {
           <span class="nav-ico" aria-hidden="true">▣</span><span class="nav-label">Dashboard</span></div>
         <div class="nav-item ${activeNav==='teachers'?'active':''}" title="Instructors" onclick="App.showSuperAdmin();App.closeNav()">
           <span class="nav-ico" aria-hidden="true">◎</span><span class="nav-label">Instructors</span></div>
-        <div class="nav-item ${activeNav==='exams'?'active':''}" title="My Assessments" onclick="App.showTeacherHome();App.closeNav()">
+        <div class="nav-item ${activeNav==='exams'?'active':''}" title="My Assessments" onclick="App.showInstructorHome();App.closeNav()">
           <span class="nav-ico" aria-hidden="true">▤</span><span class="nav-label">My Assessments</span></div>`;
     } else if (role === 'teacher') {
       navItems = `
         <div class="nav-item ${activeNav==='dashboard'?'active':''}" title="Dashboard" onclick="App.showDashboard();App.closeNav()">
           <span class="nav-ico" aria-hidden="true">▣</span><span class="nav-label">Dashboard</span></div>
-        <div class="nav-item ${activeNav==='exams'?'active':''}" title="My Assessments" onclick="App.showTeacherHome();App.closeNav()">
+        <div class="nav-item ${activeNav==='exams'?'active':''}" title="My Assessments" onclick="App.showInstructorHome();App.closeNav()">
           <span class="nav-ico" aria-hidden="true">▤</span><span class="nav-label">My Assessments</span></div>`;
     } else if (role === 'proctor') {
       navItems = `
@@ -213,7 +213,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.29</div>
+              <div class="app-version">v1.5.31</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -396,15 +396,15 @@ const App = {
     const role = Auth.userProfile.role;
     if (role === 'student') return this.showStudentDashboard();
     if (role === 'proctor') return this.showProctorHome();
-    return this.showTeacherDashboard();
+    return this.showInstructorDashboard();
   },
 
-  async showTeacherDashboard() {
+  async showInstructorDashboard() {
     let exams = [];
     try {
       exams = (typeof Exam.listMyExams === 'function')
         ? await Exam.listMyExams()
-        : await Exam.listTeacherExams(Auth.currentUser.uid);
+        : await Exam.listInstructorExams(Auth.currentUser.uid);
     } catch (e) { console.warn(e); }
     const published = exams.filter(e => e.status === 'published' || (e.active !== false && e.status !== 'draft')).length;
     const drafts = exams.filter(e => e.status === 'draft' || (e.active === false && !e.endAt)).length;
@@ -419,7 +419,7 @@ const App = {
         <p class="text-muted">Quick actions</p>
         <div class="action-btns">
           <button class="btn btn-primary" onclick="App.showCreateExam()">New assessment</button>
-          <button class="btn btn-ghost" onclick="App.showTeacherHome()">My Assessments</button>
+          <button class="btn btn-ghost" onclick="App.showInstructorHome()">My Assessments</button>
         </div>
       </div>
     `, 'dashboard');
@@ -518,29 +518,29 @@ const App = {
       const email = document.getElementById('teacher-email').value;
       const msg = document.getElementById('add-teacher-msg');
       try {
-        const res = await Auth.addTeacher(email);
+        const res = await Auth.addInstructor(email);
         msg.textContent = res.message; msg.style.color = 'var(--success)';
-        this.loadTeachersList();
+        this.loadInstructorsList();
       } catch (err) {
         msg.textContent = err.message; msg.style.color = 'var(--danger)';
       }
     };
-    this.loadTeachersList();
+    this.loadInstructorsList();
   },
 
-  async loadTeachersList() {
+  async loadInstructorsList() {
     const el = document.getElementById('teachers-list');
     try {
-      const teachers = await Auth.listTeachers();
+      const teachers = await Auth.listInstructors();
       const myUid = Auth.currentUser?.uid;
       el.innerHTML = `<div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
         ${teachers.map(t => {
           let actions = '';
           if (t.role === 'teacher') {
             actions = `<button class="btn btn-sm btn-primary" onclick="App.makeSuperAdmin('${t.uid}')">Make Superadmin</button>
-              <button class="btn btn-sm btn-danger" onclick="App.removeTeacher('${t.uid}')">Demote</button>`;
+              <button class="btn btn-sm btn-danger" onclick="App.removeInstructor('${t.uid}')">Demote</button>`;
           } else if (t.role === 'superadmin' && t.uid !== myUid) {
-            actions = `<button class="btn btn-sm btn-ghost" onclick="App.setRole('${t.uid}','teacher')">Make Teacher</button>`;
+            actions = `<button class="btn btn-sm btn-ghost" onclick="App.setRole('${t.uid}','teacher')">Make Instructor</button>`;
           } else actions = '<span class="text-muted">You</span>';
           return `<tr><td>${escapeHtml(t.name)}</td><td>${escapeHtml(t.email)}</td>
             <td><span class="role-badge ${t.role}">${t.role}</span></td><td class="action-btns">${actions}</td></tr>`;
@@ -551,24 +551,24 @@ const App = {
     }
   },
 
-  async removeTeacher(uid) {
+  async removeInstructor(uid) {
     if (!(await UI.confirm('Demote this user to student?', 'Demote'))) return;
-    await Auth.removeTeacher(uid);
-    this.loadTeachersList();
+    await Auth.removeInstructor(uid);
+    this.loadInstructorsList();
   },
   async makeSuperAdmin(uid) {
     if (!(await UI.confirm('Promote to Superadmin?', 'Promote'))) return;
     await Auth.setRole(uid, 'superadmin');
-    this.loadTeachersList();
+    this.loadInstructorsList();
   },
   async setRole(uid, role) {
     if (!(await UI.confirm('Change role to "' + role + '"?', 'Change role'))) return;
     await Auth.setRole(uid, role);
-    this.loadTeachersList();
+    this.loadInstructorsList();
   },
 
-  // ---- Teacher ----
-  async showTeacherHome() {
+  // ---- Instructor ----
+  async showInstructorHome() {
     this.renderShell(`<div id="exams-container">Loading...</div>`, 'exams');
     await Dashboard.renderMyExams(document.getElementById('exams-container'));
   },
@@ -798,7 +798,7 @@ const App = {
       window._builderSections = [];
       window._builderQuestions = [];
     }
-    if (!Auth.isTeacher()) {
+    if (!Auth.isInstructor()) {
       await UI.alert('Only instructors can create assessments. Students can generate mock assessments from History.', 'Access');
       this.showStudentHome();
       return;
@@ -860,7 +860,7 @@ const App = {
             <button class="btn btn-primary" id="add-question-footer-btn" type="button">Add Question</button>
           </div>
           <div class="footer-right">
-            <button class="btn btn-ghost" onclick="App.saveAutosave();App.showTeacherHome()">Cancel</button>
+            <button class="btn btn-ghost" onclick="App.saveAutosave();App.showInstructorHome()">Cancel</button>
             <button class="btn btn-ghost" id="draft-exam-btn">Save as Draft</button>
             <button class="btn btn-primary" id="create-exam-btn">Publish</button>
           </div>
@@ -936,7 +936,7 @@ const App = {
       sec.instructions = defaultSectionInstructions(type);
       const q = Regular.newQuestion(type);
       if (type === 'essay') {
-        q.caption = q.caption || 'Note: Open-ended scores may be adjusted by your teacher based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.';
+        q.caption = q.caption || 'Note: Open-ended scores may be adjusted by your instructor based on a personal assessment of your response, as open-ended answers may not be fully auto-graded on this portal.';
       }
       sec.questions.push(q);
       window._builderSections = window._builderSections || [];
@@ -1294,6 +1294,55 @@ const App = {
           });
         };
       });
+      
+      box.querySelectorAll('[data-wb-add-q]').forEach(el => {
+        el.onclick = () => {
+          const gi = Number(el.dataset.wbAddQ);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q) return;
+          q.questions = q.questions || [];
+          q.questions.push({ id: 'wbq' + Date.now(), type: 'wordbox', prompt: '', sentence: '', blanks: [] });
+          if (window._renderAssessmentBuilder) window._renderAssessmentBuilder();
+        };
+      });
+      box.querySelectorAll('[data-wb-child-prompt]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ki] = el.dataset.wbChildPrompt.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q && q.questions && q.questions[ki]) q.questions[ki].prompt = el.value;
+        };
+      });
+      box.querySelectorAll('[data-wb-child-sentence]').forEach(el => {
+        el.oninput = () => {
+          const [gi, ki] = el.dataset.wbChildSentence.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q && q.questions && q.questions[ki]) q.questions[ki].sentence = el.value;
+        };
+      });
+      box.querySelectorAll('[data-wb-child-blank]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ki] = el.dataset.wbChildBlank.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q || !q.questions || !q.questions[ki]) return;
+          const kq = q.questions[ki];
+          kq.blanks = kq.blanks || [];
+          const id = String(kq.blanks.length + 1);
+          kq.blanks.push({ id, correct: '' });
+          kq.sentence = (kq.sentence || '') + ' {{' + id + '}}';
+          if (window._renderAssessmentBuilder) window._renderAssessmentBuilder();
+        };
+      });
+      box.querySelectorAll('[data-wb-child-del]').forEach(el => {
+        el.onclick = () => {
+          const [gi, ki] = el.dataset.wbChildDel.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (q && q.questions) {
+            q.questions.splice(ki, 1);
+            if (window._renderAssessmentBuilder) window._renderAssessmentBuilder();
+          }
+        };
+      });
+
       box.querySelectorAll('[data-wb-bank]').forEach(el => {
         el.oninput = () => {
           const [gi, bi] = el.dataset.wbBank.split(':').map(Number);
@@ -1856,19 +1905,26 @@ const App = {
     document.getElementById('draft-exam-btn').onclick = async () => {
       const btn = document.getElementById('draft-exam-btn');
       const pub = document.getElementById('create-exam-btn');
+      const saveStatus = (btn && btn.dataset.editStatus === 'published') ? 'published' : 'draft';
       try {
         if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
         if (pub) pub.disabled = true;
-        const id = await this.saveAssessment('draft');
-        await UI.alert('Assessment has been saved as draft.', 'Draft saved');
+        const id = await this.saveAssessment(saveStatus);
+        await UI.alert(
+          saveStatus === 'published' ? 'Assessment saved. It remains published.' : 'Assessment has been saved as draft.',
+          saveStatus === 'published' ? 'Saved' : 'Draft saved'
+        );
         window._editingExamId = null;
         try { sessionStorage.removeItem('lvcc_editing_exam'); } catch (_) {}
-        this.showTeacherHome();
+        this.showInstructorHome();
       } catch (err) {
         console.error(err);
-        await UI.alert(err.message || String(err), 'Could not save draft');
+        await UI.alert(err.message || String(err), 'Could not save');
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Save draft'; }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = (btn.dataset.editStatus === 'published') ? 'Save' : 'Save as Draft';
+        }
         if (pub) pub.disabled = false;
       }
     };
@@ -1950,7 +2006,7 @@ const App = {
     try { exam = await Exam.getExam(examId); } catch (_) {}
     if (!exam) {
       await UI.alert('Assessment published.', 'Published');
-      return this.showTeacherHome();
+      return this.showInstructorHome();
     }
     const codeRaw = String(exam.assessmentCode || exam.code || exam.examCode || '').replace(/\D/g, '').slice(0, 8);
     const pretty = this.formatExamCodeDisplay(codeRaw);
@@ -1979,7 +2035,7 @@ const App = {
         ${qr ? `<img src="${qr}" alt="QR code" width="200" height="200" style="border-radius:12px;background:#fff;padding:8px;margin:0.5rem auto;display:block" />` : ''}
         <div class="action-btns" style="justify-content:center;margin-top:1rem;flex-wrap:wrap;gap:0.5rem">
           <button type="button" class="btn btn-ghost" id="pub-copy-code">Copy code</button>
-          <button type="button" class="btn btn-ghost" id="pub-open-link">Link / URL</button>
+          <button type="button" class="btn btn-ghost" id="pub-copy-link">Copy link</button>
           <button type="button" class="btn btn-primary" id="pub-done">Done</button>
         </div>
       </div>
@@ -1991,15 +2047,19 @@ const App = {
         await UI.alert('Code copied.', 'Copied');
       } catch (_) {}
     };
-    const linkBtn = root.querySelector('#pub-open-link');
-    if (linkBtn) linkBtn.onclick = () => {
-      root.innerHTML = '';
-      this.showSharePanel(examId);
+    const linkBtn = root.querySelector('#pub-copy-link');
+    if (linkBtn) linkBtn.onclick = async () => {
+      try {
+        const path = (location.pathname || '/').replace(/\/?$/, '/');
+        const url = location.origin + path + '?exam=' + encodeURIComponent(examId);
+        await navigator.clipboard.writeText(url);
+        await UI.alert('Link copied.', 'Copied');
+      } catch (_) {}
     };
     const done = root.querySelector('#pub-done');
     if (done) done.onclick = () => {
       root.innerHTML = '';
-      this.showTeacherHome();
+      this.showInstructorHome();
     };
   },
 
@@ -2024,7 +2084,7 @@ const App = {
         </div>
         <div class="action-btns">
           <button class="btn btn-primary" id="copy-share-link">Copy link</button>
-          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Done</button>
+          <button class="btn btn-ghost" onclick="App.showInstructorHome()">Done</button>
         </div>
       </div>
     `, 'exams');
@@ -2035,24 +2095,24 @@ const App = {
     try { navigator.clipboard.writeText(url); } catch (_) {}
   },
 
-  async shareToCoTeacher(examId) {
-    const email = await UI.prompt('Co-teacher email (La Verdad account):', '', 'Share to Co-teacher');
+  async shareToCoInstructor(examId) {
+    const email = await UI.prompt('Co-instructor email (La Verdad account):', '', 'Share to Co-instructor');
     if (!email) return;
     try {
       const exam = await Exam.getExam(examId);
       if (!exam) throw new Error('Assessment not found');
       const { id, createdAt, updatedAt, teacherId, teacherEmail, teacherName, proctors, ...rest } = exam;
-      // Store pending share — co-teacher claims on login / list
+      // Store pending share — co-instructor claims on login / list
       await window.db.collection('pendingShares').add({
         sourceExamId: examId,
         toEmail: email.trim().toLowerCase(),
-        fromTeacherId: Auth.currentUser.uid,
-        fromTeacherEmail: Auth.userProfile.email,
+        fromInstructorId: Auth.currentUser.uid,
+        fromInstructorEmail: Auth.userProfile.email,
         snapshot: rest,
         title: (exam.title || 'Assessment') + ' (shared)',
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
-      // If co-teacher already has user account, create their copy now
+      // If co-instructor already has user account, create their copy now
       const q = await window.db.collection('users').where('email', '==', email.trim().toLowerCase()).limit(1).get();
       if (!q.empty) {
         const uid = q.docs[0].id;
@@ -2063,8 +2123,8 @@ const App = {
           startAt: now,
           endAt: now + (Number(rest.durationMinutes) || 60) * 60000
         });
-        // createExam uses current user as teacher — need direct write for co-teacher
-        // Fix: write exam under co-teacher id
+        // createExam uses current user as teacher — need direct write for co-instructor
+        // Fix: write exam under co-instructor id
         const ref = window.db.collection('exams').doc();
         await ref.set({
           ...rest,
@@ -2080,7 +2140,7 @@ const App = {
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
       }
-      await UI.alert('Shared with co-teacher. They will see a fresh copy to configure.', 'Shared');
+      await UI.alert('Shared with co-instructor. They will see a fresh copy to configure.', 'Shared');
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
     }
@@ -2097,7 +2157,7 @@ const App = {
     try {
       await Exam.deleteExam(examId);
       await UI.alert('Assessment deleted.', 'Deleted');
-      this.showTeacherHome();
+      this.showInstructorHome();
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
     }
@@ -2137,7 +2197,7 @@ const App = {
     const c = String(choice).trim().toLowerCase();
     if (c === 'link' || c === 'qr') return this.showSharePanel(examId);
     if (c === 'invite') return this.showExamInvites(examId);
-    if (c === 'coteacher' || c === 'co-teacher') return this.shareToCoTeacher(examId);
+    if (c === 'coteacher' || c === 'co-instructor') return this.shareToCoInstructor(examId);
     if (c === 'proctors') return this.showProctors(examId);
     await UI.alert('Unknown. Use link, invite, coteacher, or proctors.', 'Share');
   },
@@ -2202,8 +2262,18 @@ const App = {
       if (titleEl) titleEl.textContent = 'Edit Assessment';
       const draftBtn = document.getElementById('draft-exam-btn');
       const pubBtn = document.getElementById('create-exam-btn');
-      if (draftBtn) draftBtn.textContent = 'Save as Draft';
-      if (pubBtn) pubBtn.textContent = exam2.status === 'published' ? 'Save & Publish' : 'Publish';
+      if (draftBtn) {
+        draftBtn.textContent = exam2.status === 'published' ? 'Save' : 'Save as Draft';
+        draftBtn.dataset.editStatus = exam2.status === 'published' ? 'published' : 'draft';
+      }
+      if (pubBtn) {
+        if (exam2.status === 'published') {
+          pubBtn.style.display = 'none';
+        } else {
+          pubBtn.style.display = '';
+          pubBtn.textContent = 'Publish';
+        }
+      }
     };
 
     // Run after DOM + renderBuilder binding
@@ -2221,7 +2291,7 @@ const App = {
       await Exam.updateExam(examId, { active: false, endAt: Date.now() });
       try { await Exam.deactivateProctorsForExam(examId); } catch (_) {}
       await UI.alert('Assessment closed.', 'Done');
-      this.showTeacherHome();
+      this.showInstructorHome();
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
     }
@@ -2239,7 +2309,7 @@ const App = {
         durationMinutes: sched.durationMinutes || Math.max(1, Math.round((sched.endAt - sched.startAt) / 60000))
       });
       await UI.alert('Assessment reopened with the new schedule.', 'Reopened');
-      this.showTeacherHome();
+      this.showInstructorHome();
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
     }
@@ -2268,7 +2338,7 @@ const App = {
         });
       }
       await UI.alert('Duplicated as draft: ' + (copy.title || 'Copy'), 'Duplicated');
-      this.showTeacherHome();
+      this.showInstructorHome();
     } catch (e) {
       console.error(e);
       await UI.alert(e.message || String(e), 'Error');
@@ -2279,7 +2349,7 @@ const App = {
     this.renderShell(`
       <div class="card-header page-header-responsive">
         <h2 class="page-title">Live dashboard</h2>
-        <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+        <button class="btn btn-ghost" onclick="App.showInstructorHome()">Back</button>
       </div>
       <div id="live-container"></div>
     `, 'exams');
@@ -2302,7 +2372,7 @@ const App = {
         <div class="form-group"><label>Email</label>
           <input id="invite-email" class="form-control" placeholder="student@gmail.com" /></div>
         <button class="btn btn-primary" id="invite-btn">Invite</button>
-        <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+        <button class="btn btn-ghost" onclick="App.showInstructorHome()">Back</button>
         <p id="invite-msg" class="mt-1 text-muted"></p>
       </div>
       <div class="card mt-2"><div id="invites-list">Loading...</div></div>
@@ -2346,7 +2416,7 @@ const App = {
         </div>
         <div class="action-btns">
           <button class="btn btn-primary" id="save-proctors">Save & distribute</button>
-          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+          <button class="btn btn-ghost" onclick="App.showInstructorHome()">Back</button>
         </div>
         <p id="proctor-msg" class="mt-1 text-muted"></p>
       </div>
@@ -2408,7 +2478,7 @@ const App = {
     if (this._sessionWatchUnsub) { try { this._sessionWatchUnsub(); } catch(_){} this._sessionWatchUnsub = null; }
     this.renderShell(`
       <h2 class="page-title">Student Portal</h2>
-      <p class="page-subtitle">Open the assessment link shared by your teacher. You cannot create new assessments — only mock practice from your history.</p>
+      <p class="page-subtitle">Open the assessment link shared by your instructor. You cannot create new assessments — only mock practice from your history.</p>
       <div class="card">
         <div class="action-btns">
           <button class="btn btn-primary" onclick="App.showStudentHistory()">📚 Assessment History</button>
@@ -3134,10 +3204,10 @@ const App = {
     try {
       const isTest = !!opts.testMode;
       // Instructors / superadmins cannot take real assessments
-      if (!isTest && Auth.userProfile && (Auth.isTeacher() || Auth.userProfile.role === 'superadmin' || Auth.userProfile.role === 'teacher' || Auth.userProfile.role === 'proctor')) {
+      if (!isTest && Auth.userProfile && (Auth.isInstructor() || Auth.userProfile.role === 'superadmin' || Auth.userProfile.role === 'teacher' || Auth.userProfile.role === 'proctor')) {
         await UI.alert('You are registered as an instructor and cannot take assessments as a student. Use "Test as student" on the assessment card to preview.', 'Not allowed');
         this.clearExamQuery();
-        return this.showTeacherHome ? this.showTeacherHome() : this.showStudentHome();
+        return this.showInstructorHome ? this.showInstructorHome() : this.showStudentHome();
       }
       const exam = await Exam.getExam(examId);
       if (!exam) { await UI.alert('Assessment not found.', 'Error'); return this.showStudentHome(); }
@@ -3197,7 +3267,7 @@ const App = {
         console.error('exam start', inner);
         await UI.alert((inner && inner.message) || String(inner) || 'Could not open assessment.', 'Preview error');
         this.clearExamQuery();
-        if (isTest) return this.showTeacherHome ? this.showTeacherHome() : this.showDashboard();
+        if (isTest) return this.showInstructorHome ? this.showInstructorHome() : this.showDashboard();
         return this.showStudentHome();
       }
     } catch (err) {
@@ -3284,7 +3354,7 @@ const App = {
     // Monitor handles screen/heartbeat
     // CodeEditor.startScreenShare(2500);
     this._endedHandled = false;
-    this._watchTeacherEnd(session.id);
+    this._watchInstructorEnd(session.id);
     this.injectTestModeBar();
     this.injectStudentChatFab(session.id);
     document.getElementById('check-code-btn').onclick = () => CodeEditor.checkCode();
@@ -3303,7 +3373,7 @@ const App = {
   },
 
 
-  _watchTeacherEnd(sessionId) {
+  _watchInstructorEnd(sessionId) {
     if (!sessionId || String(sessionId).startsWith('test_')) return;
     if (this._sessionWatchUnsub) try { this._sessionWatchUnsub(); } catch (_) {}
     this._lastInstructorReply = null;
@@ -3383,7 +3453,7 @@ const App = {
       window.close();
       // if window.close blocked
       this.clearExamQuery();
-      this.showTeacherHome ? this.showTeacherHome() : this.showStudentHome();
+      this.showInstructorHome ? this.showInstructorHome() : this.showStudentHome();
     };
   },
 
@@ -3499,7 +3569,9 @@ const App = {
       // Prefer sections from exam
       if (exam.sections && exam.sections.length) {
         const out = [];
-        for (const sec of exam.sections) {
+        // Shuffle section order first
+        const sectionList = shuffle(exam.sections.slice());
+        for (const sec of sectionList) {
           const qs = (sec.questions || []).slice();
           const fixed = [];
           const movable = [];
@@ -3543,7 +3615,7 @@ const App = {
     }
     if (!groups.length) {
       await UI.alert('This assessment has no questions yet.', 'Empty');
-      return isTestSession ? (this.showTeacherHome ? this.showTeacherHome() : this.showDashboard()) : this.showStudentHome();
+      return isTestSession ? (this.showInstructorHome ? this.showInstructorHome() : this.showDashboard()) : this.showStudentHome();
     }
 
     let gi = 0;
@@ -3675,8 +3747,6 @@ const App = {
           </div>
           <div class="take-stage">${body}</div>
           <div class="take-nav">
-            ${g.kind === 'passage' ? '<button type="button" class="btn btn-ghost btn-skip-passage" id="take-skip-passage">Skip passage</button>' : ''}
-            ${showSkip && g.kind !== 'passage' ? '<button type="button" class="btn btn-ghost" id="take-skip">Skip</button>' : ''}
             <button type="button" class="btn btn-primary" id="take-next">${(!showSkip) ? 'Submit' : 'Submit Answer'}</button>
           </div>
         </div>`;
@@ -3736,17 +3806,12 @@ const App = {
                 if (!multi) {
                   card.querySelectorAll('.gq-student, .gq-option').forEach(b => {
                     b.classList.remove('selected');
-                    const c = b.querySelector('.gq-student-check');
-                    if (c) c.textContent = '';
+                    b.querySelectorAll('.gq-student-check').forEach(c => c.remove());
                   });
                   btn.classList.add('selected');
-                  const check = btn.querySelector('.gq-student-check');
-                  if (check) check.textContent = '✓';
                 } else {
                   btn.classList.toggle('selected');
-                  const on = btn.classList.contains('selected');
-                  const check = btn.querySelector('.gq-student-check');
-                  if (check) check.textContent = on ? '✓' : '';
+                  btn.querySelectorAll('.gq-student-check').forEach(c => c.remove());
                 }
                 save();
               });
@@ -3755,10 +3820,12 @@ const App = {
         } catch (e) { console.warn(e); }
         // Word box drag / tap-to-place
         try {
-          const wbRoot = box.matches?.('.wb-student') ? box : box.querySelector('.wb-student');
+          const wbRoot = box.matches?.('.wb-student') ? box : (box.querySelector('.wb-student') || document.querySelector('.wb-student'));
           if (wbRoot && typeof Regular.bindWordBoxDrag === 'function') {
             Regular.bindWordBoxDrag(wbRoot, save);
           }
+          // Also bind drops in dual right panel
+          document.querySelectorAll('.wb-dual .wb-inline-drop').forEach(() => {});
         } catch (e) { console.warn(e); }
         // Categorize drag / tap-to-place
         try {
@@ -3829,11 +3896,11 @@ const App = {
         if (g.kind === 'passage') {
           const list = g.questions || [];
           if (list.find(q => q && !isAnswered(q.id))) {
-            await UI.alert('Please answer all questions in this passage before continuing, or press Skip passage.', 'Answer required');
+            await UI.alert('Please answer all questions in this passage before continuing.', 'Answer required');
             return;
           }
         } else if (g.question && !isAnswered(g.question.id)) {
-          await UI.alert('Please answer this question before continuing, or press Skip.', 'Answer required');
+          await UI.alert('Please answer this question before continuing.', 'Answer required');
           return;
         }
         if (!showSkip) {
@@ -3866,12 +3933,8 @@ const App = {
       });
 
       const nextBtn = document.getElementById('take-next');
-      const skipBtn = document.getElementById('take-skip');
-      const skipPassBtn = document.getElementById('take-skip-passage');
       const endBtn = document.getElementById('take-end-btn');
       if (nextBtn) nextBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(false, false); };
-      if (skipBtn) skipBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(false, true); };
-      if (skipPassBtn) skipPassBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); goNext(true, true); };
       document.querySelectorAll('[data-pass-tab]').forEach(btn => {
         btn.onclick = () => {
           window._passageTab = Number(btn.dataset.passTab) || 0;
@@ -3908,7 +3971,7 @@ const App = {
       try { this.injectTestModeBar(); } catch (_) {}
       if (!String(session.id).startsWith('test_')) {
         try { this.injectStudentChatFab(session.id); } catch (_) {}
-        try { this._watchTeacherEnd(session.id); } catch (_) {}
+        try { this._watchInstructorEnd(session.id); } catch (_) {}
       }
       try {
         if (window.IdleGuard) {
@@ -4104,7 +4167,7 @@ const App = {
         <h2 class="page-title">Integrity issues — ${escapeHtml(exam?.title || '')}</h2>
         <div class="action-btns">
           <button class="btn btn-ghost" id="btn-export-integrity-pdf">Export PDF</button>
-          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+          <button class="btn btn-ghost" onclick="App.showInstructorHome()">Back</button>
         </div>
       </div>
       <div class="card">
@@ -4359,7 +4422,7 @@ const App = {
         <h2 class="page-title">Results — ${escapeHtml(exam.title)}</h2>
         <div class="action-btns">
           <button class="btn btn-ghost" id="btn-export-xlsx">Export Excel</button>
-          <button class="btn btn-ghost" onclick="App.showTeacherHome()">Back</button>
+          <button class="btn btn-ghost" onclick="App.showInstructorHome()">Back</button>
         </div>
       </div>
       <div id="results-stats" class="stats-grid">Loading stats...</div>

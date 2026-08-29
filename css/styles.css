@@ -3298,3 +3298,39 @@ body.nav-collapsed .nav-label { display: none; }
 @media (max-width: 800px) {
   .wb-dual { grid-template-columns: 1fr; height: auto !important; max-height: none !important; }
 }
+
+/* v1.5.31 */
+.take-options-grid, .gq-options, .pass-q-list .gq-block {
+  justify-items: center;
+  text-align: center;
+}
+.take-opt, .gq-option, .gq-student {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.gq-student-check { display: none !important; }
+
+.wb-cfg-dual {
+  display: grid;
+  grid-template-columns: minmax(200px, 36%) 1fr;
+  gap: 0.75rem;
+  min-height: 320px;
+}
+.wb-cfg-left, .wb-cfg-right {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  min-height: 280px;
+}
+.wb-cfg-right { display: flex; flex-direction: column; }
+.table-fill-take-right, .tf-clip-history {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+.tf-calculator { flex: 1 1 auto; display: flex; flex-direction: column; }
+.tf-clip-history { flex: 0 1 40%; max-height: 40%; }
