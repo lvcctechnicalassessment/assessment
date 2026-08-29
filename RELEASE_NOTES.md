@@ -295,3 +295,13 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Match answer key labels use Column A values
 - Duplicate title only one "(Copy)"
 - Larger fill-in-the-blank font on student take
+
+## v1.5.35
+- Mobile light: header title white; hamburger/menu slides from right
+- Match mobile: stacked cards, hide lines, pair chips
+- Publish (My Assessments) + Reopen: same schedule + new code + publish success modal
+- Integrity rules card: 100vh lock, scroll body only (logo + Accept visible)
+- Submit Answer: stronger DOM re-read for current question
+- Live dashboard: broader in-progress sessions; setLiveScreensEnabled enables student thumb uploads
+- 2nd monitor during exam: lock + integrity "Connected 2nd Monitor"
+- Student history: no Q1 labels; section headers; mobile label-then-value; no bare {{1}}

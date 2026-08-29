@@ -3427,3 +3427,197 @@ body.nav-collapsed .nav-label { display: none; }
     max-height: 50vh;
   }
 }
+
+
+/* v1.5.35 — mobile nav from right; light header title white */
+@media (max-width: 900px) {
+  .shell .sidebar,
+  .sidebar {
+    position: fixed !important;
+    left: auto !important;
+    right: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: min(100vw, 320px) !important;
+    transform: translateX(105%) !important;
+    z-index: 1200 !important;
+  }
+  .shell.nav-open .sidebar,
+  body.nav-open .sidebar,
+  .sidebar.open {
+    transform: translateX(0) !important;
+  }
+  .nav-backdrop {
+    z-index: 1190;
+  }
+  .thin-bar {
+    background: #387EC3 !important;
+    color: #fff !important;
+  }
+  .thin-bar-title,
+  .thin-bar .logo-text,
+  [data-theme="light"] .thin-bar-title {
+    color: #fff !important;
+  }
+  .thin-bar-right {
+    margin-left: auto;
+  }
+}
+
+/* Integrity rules: exact 100vh, scroll body only so logo+button visible */
+.monitor-gate {
+  position: fixed !important;
+  inset: 0 !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0.5rem !important;
+  box-sizing: border-box !important;
+  z-index: 50000 !important;
+}
+.monitor-gate-card,
+.monitor-gate-padded {
+  max-height: calc(100vh - 1rem) !important;
+  max-height: calc(100dvh - 1rem) !important;
+  height: auto !important;
+  width: min(520px, 100%) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0.75rem 1rem !important;
+  box-sizing: border-box !important;
+}
+.monitor-gate-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  text-align: justify;
+  padding: 0.25rem 0.15rem;
+}
+.monitor-gate-title {
+  font-size: 1.15rem !important;
+  margin: 0.35rem 0 !important;
+  flex: 0 0 auto;
+}
+.monitor-gate-center {
+  flex: 0 0 auto;
+}
+.monitor-gate-device {
+  flex: 0 0 auto;
+  margin: 0.35rem 0;
+  font-size: 0.85rem;
+}
+
+/* Match: mobile aesthetic — stacked cards + select pairing */
+@media (max-width: 800px) {
+  .match-take {
+    height: auto !important;
+    max-height: none !important;
+    overflow: auto !important;
+    padding: 0.5rem !important;
+  }
+  .match-board {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.75rem !important;
+  }
+  .match-col {
+    gap: 0.5rem;
+  }
+  .match-item {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.65rem 0.75rem;
+    background: var(--surface);
+    min-height: 48px;
+  }
+  .match-item.match-left.selected,
+  .match-item.match-left.match-pending {
+    outline: 3px solid var(--primary);
+  }
+  .match-item.match-right.match-target {
+    outline: 3px dashed var(--primary);
+  }
+  .match-lines { display: none !important; }
+  .match-instruction {
+    font-size: 0.95rem;
+    line-height: 1.4;
+  }
+  .match-pair-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    justify-content: center;
+  }
+  .match-pair-chip {
+    background: var(--primary);
+    color: #fff;
+    border-radius: 999px;
+    padding: 0.25rem 0.65rem;
+    font-size: 0.8rem;
+  }
+}
+
+/* Student history: mobile stacked labels */
+@media (max-width: 700px) {
+  #attempt-detail-table thead { display: none; }
+  #attempt-detail-table,
+  #attempt-detail-table tbody,
+  #attempt-detail-table tr.hist-q-row {
+    display: block;
+    width: 100%;
+  }
+  #attempt-detail-table tr.hist-q-row {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    background: var(--surface);
+    text-align: left !important;
+  }
+  #attempt-detail-table tr.hist-q-row td {
+    display: block;
+    width: 100% !important;
+    border: none !important;
+    padding: 0.35rem 0 !important;
+    text-align: left !important;
+  }
+  #attempt-detail-table .hist-label {
+    display: block !important;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    margin-bottom: 0.15rem;
+    text-align: left !important;
+  }
+  #attempt-detail-table .hist-value {
+    display: block;
+    white-space: pre-wrap;
+    text-align: left !important;
+    margin-bottom: 0.5rem;
+  }
+  #attempt-detail-table tr.hist-section-row td {
+    display: block;
+    font-size: 1rem;
+    padding: 0.5rem 0;
+    text-align: left !important;
+  }
+}
+@media (min-width: 701px) {
+  #attempt-detail-table .hist-label { display: none; }
+  #attempt-detail-table .hist-value { white-space: pre-wrap; }
+}
+.hist-section-row td {
+  background: var(--surface-2);
+  font-weight: 600;
+}

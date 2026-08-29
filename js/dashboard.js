@@ -226,6 +226,8 @@ const Dashboard = {
       }).catch(() => {});
     } catch (_) {}
     this.showLiveScreens = false;
+    this._liveExamId = examId;
+    this.currentExamId = examId;
 
     this._seenStudentMsgs = this._seenStudentMsgs || {};
     this._liveThumbs = this._liveThumbs || {};
@@ -787,6 +789,21 @@ const Dashboard = {
     }
   },
 
+
+  setLiveScreensEnabled(on) {
+    this.showLiveScreens = !!on;
+    try {
+      if (this.currentExamId || this._liveExamId) {
+        const id = this.currentExamId || this._liveExamId;
+        window.db.collection('exams').doc(id).update({
+          liveFeedEnabled: !!on,
+          liveFeedUpdatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(() => {});
+      }
+    } catch (_) {}
+    if (this.sessionsCache) this._renderSessions(this.sessionsCache, this.currentExam);
+  },
+
   _renderSessions(sessions, exam) {
     // Refresh focus dropdown
     const sel = document.getElementById('focus-student-screen');
@@ -815,8 +832,12 @@ const Dashboard = {
     const subEl = document.getElementById('live-submitted-count');
     if (subEl) subEl.textContent = submittedCount + ' submitted';
 
-    // Only active sessions on live board
-    let list = all.filter(s => s.status === 'active' && !String(s.id).startsWith('test_'));
+    // In-progress sessions on live board (not submitted/ended/test)
+    let list = all.filter(s => {
+      if (String(s.id).startsWith('test_')) return false;
+      const st = String(s.status || 'active').toLowerCase();
+      return st !== 'submitted' && st !== 'ended' && st !== 'graded';
+    });
     const q = (this._sessionScreenFilter || '').toLowerCase();
     if (q) {
       list = list.filter(s =>

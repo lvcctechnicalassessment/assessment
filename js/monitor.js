@@ -87,6 +87,34 @@ const Monitor = {
     return isChrome || isEdge;
   },
 
+  
+  startMultiMonitorWatch() {
+    if (this._mmIv) return;
+    this._mmLocked = false;
+    this._mmIv = setInterval(async () => {
+      if (this.submitting || this.stopped) return;
+      try {
+        const multi = await this.detectMultiMonitor();
+        if (multi && !this._mmLocked) {
+          this._mmLocked = true;
+          this.recordViolation('second-monitor', true);
+          this.showLockOverlay(
+            'A second monitor was detected. Remove the 2nd monitor before returning to the assessment.',
+            'Connected 2nd Monitor'
+          );
+        } else if (!multi && this._mmLocked) {
+          this._mmLocked = false;
+          this.hideLockOverlay && this.hideLockOverlay();
+          document.getElementById('monitor-gate')?.remove();
+          // remove lock overlay if our type
+          document.querySelectorAll('.monitor-lock-overlay').forEach(el => {
+            if ((el.textContent || '').includes('second monitor') || (el.textContent || '').includes('2nd monitor')) el.remove();
+          });
+        }
+      } catch (_) {}
+    }, 4000);
+  },
+
   async detectMultiMonitor() {
     try {
       if (window.screen && typeof window.screen.isExtended === 'boolean') {
@@ -194,6 +222,7 @@ const Monitor = {
         btn.disabled = true;
         btn.textContent = 'Starting…';
         this._joinedAt = Date.now();
+        try { this.startMultiMonitorWatch(); } catch (_) {}
         this._graceMs = 30000; // no join-time false positives
 
         try {

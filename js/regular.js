@@ -662,6 +662,8 @@ const Regular = {
       el.onclick = (e) => {
         e.preventDefault();
         pending = Number(el.getAttribute('data-match-left'));
+        root.querySelectorAll('.match-left').forEach(n => n.classList.remove('match-pending', 'selected'));
+        el.classList.add('match-pending', 'selected');
         root.querySelectorAll('.match-item').forEach(x => x.classList.remove('pending'));
         el.classList.add('pending');
       };

@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.34</div>
+          <div class="app-version">Build v1.5.35</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -213,7 +213,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.34</div>
+              <div class="app-version">v1.5.35</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -2401,15 +2401,25 @@ const App = {
     const sched = await this.pickSchedule();
     if (!sched) return;
     try {
-      await Exam.updateExam(examId, {
+      let assessmentCode = '';
+      for (let attempt = 0; attempt < 8; attempt++) {
+        assessmentCode = String(Math.floor(10000000 + Math.random() * 90000000));
+        try {
+          const exists = await window.db.collection('exams').where('assessmentCode', '==', assessmentCode).limit(1).get();
+          if (exists.empty) break;
+        } catch (_) { break; }
+      }
+      const payload = {
         active: true,
         status: 'published',
         startAt: sched.startAt,
         endAt: sched.endAt,
-        durationMinutes: sched.durationMinutes || Math.max(1, Math.round((sched.endAt - sched.startAt) / 60000))
-      });
-      await UI.alert('Assessment reopened with the new schedule.', 'Reopened');
-      this.showInstructorHome();
+        durationMinutes: sched.durationMinutes || Math.max(1, Math.round((sched.endAt - sched.startAt) / 60000)),
+        assessmentCode
+      };
+      if (sched.randomizeQuestions != null) payload.randomizeQuestions = !!sched.randomizeQuestions;
+      await Exam.updateExam(examId, payload);
+      await this.showPublishSuccessModal(examId);
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
     }
@@ -2934,9 +2944,18 @@ const App = {
       'exited-fullscreen': 'Exiting full-screen mode',
       'right-click': 'Right-clicking: Opening context menus on the page',
       'resize': 'Resizing the window',
-      'screen-share-stopped': 'Screen sharing stopped'
+      'screen-share-stopped': 'Screen sharing stopped',
+      'second-monitor': 'Connected 2nd Monitor',
+      'multi-monitor': 'Connected 2nd Monitor'
     };
     return map[type] || type || '';
+  },
+
+  cleanHistoryPrompt(text) {
+    return String(text || '')
+      .replace(/\{\{\d+\}\}/g, '____')
+      .replace(/\{\{blank\}\}/gi, '____')
+      .trim() || 'Question';
   },
 
   formatAnswerDisplay(q, value, isCorrectKey = false) {
@@ -2966,10 +2985,10 @@ const App = {
         return (c && (c.name || c.label)) || String(id);
       };
       if (isCorrectKey) {
-        return items.map(it => `${it.name || it.label || it.id} → ${nameOfCat(it.category)}`).join('; ') || '—';
+        return items.map(it => `${it.name || it.label || it.id} → ${nameOfCat(it.category)}`).join('\n') || '—';
       }
       if (value && typeof value === 'object' && !Array.isArray(value)) {
-        return Object.entries(value).map(([itemId, catId]) => `${nameOfItem(itemId)} → ${nameOfCat(catId)}`).join('; ') || '—';
+        return Object.entries(value).map(([itemId, catId]) => `${nameOfItem(itemId)} → ${nameOfCat(catId)}`).join('\n') || '—';
       }
       return value != null ? String(value) : '—';
     }
@@ -2978,27 +2997,27 @@ const App = {
       const right = q.right || [];
       const key = Array.isArray(q.correct) ? q.correct : left.map((_, i) => i);
       if (isCorrectKey) {
-        return left.map((a, i) => `${a || ('A'+(i+1))} → ${right[key[i]] != null ? right[key[i]] : '—'}`).join('; ') || '—';
+        return left.map((a, i) => `${a || ('Item '+(i+1))} → ${right[key[i]] != null ? right[key[i]] : '—'}`).join('\n') || '—';
       }
       if (value && typeof value === 'object') {
         return left.map((a, i) => {
           const ri = value[i] != null ? value[i] : value[String(i)];
           const b = ri != null ? right[Number(ri)] : null;
-          return `${a || ('A'+(i+1))} → ${b != null ? b : '—'}`;
-        }).join('; ') || '—';
+          return `${a || ('Item '+(i+1))} → ${b != null ? b : '—'}`;
+        }).join('\n') || '—';
       }
       return value != null ? String(value) : '—';
     }
     if (q.type === 'passage' || q.isPassageSet) {
       const kids = q.questions || [];
       if (isCorrectKey) {
-        return kids.map((kq, i) => `Q${i+1}: ${this.formatAnswerDisplay(kq, null, true)}`).join(' | ') || '—';
+        return kids.map((kq) => this.formatAnswerDisplay(kq, null, true)).filter(Boolean).join('\n') || '—';
       }
       if (value && typeof value === 'object') {
-        return kids.map((kq, i) => {
+        return kids.map((kq) => {
           const v = value[kq.id] != null ? value[kq.id] : value;
-          return `Q${i+1}: ${this.formatAnswerDisplay(kq, typeof v === 'object' && kq.id ? value[kq.id] : v, false)}`;
-        }).join(' | ') || (typeof value === 'object' ? JSON.stringify(value) : String(value));
+          return this.formatAnswerDisplay(kq, typeof v === 'object' && kq.id ? value[kq.id] : v, false);
+        }).filter(Boolean).join('\n') || '—';
       }
       return value != null ? String(value) : '—';
     }
@@ -3103,18 +3122,34 @@ const App = {
       }));
     }
     // map by id and by index fallback
-    const rows = questions.map((q, i) => {
-      let resp = answers[q.id];
-      if (resp === undefined) {
-        // try alternate keys
-        const keys = Object.keys(answers);
-        if (keys[i] != null) resp = answers[keys[i]];
+    // Group by section when available
+    let sectionBlocks = [];
+    if (exam && Array.isArray(exam.sections) && exam.sections.length) {
+      sectionBlocks = exam.sections.map(sec => ({
+        title: sec.title || 'Section',
+        questions: (sec.questions || []).slice()
+      }));
+    } else {
+      sectionBlocks = [{ title: '', questions }];
+    }
+    const rows = [];
+    sectionBlocks.forEach(sec => {
+      if (sec.title) {
+        rows.push({ sectionHeader: sec.title });
       }
-      return {
-        prompt: q.prompt || q.statement || ('Question ' + (i + 1)),
-        response: this.formatAnswerDisplay(q, resp, false),
-        correct: this.formatAnswerDisplay(q, null, true)
-      };
+      (sec.questions || []).forEach((q, i) => {
+        let resp = answers[q.id];
+        if (resp === undefined) {
+          const keys = Object.keys(answers);
+          if (keys[i] != null) resp = answers[keys[i]];
+        }
+        rows.push({
+          prompt: this.cleanHistoryPrompt(q.prompt || q.statement || q.sentence || 'Question'),
+          response: this.formatAnswerDisplay(q, resp, false),
+          correct: this.formatAnswerDisplay(q, null, true),
+          q
+        });
+      });
     });
 
     // code assessment fallback
@@ -3146,10 +3181,21 @@ const App = {
         <table class="table" id="attempt-detail-table">
           <thead><tr><th>Question</th><th>Your response</th><th>Correct answer</th></tr></thead>
           <tbody>
-            ${rows.map((r, i) => `<tr>
-              <td data-label="Question"><strong>Q${i + 1}.</strong> ${escapeHtml(r.prompt)}</td>
-              <td data-label="Response">${escapeHtml(r.response)}</td>
-              <td data-label="Correct">${escapeHtml(r.correct)}</td>
+            ${rows.map((r) => r.sectionHeader
+              ? `<tr class="hist-section-row"><td colspan="3"><strong>${escapeHtml(r.sectionHeader)}</strong></td></tr>`
+              : `<tr class="hist-q-row">
+              <td data-label="Question" class="hist-cell-q">
+                <div class="hist-label">Question</div>
+                <div class="hist-value">${escapeHtml(r.prompt)}</div>
+              </td>
+              <td data-label="Response" class="hist-cell-r">
+                <div class="hist-label">Response</div>
+                <div class="hist-value">${escapeHtml(r.response)}</div>
+              </td>
+              <td data-label="Correct" class="hist-cell-c">
+                <div class="hist-label">Correct</div>
+                <div class="hist-value">${escapeHtml(r.correct)}</div>
+              </td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -3993,9 +4039,35 @@ const App = {
             await UI.alert('Please answer all questions in this passage before continuing.', 'Answer required');
             return;
           }
-        } else if (g.question && !isAnswered(g.question.id)) {
-          await UI.alert('Please answer this question before continuing.', 'Answer required');
-          return;
+        } else if (g.question) {
+          const q = g.question;
+          // Force-read current question from DOM (covers MC 0-index, fill, match, wordbox kids)
+          const grid = document.querySelector('.take-options-grid[data-qid="' + q.id + '"]');
+          if (grid) {
+            const multi = grid.querySelector('.take-opt')?.getAttribute('data-multi') === '1';
+            const selected = [...grid.querySelectorAll('.take-opt.selected')].map(b => Number(b.dataset.opt));
+            if (multi && selected.length) answers[q.id] = selected;
+            else if (selected.length) answers[q.id] = selected[0];
+          }
+          const stage = document.querySelector('.take-stage');
+          if (stage && Regular.collectAnswers) {
+            try { Object.assign(answers, Regular.collectAnswers(stage)); } catch (_) {}
+          }
+          // Wordbox with child questions: parent answered if any child blank filled
+          let ok = isAnswered(q.id);
+          if (!ok && q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
+            ok = q.questions.some(kq => isAnswered(kq.id));
+            if (ok) answers[q.id] = answers[q.id] || { _kids: true };
+          }
+          if (!ok && q.type === 'match') {
+            const pairs = answers[q.id];
+            ok = pairs && typeof pairs === 'object' && Object.keys(pairs).length > 0;
+          }
+          if (!ok) {
+            await UI.alert('Please answer this question before continuing.', 'Answer required');
+            return;
+          }
+          window._takeAnswers = answers;
         }
         if (!showSkip) {
           const ok = await UI.confirm('Submit this assessment? You will not be able to change answers after submitting.', 'Submit assessment');
@@ -4190,14 +4262,56 @@ const App = {
   async publishDraft(examId) {
     const exam = await Exam.getExam(examId);
     if (!exam) { await UI.alert('Not found.', 'Error'); return; }
+    if (exam.examType === 'regular' && !(exam.questions || []).length && !(exam.sections || []).length) {
+      await UI.alert('Add at least one question before publishing.', 'No questions');
+      return;
+    }
     const schedule = await this.pickSchedule();
     if (!schedule) return;
-    await Exam.updateExam(examId, {
-      startAt: schedule.startAt, endAt: schedule.endAt, status: 'published', active: true,
-      durationMinutes: Math.max(1, Math.round((schedule.endAt - schedule.startAt) / 60000))
-    });
-    await UI.alert('Assessment published.', 'Published');
-    this.showSharePanel(examId);
+    // Generate / refresh 8-digit assessment code (same as create)
+    let assessmentCode = String(exam.assessmentCode || '').replace(/\D/g, '').slice(0, 8);
+    if (!assessmentCode || assessmentCode.length < 8) {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        assessmentCode = String(Math.floor(10000000 + Math.random() * 90000000));
+        try {
+          const exists = await window.db.collection('exams').where('assessmentCode', '==', assessmentCode).limit(1).get();
+          if (exists.empty) break;
+        } catch (_) { break; }
+      }
+    }
+    const payload = {
+      startAt: schedule.startAt,
+      endAt: schedule.endAt,
+      status: 'published',
+      active: true,
+      durationMinutes: schedule.durationMinutes || Math.max(1, Math.round((schedule.endAt - schedule.startAt) / 60000)),
+      assessmentCode
+    };
+    if (schedule.randomizeQuestions != null) payload.randomizeQuestions = !!schedule.randomizeQuestions;
+    await Exam.updateExam(examId, payload);
+    // Optional invites (same as builder publish)
+    try {
+      const inv = await UI.prompt(
+        'Invite student emails (optional, comma or newline separated). Leave blank to skip.',
+        '',
+        'Invite students',
+        'student@example.com'
+      );
+      if (inv && String(inv).trim()) {
+        const emails = String(inv).split(/[\n,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+        for (const email of emails) {
+          try {
+            await window.db.collection('examInvites').add({
+              examId,
+              email,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              createdBy: Auth.currentUser?.uid || null
+            });
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    await this.showPublishSuccessModal(examId);
   },
 
   pickSchedule() {
