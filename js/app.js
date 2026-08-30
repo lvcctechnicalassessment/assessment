@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.35</div>
+          <div class="app-version">Build v1.5.36</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -213,7 +213,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.35</div>
+              <div class="app-version">v1.5.36</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -739,6 +739,26 @@ const App = {
     if (status === 'published' && payload.examType === 'regular' && !(payload.questions || []).length) {
       throw new Error('Add at least one question before publishing.');
     }
+    // All multiple-choice options must be non-blank
+    const qs = payload.questions || [];
+    for (const q of qs) {
+      if (q && (q.type === 'multiple' || q.type === 'dropdown' || q.type === 'multiselect')) {
+        const opts = q.options || [];
+        if (!opts.length || opts.some(o => !String(o == null ? '' : o).trim())) {
+          throw new Error('All multiple choice options must have text (no blank choices).');
+        }
+      }
+      if (q && (q.type === 'passage' || q.isPassageSet) && Array.isArray(q.questions)) {
+        for (const kq of q.questions) {
+          if (kq && kq.type === 'multiple') {
+            const opts = kq.options || [];
+            if (!opts.length || opts.some(o => !String(o == null ? '' : o).trim())) {
+              throw new Error('All passage multiple choice options must have text (no blank choices).');
+            }
+          }
+        }
+      }
+    }
     if (schedule) {
       payload.startAt = schedule.startAt;
       payload.endAt = schedule.endAt;
@@ -1167,7 +1187,34 @@ const App = {
         };
       });
       box.querySelectorAll('[data-pointsmode]').forEach(el => {
-        el.onchange = () => { const q = flat[Number(el.dataset.pointsmode)]; if (q) q.pointsMode = el.value; };
+        el.onchange = () => {
+          const qi = Number(el.dataset.pointsmode);
+          const q = flat[qi];
+          if (!q) return;
+          q.pointsMode = el.value;
+          const card = el.closest('[data-gidx]') || el.closest('.builder-fill') || el.closest('.table-fill-single') || el.parentElement;
+          const eachPts = card?.querySelector?.('.tf-each-pts') || document.querySelector(`.tf-each-pts input[data-points-each="${qi}"]`)?.closest('.tf-each-pts');
+          const ptsInp = box.querySelector(`[data-points="${qi}"]`);
+          if (el.value === 'each') {
+            if (eachPts) eachPts.style.display = '';
+            // auto total from blanks count
+            let blankN = 0;
+            if (q.type === 'fill' && Array.isArray(q.parts)) blankN = q.parts.filter(p => p.kind === 'blank').length;
+            else if (q.type === 'table' && q.cells) blankN = Object.keys(q.cells).filter(k => q.cells[k] && q.cells[k].blank).length;
+            else if (q.blanks) blankN = q.blanks.length;
+            const per = Number(q.pointsPerItem) || 1;
+            if (ptsInp) {
+              ptsInp.value = blankN * per;
+              ptsInp.readOnly = true;
+              q.points = blankN * per;
+            }
+          } else {
+            if (eachPts) eachPts.style.display = 'none';
+            if (ptsInp) ptsInp.readOnly = false;
+          }
+          // full re-render keeps labels consistent
+          if (window._renderAssessmentBuilder) window._renderAssessmentBuilder();
+        };
       });
       
       // Fill-in-the-blank segments builder
@@ -1322,7 +1369,39 @@ const App = {
         el.oninput = () => {
           const [gi, ki] = el.dataset.wbChildSentence.split(':').map(Number);
           const q = (window._builderQuestions || [])[gi];
-          if (q && q.questions && q.questions[ki]) q.questions[ki].sentence = el.value;
+          if (!q || !q.questions || !q.questions[ki]) return;
+          const kq = q.questions[ki];
+          let raw = el.value || '';
+          const bank = (q.wordBank || []).map(w => String(w || '').trim()).filter(Boolean);
+          // Auto-resolve {word} that matches bank → keep as {MatchedWord}
+          raw = raw.replace(/\{([^{}]*)\}/g, (m, inner) => {
+            const w = String(inner || '').trim();
+            if (!w) return '{}';
+            const hit = bank.find(b => b.toLowerCase() === w.toLowerCase());
+            return hit ? ('{' + hit + '}') : ('{' + w + '}');
+          });
+          kq.sentence = raw;
+          // Build blanks from {Word} tokens
+          const blanks = [];
+          let bi = 0;
+          String(raw).replace(/\{([^{}]+)\}/g, (m, word) => {
+            bi += 1;
+            blanks.push({ id: String(bi), correct: String(word).trim(), alternatives: [] });
+            return m;
+          });
+          kq.blanks = blanks;
+          // Live preview highlight
+          const prev = box.querySelector(`[data-wb-preview="${gi}:${ki}"]`);
+          if (prev) {
+            let html = (raw || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            html = html.replace(/\{([^{}]+)\}/g, (m, word) => {
+              const w = String(word).trim();
+              const hit = bank.find(b => b.toLowerCase() === w.toLowerCase());
+              if (hit) return '<span class="wb-ans-hl">' + hit.replace(/</g,'') + '</span>';
+              return '<span class="wb-ans-slot">{}</span>';
+            });
+            prev.innerHTML = html || '<span class="text-muted">Type the sentence here…</span>';
+          }
         };
       });
       box.querySelectorAll('[data-wb-child-blank]').forEach(el => {
@@ -1357,6 +1436,30 @@ const App = {
           q.wordBank = q.wordBank || [];
           q.wordBank[bi] = el.value;
         };
+      });
+      const wbResize = (gi, dRows, dCols) => {
+        const q = flat[gi];
+        if (!q) return;
+        const rows = Math.min(8, Math.max(1, (Number(q.wordBankRows) || 2) + dRows));
+        const cols = Math.min(8, Math.max(1, (Number(q.wordBankCols) || 4) + dCols));
+        q.wordBankRows = rows;
+        q.wordBankCols = cols;
+        q.wordBank = q.wordBank || [];
+        while (q.wordBank.length < rows * cols) q.wordBank.push('');
+        q.wordBank = q.wordBank.slice(0, rows * cols);
+        syncFlat(); renderBuilder();
+      };
+      box.querySelectorAll('[data-wb-add-row]').forEach(el => {
+        el.onclick = () => wbResize(Number(el.dataset.wbAddRow), 1, 0);
+      });
+      box.querySelectorAll('[data-wb-del-row]').forEach(el => {
+        el.onclick = () => wbResize(Number(el.dataset.wbDelRow), -1, 0);
+      });
+      box.querySelectorAll('[data-wb-add-col]').forEach(el => {
+        el.onclick = () => wbResize(Number(el.dataset.wbAddCol), 0, 1);
+      });
+      box.querySelectorAll('[data-wb-del-col]').forEach(el => {
+        el.onclick = () => wbResize(Number(el.dataset.wbDelCol), 0, -1);
       });
       box.querySelectorAll('[data-wb-add-word]').forEach(el => {
         el.onclick = () => {
@@ -1580,7 +1683,6 @@ const App = {
           if (!q || !q.passages) return;
           const wrap = el.closest('.passage-dual');
           if (!wrap) return;
-          // save current editor to active tab
           const ed = wrap.querySelector('.rte-editor');
           const cur = Number(ed?.dataset.passActiveTab || 0);
           if (ed && q.passages[cur]) {
@@ -1593,6 +1695,18 @@ const App = {
             ed.innerHTML = q.passages[ti].html || '';
             ed.dataset.passActiveTab = String(ti);
           }
+        };
+        el.ondblclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const [gi, ti] = el.dataset.passTabCfg.split(':').map(Number);
+          const q = (window._builderQuestions || [])[gi];
+          if (!q || !q.passages || !q.passages[ti]) return;
+          const cur = q.passages[ti].title || ('Passage ' + (ti + 1));
+          const name = await UI.prompt('Rename passage tab:', cur, 'Rename passage', cur);
+          if (name == null) return;
+          q.passages[ti].title = String(name).trim() || cur;
+          el.textContent = q.passages[ti].title;
         };
       });
 
@@ -1764,8 +1878,20 @@ const App = {
 
       box.querySelectorAll('[data-points-each]').forEach(el => {
         el.oninput = () => {
-          const q = (window._builderQuestions || [])[Number(el.dataset.pointsEach)];
-          if (q) q.pointsPerItem = el.value === '' ? null : Number(el.value);
+          const qi = Number(el.dataset.pointsEach);
+          const q = (window._builderQuestions || [])[qi];
+          if (!q) return;
+          q.pointsPerItem = el.value === '' ? null : Number(el.value);
+          if ((q.pointsMode || 'all') === 'each') {
+            let blankN = 0;
+            if (q.type === 'fill' && Array.isArray(q.parts)) blankN = q.parts.filter(p => p.kind === 'blank').length;
+            else if (q.type === 'table' && q.cells) blankN = Object.keys(q.cells).filter(k => q.cells[k] && q.cells[k].blank).length;
+            else if (q.blanks) blankN = q.blanks.length;
+            const per = Number(q.pointsPerItem) || 1;
+            q.points = blankN * per;
+            const ptsInp = box.querySelector(`[data-points="${qi}"]`);
+            if (ptsInp) ptsInp.value = q.points;
+          }
         };
       });
       box.querySelectorAll('[data-correct-alt]').forEach(el => {
@@ -2401,6 +2527,8 @@ const App = {
     const sched = await this.pickSchedule();
     if (!sched) return;
     try {
+      const prev = await Exam.getExam(examId);
+      const nextWave = (Number(prev?.sessionWave || 0) || 0) + 1;
       let assessmentCode = '';
       for (let attempt = 0; attempt < 8; attempt++) {
         assessmentCode = String(Math.floor(10000000 + Math.random() * 90000000));
@@ -2415,10 +2543,34 @@ const App = {
         startAt: sched.startAt,
         endAt: sched.endAt,
         durationMinutes: sched.durationMinutes || Math.max(1, Math.round((sched.endAt - sched.startAt) / 60000)),
-        assessmentCode
+        assessmentCode,
+        sessionWave: nextWave,
+        reopenToken: nextWave
       };
       if (sched.randomizeQuestions != null) payload.randomizeQuestions = !!sched.randomizeQuestions;
       await Exam.updateExam(examId, payload);
+      // Optional student invites (same as publish)
+      try {
+        const inv = await UI.prompt(
+          'Invite student emails (optional, comma or newline separated). Leave blank to skip.',
+          '',
+          'Invite students',
+          'student@example.com'
+        );
+        if (inv && String(inv).trim()) {
+          const emails = String(inv).split(/[\n,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+          for (const email of emails) {
+            try {
+              await window.db.collection('examInvites').add({
+                examId,
+                email,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdBy: Auth.currentUser?.uid || null
+              });
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
       await this.showPublishSuccessModal(examId);
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
@@ -3022,16 +3174,20 @@ const App = {
       return value != null ? String(value) : '—';
     }
     if (q.type === 'table') {
+      const cells = q.cells || {};
+      const blankKeys = Object.keys(cells).filter(k => cells[k] && cells[k].blank).sort();
       if (isCorrectKey) {
-        const cells = q.cells || {};
-        return Object.keys(cells).filter(k => cells[k] && cells[k].blank).map(k => {
+        return blankKeys.map(k => {
           const c = cells[k];
           const ans = Array.isArray(c.correct) ? c.correct[0] : (c.correct || '');
-          return `${k}: ${ans}`;
-        }).join('; ') || '—';
+          return String(ans || '—');
+        }).join('\n') || '—';
       }
       if (value && typeof value === 'object') {
-        return Object.entries(value).map(([k, v]) => `${k}: ${v}`).join('; ') || '—';
+        return blankKeys.map(k => {
+          const v = value[k];
+          return v != null && String(v).trim() !== '' ? String(v) : '—';
+        }).join('\n') || '—';
       }
       return value != null ? String(value) : '—';
     }
@@ -3049,6 +3205,14 @@ const App = {
       if (i != null && i !== '') return String(i);
       return '—';
     };
+    // Unwrap {choice: n} / arrays so we never show [object Object]
+    if (value && typeof value === 'object' && !Array.isArray(value) && value.choice != null) {
+      value = value.choice;
+    }
+    if (Array.isArray(value) && (q.type === 'multiple' || q.type === 'multiselect' || q.type === 'dropdown')) {
+      return value.map(labelAt).join(', ') || '—';
+    }
+
     if (isCorrectKey) {
       if (q.type === 'essay') return '(Evaluated by instructor)';
       if (q.type === 'multiple' || q.type === 'dropdown' || q.type === 'multiselect') {
@@ -3134,6 +3298,7 @@ const App = {
     }
     const rows = [];
     sectionBlocks.forEach(sec => {
+      // Section title only (no instructions text)
       if (sec.title) {
         rows.push({ sectionHeader: sec.title });
       }
@@ -3142,6 +3307,54 @@ const App = {
         if (resp === undefined) {
           const keys = Object.keys(answers);
           if (keys[i] != null) resp = answers[keys[i]];
+        }
+        // Table fill: one history row per blank (no cell indexes)
+        if (q.type === 'table') {
+          const cells = q.cells || {};
+          const blankKeys = Object.keys(cells).filter(k => cells[k] && cells[k].blank).sort();
+          if (blankKeys.length) {
+            blankKeys.forEach((k, bi) => {
+              const c = cells[k] || {};
+              const corr = Array.isArray(c.correct) ? c.correct[0] : (c.correct || '');
+              const studentVal = (resp && typeof resp === 'object') ? (resp[k] ?? '') : '';
+              rows.push({
+                prompt: this.cleanHistoryPrompt((q.prompt || 'Table fill') + ' — blank ' + (bi + 1)),
+                response: studentVal !== '' && studentVal != null ? String(studentVal) : '—',
+                correct: corr !== '' && corr != null ? String(corr) : '—',
+                q
+              });
+            });
+            return;
+          }
+        }
+        // Passage: expand each child question
+        if (q.type === 'passage' || q.isPassageSet) {
+          const kids = q.questions || [];
+          kids.forEach((kq, ki) => {
+            let kresp = (resp && typeof resp === 'object') ? resp[kq.id] : undefined;
+            if (kresp === undefined) kresp = answers[kq.id];
+            rows.push({
+              prompt: this.cleanHistoryPrompt(kq.prompt || kq.statement || ('Passage question ' + (ki + 1))),
+              response: this.formatAnswerDisplay(kq, kresp, false),
+              correct: this.formatAnswerDisplay(kq, null, true),
+              q: kq
+            });
+          });
+          return;
+        }
+        // Wordbox with child questions
+        if (q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
+          q.questions.forEach((kq, ki) => {
+            let kresp = (resp && typeof resp === 'object') ? resp[kq.id] : undefined;
+            if (kresp === undefined) kresp = answers[kq.id];
+            rows.push({
+              prompt: this.cleanHistoryPrompt(kq.sentence || kq.prompt || ('Wordbox ' + (ki + 1))),
+              response: this.formatAnswerDisplay(kq.type === 'wordbox' ? kq : { ...kq, type: 'wordbox', blanks: kq.blanks || q.blanks }, kresp, false),
+              correct: this.formatAnswerDisplay(kq.type === 'wordbox' ? kq : { ...kq, type: 'wordbox', blanks: kq.blanks || q.blanks }, null, true),
+              q: kq
+            });
+          });
+          return;
         }
         rows.push({
           prompt: this.cleanHistoryPrompt(q.prompt || q.statement || q.sentence || 'Question'),

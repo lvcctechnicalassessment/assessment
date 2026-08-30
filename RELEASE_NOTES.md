@@ -305,3 +305,15 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Live dashboard: broader in-progress sessions; setLiveScreensEnabled enables student thumb uploads
 - 2nd monitor during exam: lock + integrity "Connected 2nd Monitor"
 - Student history: no Q1 labels; section headers; mobile label-then-value; no bare {{1}}
+
+## v1.5.36
+- Reopen: new sessionWave so students can retake without "already submitted"; publish popup + optional invites kept
+- Table fill config: fixed equal cells, +/− row/col, horizontal scroll, blue header/subheader, tools no longer stretch cells
+- Wordbox: +/− bank grid, {} word answers with orange Consolas highlight, no prompt boxes, dual-panel scroll at 100vh
+- Categorize: points beside prompt; categories then Add Category; items then Add Item
+- Passage: double-click tab to rename
+- Match: points beside prompt
+- Fill: red answer borders; full-points vs per-blank scoring; auto total when per-blank
+- Points mode: hide Points per blank when Full points; show + auto total when per-blank; order is per-blank then total
+- History: section titles only (no instructions); table blanks as separate rows; passage/wordbox expanded; MC shows text not [object Object]; mobile no duplicate labels
+- MC options required (non-blank) on save/publish

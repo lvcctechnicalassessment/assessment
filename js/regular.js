@@ -179,38 +179,67 @@ const Regular = {
     let bank = q.wordBank || [];
     while (bank.length < rows * cols) bank.push('');
     bank = bank.slice(0, rows * cols);
-    const bankCells = bank.map((w, i) =>
-      `<div class="wb-cfg-chip"><input class="form-control" data-wb-bank="${index}:${i}" value="${escapeHtml(w||'')}" placeholder="Word ${i+1}" /></div>`
-    ).join('');
+    // Grid with +/− on last row/col edge
+    let bankGrid = '<table class="wb-bank-cfg-table"><tbody>';
+    for (let r = 0; r < rows; r++) {
+      bankGrid += '<tr>';
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        bankGrid += `<td><input class="form-control" data-wb-bank="${index}:${i}" value="${escapeHtml(bank[i]||'')}" placeholder="Word" /></td>`;
+      }
+      if (r === 0) {
+        bankGrid += `<td class="wb-edge" rowspan="${rows}">
+          <button type="button" class="btn btn-sm btn-ghost tf-pm" data-wb-add-col="${index}" title="Add column">+</button>
+          <button type="button" class="btn btn-sm btn-ghost tf-pm" data-wb-del-col="${index}" title="Remove column">−</button>
+        </td>`;
+      }
+      bankGrid += '</tr>';
+    }
+    bankGrid += `<tr><td colspan="${cols}">
+      <button type="button" class="btn btn-sm btn-ghost tf-pm" data-wb-add-row="${index}" title="Add row">+</button>
+      <button type="button" class="btn btn-sm btn-ghost tf-pm" data-wb-del-row="${index}" title="Remove row">−</button>
+    </td><td></td></tr></tbody></table>`;
+
     q.questions = Array.isArray(q.questions) ? q.questions : [];
     if (!q.questions.length && (q.sentence || q.prompt)) {
       q.questions = [{
         id: 'wbq1',
         type: 'wordbox',
         prompt: '',
-        sentence: q.sentence || '',
+        sentence: q.sentence || q.prompt || '',
         blanks: q.blanks || []
       }];
     }
+    const bankList = bank.map(w => String(w || '').trim()).filter(Boolean);
+    const highlightSentence = (sent) => {
+      // Convert {{n}} to {} for display if needed; show matched words in orange
+      let s = String(sent || '');
+      // Already stored as text with {Word} or {{1}}
+      s = escapeHtml(s);
+      // Highlight {Word} matches
+      s = s.replace(/\{([^{}]+)\}/g, (m, word) => {
+        const w = word.trim();
+        const match = bankList.find(b => b.toLowerCase() === w.toLowerCase());
+        if (match) return `<span class="wb-ans-hl">${escapeHtml(match)}</span>`;
+        return `<span class="wb-ans-slot">{}</span>`;
+      });
+      // Also highlight bare matched words that were previously converted
+      return s;
+    };
     const qCards = q.questions.map((kq, ki) => {
       const sent = kq.sentence || '';
       return `<div class="card pass-q-card" data-wb-qi="${ki}">
-        <label>Question prompt</label>
-        <input class="form-control" data-wb-child-prompt="${index}:${ki}" value="${escapeHtml(kq.prompt||'')}" placeholder="Optional prompt" />
-        <label class="mt-1">Sentence (use {{1}}, {{2}} for blanks — shared word bank on the left)</label>
-        <textarea class="form-control" data-wb-child-sentence="${index}:${ki}" rows="2">${escapeHtml(sent)}</textarea>
-        <button type="button" class="btn btn-sm btn-primary mt-1" data-wb-child-blank="${index}:${ki}">+ Insert blank</button>
+        <label class="text-muted" style="font-size:0.8rem">Sentence — type <code>{}</code> then the word from the bank. Matching words turn orange (Consolas).</label>
+        <div class="wb-sentence-preview" data-wb-preview="${index}:${ki}">${highlightSentence(sent) || '<span class="text-muted">Type the sentence here…</span>'}</div>
+        <textarea class="form-control wb-sentence-input" data-wb-child-sentence="${index}:${ki}" rows="3" placeholder="e.g. The {Banana} is yellow.">${escapeHtml(sent)}</textarea>
+        <p class="text-muted" style="font-size:0.75rem;margin:0.35rem 0">Tip: type <code>{</code> then a word from the bank then <code>}</code>. If it matches, it becomes the correct answer.</p>
         <button type="button" class="btn btn-sm btn-danger mt-1" data-wb-child-del="${index}:${ki}">Delete question</button>
       </div>`;
     }).join('');
-    return `<div class="builder-wordbox wb-cfg-dual" data-gidx="${index}">
+    return `<div class="builder-wordbox wb-cfg-dual vh-lock-inner" data-gidx="${index}">
       <div class="wb-cfg-left">
-        <label>Word bank (${rows}×${cols}) — reusable for all questions</label>
-        <div class="wb-bank-table" style="grid-template-columns:repeat(${cols},1fr)">${bankCells}</div>
-        <div class="mt-1" style="display:flex;gap:0.5rem">
-          <label>Rows <input type="number" min="1" max="8" class="form-control" style="width:70px" data-wb-rows="${index}" value="${rows}"/></label>
-          <label>Cols <input type="number" min="1" max="8" class="form-control" style="width:70px" data-wb-cols="${index}" value="${cols}"/></label>
-        </div>
+        <label>Word bank — reusable for all questions</label>
+        <div class="wb-bank-scroll">${bankGrid}</div>
       </div>
       <div class="wb-cfg-right">
         <div class="pass-q-list-scroll">${qCards || '<p class="text-muted">No questions yet</p>'}</div>
@@ -248,7 +277,7 @@ const Regular = {
     const segsHtml = segments.map((s, si) => {
       if (s.kind === 'blank') {
         return `<span class="fib-seg fib-blank" data-fib-seg="${index}:${si}">
-          <input class="form-control fib-inline-input" data-fib-correct="${index}:${si}" value="${escapeHtml(s.correct||'')}" placeholder="Correct answer" />
+          <input class="form-control fib-inline-input fib-answer-input" data-fib-correct="${index}:${si}" value="${escapeHtml(s.correct||'')}" placeholder="Correct answer" />
           <button type="button" class="btn btn-sm btn-ghost fib-alt-btn" data-fib-alt-pop="${index}:${si}" title="Alternate answers">Alt…</button>
           <button type="button" class="btn btn-sm btn-danger" data-fib-del-seg="${index}:${si}">×</button>
         </span>`;
@@ -258,6 +287,10 @@ const Regular = {
         <button type="button" class="btn btn-sm btn-danger" data-fib-del-seg="${index}:${si}">×</button>
       </span>`;
     }).join('');
+    const blankN = segments.filter(s => s.kind === 'blank').length;
+    const eachMode = (q.pointsMode || 'all') === 'each';
+    const perBlank = q.pointsPerItem != null && q.pointsPerItem !== '' ? Number(q.pointsPerItem) : 1;
+    const autoTotal = eachMode ? (blankN * (perBlank || 1)) : (q.points ?? 1);
     return `<div class="builder-fill" data-gidx="${index}">
       <p class="text-muted" style="font-size:0.85rem">Add text and answer boxes inline. Use Alt… for alternate answers.</p>
       <div class="fib-builder-row">${segsHtml || '<span class="text-muted">Empty</span>'}</div>
@@ -265,7 +298,16 @@ const Regular = {
         <button type="button" class="btn btn-sm btn-ghost" data-fib-add-text="${index}">+ Text</button>
         <button type="button" class="btn btn-sm btn-primary" data-fib-add-blank="${index}">+ Answer box</button>
       </div>
-      <label class="mt-1">Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:80px;display:inline-block"/></label>
+      <div class="points-row mt-1">
+        <label>Scoring
+          <select class="form-control" data-pointsmode="${index}" style="width:auto;display:inline-block">
+            <option value="all" ${(q.pointsMode || 'all') === 'all' ? 'selected' : ''}>Full points only if all blanks correct</option>
+            <option value="each" ${q.pointsMode === 'each' ? 'selected' : ''}>Points for every correct blank</option>
+          </select>
+        </label>
+        <label class="tf-each-pts" style="${eachMode ? '' : 'display:none'}">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="1" style="width:70px;display:inline-block"/></label>
+        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${autoTotal}" style="width:80px;display:inline-block" ${eachMode ? 'readonly' : ''}/></label>
+      </div>
     </div>`;
   },
 
@@ -373,20 +415,24 @@ const Regular = {
         <button type="button" class="btn btn-sm btn-danger" data-cat-item-del="${index}:${ii}">×</button>
       </div>`).join('');
     return `<div class="categorize-dual" data-gidx="${index}">
-      <div class="form-group">
-        <label>Prompt</label>
-        <input class="form-control q-prompt" data-gidx="${index}" value="${escapeHtml(q.prompt||'')}" placeholder="Organize these items into the right categories." />
+      <div class="form-group" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+        <div style="flex:1;min-width:200px">
+          <label>Prompt</label>
+          <input class="form-control q-prompt" data-gidx="${index}" value="${escapeHtml(q.prompt||'')}" placeholder="Organize these items into the right categories." />
+        </div>
+        <div class="points-row" style="margin:0">
+          <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
+          <label>Points per item <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
+        </div>
       </div>
-      <div class="cat-board">${catCols || '<p class="text-muted">Add categories</p>'}</div>
+      <div class="cat-board mt-1">${catCols || '<p class="text-muted">Add categories</p>'}</div>
       <div class="action-btns mt-1" style="flex-wrap:wrap;gap:0.5rem">
         <button type="button" class="btn btn-sm btn-primary" data-cat-add="${index}">+ Add Category</button>
-        <button type="button" class="btn btn-sm btn-primary" data-cat-add-item="${index}">+ Add Item</button>
       </div>
       <div class="mt-1"><strong>Items & answer key</strong> <span class="text-muted" style="font-size:0.8rem">(name + correct category; optional image)</span></div>
-      ${itemRows || '<p class="text-muted">Click “+ Add Item”, then set the name and category.</p>'}
-      <div class="points-row mt-1">
-        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
-        <label>Points per item <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
+      ${itemRows || '<p class="text-muted">Add items below, then set the name and category.</p>'}
+      <div class="mt-1">
+        <button type="button" class="btn btn-sm btn-primary" data-cat-add-item="${index}">+ Add Item</button>
       </div>
     </div>`;
   },
@@ -425,14 +471,17 @@ const Regular = {
     const cols = q.cols;
     let blankCount = 0;
     Object.keys(q.cells).forEach(k => { if (q.cells[k] && q.cells[k].blank) blankCount++; });
-    let grid = '<table class="table-fill-cfg"><thead><tr>';
+    const eachMode = (q.pointsMode || 'all') === 'each';
+    const perBlank = q.pointsPerItem != null && q.pointsPerItem !== '' ? Number(q.pointsPerItem) : 1;
+    const autoTotal = eachMode ? (blankCount * (perBlank || 1)) : (q.points ?? 1);
+    let grid = '<table class="table-fill-cfg"><thead><tr class="tf-cfg-header">';
     for (let c = 0; c < cols; c++) {
       const h = q.headers[c] || ('Col ' + (c + 1));
-      grid += `<th><input class="form-control" data-tf-header="${index}:${c}" value="${escapeHtml(h)}" /></th>`;
+      grid += `<th class="tf-cfg-th"><input class="form-control" data-tf-header="${index}:${c}" value="${escapeHtml(h)}" /></th>`;
     }
     grid += `<th class="tf-col-actions">
-      <button type="button" class="btn btn-sm btn-ghost" data-tf-add-col="${index}">Add column</button>
-      <button type="button" class="btn btn-sm btn-ghost" data-tf-del-col="${index}">Remove column</button>
+      <button type="button" class="btn btn-sm btn-ghost tf-pm" data-tf-add-col="${index}" title="Add column">+</button>
+      <button type="button" class="btn btn-sm btn-ghost tf-pm" data-tf-del-col="${index}" title="Remove column">−</button>
     </th></tr></thead><tbody>`;
     let dataIdx = 0;
     (q.tableRows || []).forEach((row, ri) => {
@@ -451,20 +500,22 @@ const Regular = {
         const cell = q.cells[key] || {};
         const isBlank = !!cell.blank;
         const val = isBlank ? (Array.isArray(cell.correct) ? cell.correct[0] : (cell.correct || '')) : (cell.value || '');
-        grid += `<td class="${isBlank ? 'is-blank' : ''}">
-          <div class="tf-cell-tools">
-            <label class="tf-blank-toggle"><input type="checkbox" data-tf-blank="${index}:${key}" ${isBlank ? 'checked' : ''}/> Blank</label>
-            ${isBlank ? `<button type="button" class="btn btn-sm btn-ghost" data-tf-alt-pop="${index}:${key}">Add alternative</button>` : ''}
+        grid += `<td class="tf-cfg-td ${isBlank ? 'is-blank' : ''}">
+          <div class="tf-cell-inner">
+            <input class="form-control tf-cfg-input" data-tf-cell="${index}:${key}" value="${escapeHtml(String(val || ''))}" placeholder="${isBlank ? 'Correct answer' : 'Cell text'}" />
+            <div class="tf-cell-tools">
+              <label class="tf-blank-toggle"><input type="checkbox" data-tf-blank="${index}:${key}" ${isBlank ? 'checked' : ''}/> Blank</label>
+              ${isBlank ? `<button type="button" class="btn btn-sm btn-ghost" data-tf-alt-pop="${index}:${key}">Alt</button>` : ''}
+            </div>
           </div>
-          <input class="form-control" data-tf-cell="${index}:${key}" value="${escapeHtml(String(val || ''))}" placeholder="${isBlank ? 'Correct answer' : 'Cell text'}" />
         </td>`;
       }
       grid += '<td></td></tr>';
     });
     grid += `<tr class="tf-row-actions"><td colspan="${cols}">
-      <button type="button" class="btn btn-sm btn-ghost" data-tf-add-row="${index}">Add row</button>
+      <button type="button" class="btn btn-sm btn-ghost tf-pm" data-tf-add-row="${index}" title="Add row">+</button>
       <button type="button" class="btn btn-sm btn-ghost" data-tf-add-sub="${index}">Add subheader</button>
-      <button type="button" class="btn btn-sm btn-ghost" data-tf-del-row="${index}">Remove row</button>
+      <button type="button" class="btn btn-sm btn-ghost tf-pm" data-tf-del-row="${index}" title="Remove row">−</button>
       <span class="text-muted" style="font-size:0.8rem;margin-left:0.5rem">Blanks: ${blankCount}/50</span>
     </td><td></td></tr></tbody></table>`;
     return `<div class="table-fill-single" data-gidx="${index}">
@@ -482,8 +533,8 @@ const Regular = {
             <option value="each" ${q.pointsMode === 'each' ? 'selected' : ''}>Points for every correct blank</option>
           </select>
         </label>
-        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
-        <label class="tf-each-pts" style="${(q.pointsMode || 'all') === 'each' ? '' : 'opacity:0.5'}">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
+        <label class="tf-each-pts" style="${eachMode ? '' : 'display:none'}">Points per blank <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="1" style="width:70px;display:inline-block"/></label>
+        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${autoTotal}" style="width:70px;display:inline-block" ${eachMode ? 'readonly' : ''}/></label>
       </div>
     </div>`;
   },
@@ -572,8 +623,13 @@ const Regular = {
       return `<div class="form-group"><label>${escapeHtml(aLabel)} → <select class="form-control" data-match-key="${index}:${i}">${opts}</select></label></div>`;
     }).join('');
     return `<div class="match-builder" data-gidx="${index}">
-      <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" placeholder="Instructions (e.g. Match Column A with Column B)">${escapeHtml(q.prompt || '')}</textarea>
-      <p class="text-muted" style="font-size:0.8rem">1 point per correct pair. Set answer key below.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-start">
+        <textarea class="form-control q-prompt" data-gidx="${index}" rows="2" style="flex:1;min-width:200px" placeholder="Instructions (e.g. Match Column A with Column B)">${escapeHtml(q.prompt || '')}</textarea>
+        <label style="white-space:nowrap">Points
+          <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points != null ? q.points : left.length}" style="width:80px;display:inline-block"/>
+        </label>
+      </div>
+      <p class="text-muted" style="font-size:0.8rem">1 point per correct pair by default. Set answer key below.</p>
       <div class="match-cfg-cols">
         <div><strong>Column A</strong>${leftRows}
           <button type="button" class="btn btn-sm btn-ghost" data-match-add-left="${index}">+ Add A</button></div>
@@ -581,9 +637,6 @@ const Regular = {
           <button type="button" class="btn btn-sm btn-ghost" data-match-add-right="${index}">+ Add B</button></div>
       </div>
       <div class="match-key mt-1"><strong>Answer key</strong>${keyRows}</div>
-      <div class="points-row mt-1"><label>Points (total if all correct, or leave auto = 1×pairs)
-        <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points != null ? q.points : left.length}" style="width:80px;display:inline-block"/></label>
-      </div>
     </div>`;
   },
 
@@ -791,8 +844,16 @@ const Regular = {
   },
 
   renderStudentWordBoxSentence(q, answer) {
-    const sentence = q.sentence || q.prompt || '';
+    let sentence = q.sentence || q.prompt || '';
     const ans = (answer && typeof answer === 'object') ? answer : {};
+    // Support {Word} style from config: convert to {{1}}, {{2}} for blanks
+    if (!/\{\{\d+\}\}/.test(sentence) && /\{[^{}]+\}/.test(sentence)) {
+      let n = 0;
+      sentence = sentence.replace(/\{([^{}]+)\}/g, () => {
+        n += 1;
+        return '{{' + n + '}}';
+      });
+    }
     const parts = [];
     let last = 0;
     const re = /\{\{(\d+)\}\}/g;
@@ -822,7 +883,7 @@ const Regular = {
       rightHtml = kids.map((kq) => {
         const ka = (ans && ans[kq.id] && typeof ans[kq.id] === 'object') ? ans[kq.id] : {};
         return `<div class="wb-child-q card" data-qid="${kq.id}">
-          <div class="wb-child-prompt">${escapeHtml(kq.prompt || '')}</div>
+          ${kq.prompt ? `<div class="wb-child-prompt">${escapeHtml(kq.prompt)}</div>` : ''}
           ${this.renderStudentWordBoxSentence({ ...kq, id: kq.id }, ka)}
         </div>`;
       }).join('');

@@ -162,21 +162,38 @@ const Exam = {
       throw new Error('Proctor accounts cannot take exams.');
     }
 
+    const wave = Number(exam.sessionWave || exam.reopenToken || 0) || 0;
+
+    // Prefer active session for current wave
     const existing = await window.db.collection('sessions')
       .where('examId', '==', examId)
       .where('studentId', '==', Auth.currentUser.uid)
-      .limit(1)
       .get();
 
     if (!existing.empty) {
-      const s = { id: existing.docs[0].id, ...existing.docs[0].data(), exam };
-      if (s.status === 'submitted' || s.status === 'ended' || s.submitReason === 'teacher-ended') {
+      const sessions = existing.docs.map(d => ({ id: d.id, ...d.data(), exam }));
+      // Active session matching current wave → resume
+      const active = sessions.find(s =>
+        s.status === 'active' && (Number(s.sessionWave || 0) === wave)
+      );
+      if (active) return active;
+      // Any active without wave when wave is 0
+      if (wave === 0) {
+        const anyActive = sessions.find(s => s.status === 'active');
+        if (anyActive) return anyActive;
+      }
+      // Submitted/ended on CURRENT wave only blocks retake
+      const blocked = sessions.find(s =>
+        (Number(s.sessionWave || 0) === wave) &&
+        (s.status === 'submitted' || s.status === 'ended' || s.submitReason === 'teacher-ended')
+      );
+      if (blocked) {
         const err = new Error('You already submitted this assessment.');
         err.code = 'already-submitted';
-        err.session = s;
+        err.session = blocked;
         throw err;
       }
-      return s;
+      // Older wave submissions: allow a brand-new session after reopen
     }
 
     const sessionRef = window.db.collection('sessions').doc();
@@ -190,10 +207,11 @@ const Exam = {
       studentEmail: Auth.userProfile.email,
       studentName: Auth.userProfile.name,
       code: exam.starterCode || '',
-      answers: {}, // regular assessment answers keyed by question id
+      answers: {},
       status: 'active',
       startAt,
       endsAt: endAt,
+      sessionWave: wave,
       pasteRanges: [],
       lastUpdate: firebase.firestore.FieldValue.serverTimestamp(),
       startedAt: firebase.firestore.FieldValue.serverTimestamp(),

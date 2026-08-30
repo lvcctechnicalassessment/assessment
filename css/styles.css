@@ -3621,3 +3621,151 @@ body.nav-collapsed .nav-label { display: none; }
   background: var(--surface-2);
   font-weight: 600;
 }
+
+
+/* v1.5.36 — table fill fixed cells, wordbox {}, fill red answers, history */
+.table-fill-cfg {
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+.table-fill-cfg th.tf-cfg-th,
+.table-fill-cfg td.tf-cfg-td {
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
+  height: 96px;
+  vertical-align: top;
+  padding: 0.35rem;
+  box-sizing: border-box;
+}
+.table-fill-cfg .tf-cell-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  height: 100%;
+}
+.table-fill-cfg .tf-cfg-input {
+  flex: 1 1 auto;
+  min-height: 2rem;
+}
+.table-fill-cfg .tf-cell-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  min-height: 1.5rem;
+  flex: 0 0 auto;
+}
+.table-fill-cfg thead tr.tf-cfg-header th {
+  background: #4085C9 !important;
+  color: #fff;
+}
+.table-fill-cfg thead tr.tf-cfg-header th input {
+  background: rgba(255,255,255,0.95);
+  color: #111;
+}
+.table-fill-cfg .tf-cfg-sub td,
+.table-fill-cfg .tf-sub-cell {
+  background: #4085C9 !important;
+}
+.table-fill-cfg .tf-cfg-sub input {
+  background: rgba(255,255,255,0.95);
+  color: #111;
+}
+.table-fill-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+  max-width: 100%;
+}
+.tf-pm {
+  min-width: 2rem !important;
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 0.15rem 0.5rem !important;
+}
+
+.fib-answer-input,
+.fib-inline-input.fib-answer-input {
+  border: 2px solid #ef4444 !important;
+  border-radius: 6px;
+}
+
+.wb-ans-hl {
+  color: #f97316;
+  font-family: Consolas, "Courier New", monospace;
+  font-weight: 700;
+  background: rgba(249, 115, 22, 0.12);
+  padding: 0 0.2rem;
+  border-radius: 3px;
+}
+.wb-ans-slot {
+  color: #ef4444;
+  font-family: Consolas, monospace;
+  border-bottom: 2px solid #ef4444;
+}
+.wb-sentence-preview {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.35rem;
+  background: var(--surface-2);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.wb-bank-cfg-table {
+  table-layout: fixed;
+  border-collapse: collapse;
+  width: 100%;
+}
+.wb-bank-cfg-table td {
+  width: 120px;
+  min-width: 100px;
+  padding: 0.25rem;
+}
+.wb-bank-cfg-table .wb-edge {
+  width: 48px;
+  vertical-align: middle;
+  text-align: center;
+}
+.wb-cfg-dual.vh-lock-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  height: calc(100vh - 14rem);
+  max-height: calc(100dvh - 14rem);
+  overflow: hidden;
+}
+.wb-cfg-dual .wb-cfg-left,
+.wb-cfg-dual .wb-cfg-right {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.wb-cfg-dual .wb-bank-scroll,
+.wb-cfg-dual .pass-q-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+@media (max-width: 800px) {
+  .wb-cfg-dual.vh-lock-inner {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: none;
+  }
+}
+
+/* History mobile: hide duplicate CSS labels from data-label if hist-label present */
+@media (max-width: 700px) {
+  #attempt-detail-table tr.hist-q-row td[data-label]::before {
+    content: none !important;
+  }
+  #attempt-detail-table .hist-label {
+    display: block !important;
+  }
+}
