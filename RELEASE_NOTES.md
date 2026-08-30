@@ -317,3 +317,17 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Points mode: hide Points per blank when Full points; show + auto total when per-blank; order is per-blank then total
 - History: section titles only (no instructions); table blanks as separate rows; passage/wordbox expanded; MC shows text not [object Object]; mobile no duplicate labels
 - MC options required (non-blank) on save/publish
+
+## v1.5.37
+- Builder Undo / Redo for assessment configuration
+- Submit Answer requires all blanks filled (wordbox, fill, categorize, table, match)
+- Fill-in-the-blank student font slightly larger
+- Wordbox config: live orange Consolas in textbox, no tip labels, points per correct answer
+- Categorize: Add Category above category rows; items below; points-per-item before total (auto total)
+- Match answer key labels update live as Column A is typed
+- MC: trash left, correct mark right of each option
+- Remove/Delete/X builder buttons gray (light & dark)
+- Settings → About (logo, Integrity subtitle, build, tribute to Ms. Joane Pauline S. Maunes)
+- Section instructions shown in futuristic frame before section questions
+- Theme toggle on student join and during assessment
+- Retro exam theme (pixel HUD / neon cyan panels; cycles Light → Dark → Retro)

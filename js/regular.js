@@ -142,11 +142,9 @@ const Regular = {
         : Number(q.correct) === i;
       return `
         <div class="gq-option" style="background:${color}" data-q="${index}" data-opt="${i}">
-          <div class="gq-option-tools">
-            <button type="button" class="gq-icon-btn" data-del-opt="${index}:${i}" title="Delete">🗑</button>
-            <button type="button" class="gq-correct-btn ${isCorrect ? 'is-correct' : ''}" data-correct="${index}:${i}" title="Mark correct">✓</button>
-          </div>
+          <button type="button" class="gq-icon-btn gq-del-left" data-del-opt="${index}:${i}" title="Delete">🗑</button>
           <textarea class="gq-option-input" data-opt-text="${index}:${i}" placeholder="Type answer option here" rows="3">${escapeHtml(o)}</textarea>
+          <button type="button" class="gq-correct-btn gq-correct-right ${isCorrect ? 'is-correct' : ''}" data-correct="${index}:${i}" title="Mark correct">✓</button>
         </div>`;
     }).join('');
     return `
@@ -229,13 +227,18 @@ const Regular = {
     const qCards = q.questions.map((kq, ki) => {
       const sent = kq.sentence || '';
       return `<div class="card pass-q-card" data-wb-qi="${ki}">
-        <label class="text-muted" style="font-size:0.8rem">Sentence — type <code>{}</code> then the word from the bank. Matching words turn orange (Consolas).</label>
-        <div class="wb-sentence-preview" data-wb-preview="${index}:${ki}">${highlightSentence(sent) || '<span class="text-muted">Type the sentence here…</span>'}</div>
-        <textarea class="form-control wb-sentence-input" data-wb-child-sentence="${index}:${ki}" rows="3" placeholder="e.g. The {Banana} is yellow.">${escapeHtml(sent)}</textarea>
-        <p class="text-muted" style="font-size:0.75rem;margin:0.35rem 0">Tip: type <code>{</code> then a word from the bank then <code>}</code>. If it matches, it becomes the correct answer.</p>
-        <button type="button" class="btn btn-sm btn-danger mt-1" data-wb-child-del="${index}:${ki}">Delete question</button>
+        <textarea class="form-control wb-sentence-input wb-live-hl" data-wb-child-sentence="${index}:${ki}" rows="3" placeholder="e.g. The {Banana} is yellow." spellcheck="false">${escapeHtml(sent)}</textarea>
+        <button type="button" class="btn btn-sm btn-muted mt-1" data-wb-child-del="${index}:${ki}">Delete question</button>
       </div>`;
     }).join('');
+    const blankN = (q.questions || []).reduce((n, kq) => {
+      const s = kq.sentence || '';
+      const m = s.match(/\{([^{}]+)\}/g) || s.match(/\{\{\d+\}\}/g) || [];
+      return n + m.length;
+    }, 0) || ((q.blanks || []).length);
+    const eachMode = (q.pointsMode || 'each') === 'each';
+    const per = q.pointsPerItem != null && q.pointsPerItem !== '' ? Number(q.pointsPerItem) : 1;
+    const autoTotal = eachMode ? Math.max(1, blankN) * (per || 1) : (q.points ?? 1);
     return `<div class="builder-wordbox wb-cfg-dual vh-lock-inner" data-gidx="${index}">
       <div class="wb-cfg-left">
         <label>Word bank — reusable for all questions</label>
@@ -247,7 +250,16 @@ const Regular = {
           <button type="button" class="btn btn-primary" data-wb-add-q="${index}">+ Add New Question</button>
         </div>
       </div>
-      <label class="mt-1">Points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:80px;display:inline-block"/></label>
+      <div class="points-row mt-1">
+        <label>Scoring
+          <select class="form-control" data-pointsmode="${index}" style="width:auto;display:inline-block">
+            <option value="each" ${(q.pointsMode || 'each') === 'each' ? 'selected' : ''}>Points per correct answer</option>
+            <option value="all" ${q.pointsMode === 'all' ? 'selected' : ''}>Full points only if all correct</option>
+          </select>
+        </label>
+        <label class="tf-each-pts" style="${eachMode ? '' : 'display:none'}">Points per correct <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? 1}" placeholder="1" style="width:70px;display:inline-block"/></label>
+        <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${autoTotal}" style="width:80px;display:inline-block" ${eachMode ? 'readonly' : ''}/></label>
+      </div>
     </div>`;
   },
 
@@ -279,12 +291,12 @@ const Regular = {
         return `<span class="fib-seg fib-blank" data-fib-seg="${index}:${si}">
           <input class="form-control fib-inline-input fib-answer-input" data-fib-correct="${index}:${si}" value="${escapeHtml(s.correct||'')}" placeholder="Correct answer" />
           <button type="button" class="btn btn-sm btn-ghost fib-alt-btn" data-fib-alt-pop="${index}:${si}" title="Alternate answers">Alt…</button>
-          <button type="button" class="btn btn-sm btn-danger" data-fib-del-seg="${index}:${si}">×</button>
+          <button type="button" class="btn btn-sm btn-muted" data-fib-del-seg="${index}:${si}">×</button>
         </span>`;
       }
       return `<span class="fib-seg fib-text" data-fib-seg="${index}:${si}">
         <input class="form-control fib-text-input" data-fib-text="${index}:${si}" value="${escapeHtml(s.text||'')}" placeholder="Text…" />
-        <button type="button" class="btn btn-sm btn-danger" data-fib-del-seg="${index}:${si}">×</button>
+        <button type="button" class="btn btn-sm btn-muted" data-fib-del-seg="${index}:${si}">×</button>
       </span>`;
     }).join('');
     const blankN = segments.filter(s => s.kind === 'blank').length;
@@ -324,7 +336,7 @@ const Regular = {
         <div style="display:flex;gap:0.35rem;align-items:center;margin:0.25rem 0">
           <input type="radio" name="pass-correct-${index}-${ki}" data-pass-correct="${index}:${ki}:${oi}" ${Number(kq.correct)===oi?'checked':''} />
           <input class="form-control" data-pass-opt="${index}:${ki}:${oi}" value="${escapeHtml(o)}" placeholder="Option ${String.fromCharCode(65+oi)}" />
-          <button type="button" class="btn btn-sm btn-danger" data-pass-del-opt="${index}:${ki}:${oi}">×</button>
+          <button type="button" class="btn btn-sm btn-muted" data-pass-del-opt="${index}:${ki}:${oi}">×</button>
         </div>`).join('');
       return `<div class="card mt-1" style="padding:0.75rem">
         <input class="form-control" data-pass-q-prompt="${index}:${ki}" value="${escapeHtml(kq.prompt||'')}" placeholder="Question prompt" />
@@ -395,7 +407,7 @@ const Regular = {
       <div class="cat-col" data-cat="${c.id}">
         <div class="cat-col-head" style="background:${['#3b82f6','#14b8a6','#f59e0b','#ef4444','#8b5cf6'][ci%5]}">
           <input class="form-control" data-cat-name="${index}:${ci}" value="${escapeHtml(c.name||'')}" placeholder="Category name" />
-          <button type="button" class="btn btn-sm btn-danger" data-cat-del="${index}:${ci}">×</button>
+          <button type="button" class="btn btn-sm btn-muted" data-cat-del="${index}:${ci}">×</button>
         </div>
         <div class="cat-col-body text-muted" style="font-size:0.8rem;padding:0.5rem">Items assigned via answer key below</div>
       </div>`).join('');
@@ -412,8 +424,11 @@ const Regular = {
           <input type="file" accept="image/*" data-cat-item-img="${index}:${ii}" hidden />
         </label>
         ${it.image ? `<button type="button" class="btn btn-sm btn-ghost" data-cat-item-del-img="${index}:${ii}">Remove image</button>` : ''}
-        <button type="button" class="btn btn-sm btn-danger" data-cat-item-del="${index}:${ii}">×</button>
+        <button type="button" class="btn btn-sm btn-muted" data-cat-item-del="${index}:${ii}">×</button>
       </div>`).join('');
+    const itemCount = items.length || 0;
+    const perItem = q.pointsPerItem != null && q.pointsPerItem !== '' ? Number(q.pointsPerItem) : 1;
+    const autoPts = Math.max(1, itemCount) * (perItem || 1);
     return `<div class="categorize-dual" data-gidx="${index}">
       <div class="form-group" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
         <div style="flex:1;min-width:200px">
@@ -421,14 +436,14 @@ const Regular = {
           <input class="form-control q-prompt" data-gidx="${index}" value="${escapeHtml(q.prompt||'')}" placeholder="Organize these items into the right categories." />
         </div>
         <div class="points-row" style="margin:0">
-          <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points ?? 1}" style="width:70px;display:inline-block"/></label>
-          <label>Points per item <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? ''}" placeholder="auto" style="width:70px;display:inline-block"/></label>
+          <label>Points per item <input type="number" min="0" step="0.5" class="form-control" data-points-each="${index}" value="${q.pointsPerItem ?? 1}" placeholder="1" style="width:70px;display:inline-block"/></label>
+          <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points != null ? q.points : autoPts}" style="width:70px;display:inline-block" readonly/></label>
         </div>
       </div>
-      <div class="cat-board mt-1">${catCols || '<p class="text-muted">Add categories</p>'}</div>
       <div class="action-btns mt-1" style="flex-wrap:wrap;gap:0.5rem">
         <button type="button" class="btn btn-sm btn-primary" data-cat-add="${index}">+ Add Category</button>
       </div>
+      <div class="cat-board mt-1">${catCols || '<p class="text-muted">No categories yet — click Add Category</p>'}</div>
       <div class="mt-1"><strong>Items & answer key</strong> <span class="text-muted" style="font-size:0.8rem">(name + correct category; optional image)</span></div>
       ${itemRows || '<p class="text-muted">Add items below, then set the name and category.</p>'}
       <div class="mt-1">
@@ -1406,22 +1421,31 @@ const Regular = {
    */
   groupQuestionsForTake(exam) {
     const groups = [];
-    const list = this.flattenQuestions(exam);
-    list.forEach(q => {
+    const pushQ = (q, sec) => {
       if (!q) return;
+      const meta = {
+        sectionTitle: sec?.title || '',
+        sectionInstructions: sec?.instructions || '',
+        sectionId: sec?.id || ''
+      };
       if (q.type === 'passage' || q.isPassageSet) {
         groups.push({
           kind: 'passage',
           passage: q,
-          questions: Array.isArray(q.questions) ? q.questions : []
+          questions: Array.isArray(q.questions) ? q.questions : [],
+          ...meta
         });
-      } else if (q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
-        // Wordbox section with multiple child sentences still one take group
-        groups.push({ kind: 'single', question: q });
       } else {
-        groups.push({ kind: 'single', question: q });
+        groups.push({ kind: 'single', question: q, ...meta });
       }
-    });
+    };
+    if (exam && Array.isArray(exam.sections) && exam.sections.length) {
+      exam.sections.forEach(sec => {
+        (sec.questions || []).forEach(q => pushQ(q, sec));
+      });
+    } else {
+      (this.flattenQuestions(exam) || []).forEach(q => pushQ(q, null));
+    }
     return groups;
   },
 

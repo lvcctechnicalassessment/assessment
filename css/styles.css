@@ -3769,3 +3769,158 @@ body.nav-collapsed .nav-label { display: none; }
     display: block !important;
   }
 }
+
+
+/* v1.5.37 */
+.btn-muted, .btn-sm.btn-muted {
+  background: #6b7280 !important;
+  color: #fff !important;
+  border: 1px solid #4b5563 !important;
+}
+.btn-muted:hover { background: #4b5563 !important; }
+[data-theme="dark"] .btn-muted {
+  background: #6b7280 !important;
+  color: #f3f4f6 !important;
+}
+
+.gq-option {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch !important;
+  gap: 0.35rem;
+  padding: 0.5rem !important;
+}
+.gq-option .gq-del-left {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+.gq-option .gq-option-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gq-option .gq-correct-right {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+.fill-inline-text, .fill-inline-input, .fib-inline-input, .builder-fill .fib-text-input {
+  font-size: 1.15rem !important;
+}
+.take-q-stack .fill-inline-text,
+.take-q-stack .fill-inline-input {
+  font-size: 1.2rem !important;
+}
+
+.wb-sentence-input.wb-live-hl,
+textarea.wb-live-hl {
+  font-family: Consolas, "Courier New", monospace !important;
+  color: #ea580c !important;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+[data-theme="dark"] textarea.wb-live-hl {
+  color: #fb923c !important;
+}
+
+.section-intro-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.section-intro-frame {
+  width: min(640px, 100%);
+  border: 2px solid #00d4ff;
+  border-radius: 4px;
+  background: linear-gradient(145deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95));
+  box-shadow: 0 0 20px rgba(0,212,255,0.35), inset 0 0 30px rgba(0,100,150,0.15);
+  clip-path: polygon(0 12px, 12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px));
+  padding: 2px;
+}
+[data-theme="light"] .section-intro-frame {
+  background: linear-gradient(145deg, #e8f4fc, #f0f9ff);
+  border-color: #0284c7;
+  box-shadow: 0 0 16px rgba(2,132,199,0.25);
+}
+.section-intro-inner {
+  padding: 1.5rem 1.75rem;
+  text-align: center;
+}
+.section-intro-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #67e8f9;
+  margin-bottom: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+[data-theme="light"] .section-intro-title { color: #0369a1; }
+.section-intro-body {
+  font-size: 1rem;
+  line-height: 1.55;
+  color: #e2e8f0;
+  text-align: justify;
+  margin-bottom: 1.25rem;
+  white-space: pre-wrap;
+}
+[data-theme="light"] .section-intro-body { color: #0f172a; }
+
+/* ---- RETRO exam theme ---- */
+[data-theme="retro"] {
+  --bg: #000000;
+  --surface: #020b1a;
+  --surface-2: #041428;
+  --text: #b8f0ff;
+  --text-muted: #5ec8e0;
+  --primary: #00e5ff;
+  --border: #00b8d9;
+  --danger: #ff2d95;
+  --ok: #39ff14;
+}
+[data-theme="retro"] body,
+[data-theme="retro"] .exam-take-wrap,
+[data-theme="retro"] .take-fullscreen {
+  background: #000 !important;
+  color: #b8f0ff !important;
+  font-family: "Press Start 2P", "VT323", "Courier New", monospace !important;
+  image-rendering: pixelated;
+}
+[data-theme="retro"] .take-topbar {
+  background: #020b1a !important;
+  border-bottom: 2px solid #00e5ff !important;
+  box-shadow: 0 0 12px rgba(0,229,255,0.4);
+}
+[data-theme="retro"] .take-q-banner,
+[data-theme="retro"] .take-options-grid .take-opt,
+[data-theme="retro"] .gq-option,
+[data-theme="retro"] .section-intro-frame {
+  background: #020b1a !important;
+  border: 2px solid #00e5ff !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 10px rgba(0,229,255,0.35), inset 0 0 20px rgba(0,80,120,0.2);
+  clip-path: polygon(0 8px, 8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px));
+  color: #e0fbff !important;
+}
+[data-theme="retro"] .take-opt.selected,
+[data-theme="retro"] .gq-student.selected {
+  outline: 3px solid #39ff14 !important;
+  box-shadow: 0 0 14px rgba(57,255,20,0.5) !important;
+}
+[data-theme="retro"] .btn-primary,
+[data-theme="retro"] #take-next {
+  background: linear-gradient(180deg, #1a3a5c, #0a1a2e) !important;
+  border: 2px solid #00e5ff !important;
+  color: #e0fbff !important;
+  font-family: inherit !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  box-shadow: 0 0 12px rgba(0,229,255,0.4);
+}
+[data-theme="retro"] .timer-badge {
+  color: #39ff14 !important;
+  font-family: inherit !important;
+}
+[data-theme="retro"] .monitor-live-cue { color: #ff2d95 !important; }
+[data-theme="retro"] .take-progress-bar { background: #00e5ff !important; }
+
+.about-card img { border-radius: 8px; }

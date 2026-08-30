@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.36</div>
+          <div class="app-version">Build v1.5.37</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -213,7 +213,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.36</div>
+              <div class="app-version">v1.5.37</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -319,7 +319,10 @@ const App = {
             <input id="join-code-input" type="text" inputmode="numeric" maxlength="9" placeholder="1234-5678" autocomplete="off" />
             <button type="button" class="btn btn-primary" id="join-code-btn">Join</button>
           </div>
-          <button type="button" class="btn btn-ghost join-dashboard-btn" id="join-go-dash">Go to my Dashboard</button>
+          <div class="join-actions-row" style="display:flex;gap:0.5rem;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:0.75rem">
+            <button type="button" class="btn btn-ghost join-dashboard-btn" id="join-go-dash">Go to my Dashboard</button>
+            <button type="button" class="theme-toggle-icon" data-theme-toggle onclick="Theme.toggle()" aria-label="Switch theme">${Theme.icon()}</button>
+          </div>
         </div>
       </div>`;
     document.getElementById('join-go-dash').onclick = () => this.showDashboard();
@@ -728,6 +731,58 @@ const App = {
     return payload;
   },
 
+
+  // ---- Builder undo/redo ----
+  _bhUndo: [],
+  _bhRedo: [],
+  _bhMax: 40,
+  _bhQuiet: false,
+  pushBuilderHistory() {
+    if (this._bhQuiet) return;
+    try {
+      const snap = JSON.stringify({
+        sections: window._builderSections || [],
+        questions: window._builderQuestions || []
+      });
+      const last = this._bhUndo[this._bhUndo.length - 1];
+      if (last === snap) return;
+      this._bhUndo.push(snap);
+      if (this._bhUndo.length > this._bhMax) this._bhUndo.shift();
+      this._bhRedo = [];
+      this._syncUndoRedoBtns();
+    } catch (_) {}
+  },
+  undoBuilder() {
+    if (this._bhUndo.length < 2) return;
+    const cur = this._bhUndo.pop();
+    this._bhRedo.push(cur);
+    const prev = this._bhUndo[this._bhUndo.length - 1];
+    this._applyBuilderSnap(prev);
+  },
+  redoBuilder() {
+    if (!this._bhRedo.length) return;
+    const next = this._bhRedo.pop();
+    this._bhUndo.push(next);
+    this._applyBuilderSnap(next);
+  },
+  _applyBuilderSnap(snap) {
+    try {
+      const data = JSON.parse(snap);
+      this._bhQuiet = true;
+      window._builderSections = data.sections || [];
+      window._builderQuestions = data.questions || (window._builderSections || []).flatMap(s => s.questions || []);
+      if (typeof window._renderAssessmentBuilder === 'function') window._renderAssessmentBuilder();
+      this._bhQuiet = false;
+      this._syncUndoRedoBtns();
+    } catch (_) { this._bhQuiet = false; }
+  },
+  _syncUndoRedoBtns() {
+    const u = document.getElementById('btn-builder-undo');
+    const r = document.getElementById('btn-builder-redo');
+    if (u) u.disabled = this._bhUndo.length < 2;
+    if (r) r.disabled = !this._bhRedo.length;
+  },
+
   async saveAssessment(status = 'draft', schedule = null) {
     let payload = this.collectAssessmentForm(status);
     if (!payload.title) {
@@ -824,6 +879,8 @@ const App = {
       window._builderSections = [];
       window._builderQuestions = [];
     }
+    this._bhUndo = [];
+    this._bhRedo = [];
     if (!Auth.isInstructor()) {
       await UI.alert('Only instructors can create assessments. Students can generate mock assessments from History.', 'Access');
       this.showStudentHome();
@@ -885,7 +942,9 @@ const App = {
           <div class="footer-left">
             <button class="btn btn-primary" id="add-question-footer-btn" type="button">Add Question</button>
           </div>
-          <div class="footer-right">
+          <div class="footer-right" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+            <button type="button" class="btn btn-ghost" id="btn-builder-undo" title="Undo" onclick="App.undoBuilder()">↶ Undo</button>
+            <button type="button" class="btn btn-ghost" id="btn-builder-redo" title="Redo" onclick="App.redoBuilder()">↷ Redo</button>
             <button class="btn btn-ghost" onclick="App.saveAutosave();App.showInstructorHome()">Cancel</button>
             <button class="btn btn-ghost" id="draft-exam-btn">Save as Draft</button>
             <button class="btn btn-primary" id="create-exam-btn">Publish</button>
@@ -982,6 +1041,7 @@ const App = {
     const renderBuilder = function renderBuilder() {
       window._renderAssessmentBuilder = renderBuilder;
       window._lvccRenderBuilder = renderBuilder;
+      try { App.pushBuilderHistory(); } catch (_) {}
       const box = document.getElementById('questions-builder');
       if (!box) return;
       const sections = window._builderSections || [];
@@ -997,43 +1057,43 @@ const App = {
           const numLabel = `<div class="q-num-badge">Q${qi + 1}</div>`;
           if (q.type === 'multiple' || q.type === 'multiselect') {
             return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderMC(q, globalIdx)}
-              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+              <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'truefalse' || q.type === 'modified_tf') {
             return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderTF(q, globalIdx)}
-              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+              <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'wordbox') {
             return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderWordBox(q, globalIdx)}
-              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+              <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'fill') {
             return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderFill(q, globalIdx)}
-              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+              <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'passage' || q.isPassageSet) {
             return `<div class="card q-in-section passage-builder-wrap" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderPassage(q, globalIdx)}
-              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+              <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'categorize') {
             return `<div class="card q-in-section categorize-builder-wrap" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderCategorize(q, globalIdx)}
-              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+              <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'table') {
             return `<div class="card q-in-section table-builder-wrap" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderTable(q, globalIdx)}
-              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+              <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           if (q.type === 'match') {
             return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}${Regular.renderBuilderMatch(q, globalIdx)}
               <button type="button" class="btn btn-sm btn-ghost mt-1" data-dup-q="${si}:${qi}">Duplicate</button>
-              <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
+              <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button></div>`;
           }
           return `<div class="card q-in-section" data-si="${si}" data-qi="${qi}">${numLabel}
             <textarea class="form-control q-prompt" data-gidx="${globalIdx}" placeholder="Type question here" rows="2">${escapeHtml(q.prompt||'')}</textarea>
             <input class="form-control mt-1" data-correct-text="${globalIdx}" value="${escapeHtml(String(Array.isArray(q.correct)?(q.correct[0]||''): (q.correct ?? '')))}" placeholder="Correct / suggested answer" />
             <input class="form-control mt-1" data-correct-alt="${globalIdx}" value="${escapeHtml((q.alternatives||[]).join(', '))}" placeholder="Alternate correct answers (comma-separated)" />
             <label class="mt-1">Points <input type="number" class="form-control" style="width:80px;display:inline-block" data-points="${globalIdx}" value="${q.points??1}" /></label>
-            <button type="button" class="btn btn-sm btn-danger mt-1" data-del-q="${si}:${qi}">Remove question</button>
+            <button type="button" class="btn btn-sm btn-muted mt-1" data-del-q="${si}:${qi}">Remove question</button>
           </div>`;
         }).join('');
         return `
@@ -1068,6 +1128,15 @@ const App = {
           const [gi, i] = el.dataset.matchLeft.split(':').map(Number);
           const q = (window._builderQuestions || [])[gi];
           if (!q) return; q.left = q.left || []; q.left[i] = el.value;
+          // Live-update answer key label for this Column A item
+          const sel = box.querySelector(`[data-match-key="${gi}:${i}"]`);
+          const lab = sel && sel.closest('label');
+          if (lab && sel) {
+            const txt = (el.value || '').trim() || ('A' + (i + 1));
+            lab.innerHTML = '';
+            lab.appendChild(document.createTextNode(txt + ' → '));
+            lab.appendChild(sel);
+          }
         };
       });
       box.querySelectorAll('[data-match-right]').forEach(el => {
@@ -3984,8 +4053,10 @@ const App = {
     const answers = { ...(session.answers || {}) };
     window._takeAnswers = answers;
     window._passageTab = 0;
+    window._seenSectionIntro = null;
+    window._pendingSectionIntro = null;
 
-    const isAnswered = (qid) => {
+    const isAnswered = (qid, qRef) => {
       if (!qid) return true;
       if (!Object.prototype.hasOwnProperty.call(answers, qid)) return false;
       const v = answers[qid];
@@ -3994,6 +4065,58 @@ const App = {
       if (typeof v === 'number') return true;
       if (typeof v === 'boolean') return true;
       if (Array.isArray(v)) return v.length > 0;
+      const q = qRef || null;
+      // Strict: all blanks / items / pairs must be filled for these types
+      if (q && (q.type === 'fill' || q.type === 'wordbox')) {
+        let need = 0;
+        if (Array.isArray(q.blanks) && q.blanks.length) need = q.blanks.length;
+        else if (Array.isArray(q.parts)) need = q.parts.filter(p => p && p.kind === 'blank').length;
+        else if (Array.isArray(q.questions)) {
+          need = q.questions.reduce((n, kq) => {
+            const s = kq.sentence || '';
+            const m = s.match(/\{([^{}]+)\}/g) || s.match(/\{\{\d+\}\}/g) || [];
+            return n + (m.length || (kq.blanks || []).length);
+          }, 0);
+        }
+        if (need > 0 && typeof v === 'object' && !Array.isArray(v)) {
+          const filled = Object.values(v).filter(x => x != null && String(x).trim() !== '').length;
+          // wordbox kids may nest
+          if (q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
+            return q.questions.every(kq => {
+              const kv = v[kq.id];
+              if (kv && typeof kv === 'object') {
+                const bn = (kq.blanks || []).length || ((kq.sentence || '').match(/\{([^{}]+)\}/g) || []).length;
+                if (!bn) return Object.values(kv).some(x => x != null && String(x).trim());
+                return Object.values(kv).filter(x => x != null && String(x).trim()).length >= bn;
+              }
+              return isAnswered(kq.id);
+            });
+          }
+          return filled >= need;
+        }
+      }
+      if (q && q.type === 'table') {
+        const cells = q.cells || {};
+        const blanks = Object.keys(cells).filter(k => cells[k] && cells[k].blank);
+        if (blanks.length && typeof v === 'object') {
+          return blanks.every(k => v[k] != null && String(v[k]).trim() !== '');
+        }
+      }
+      if (q && q.type === 'categorize') {
+        const items = q.items || [];
+        if (items.length && typeof v === 'object') {
+          return items.every(it => {
+            const id = it.id;
+            return v[id] != null && String(v[id]).trim() !== '';
+          });
+        }
+      }
+      if (q && q.type === 'match') {
+        const left = q.left || [];
+        if (left.length && typeof v === 'object') {
+          return left.every((_, i) => v[i] != null || v[String(i)] != null);
+        }
+      }
       if (typeof v === 'object') {
         return Object.values(v).some(x => x != null && String(x).trim() !== '');
       }
@@ -4003,8 +4126,8 @@ const App = {
       for (const g of groups) {
         if (g.kind === 'passage') {
           const list = g.questions || [];
-          if (list.some(q => q && !isAnswered(q.id))) return false;
-        } else if (g.question && !isAnswered(g.question.id)) return false;
+          if (list.some(q => q && !isAnswered(q.id, q))) return false;
+        } else if (g.question && !isAnswered(g.question.id, g.question)) return false;
       }
       return true;
     };
@@ -4015,9 +4138,9 @@ const App = {
           const list = g.questions || [];
           const startP = (i === fromGi) ? Math.max(0, (fromPi == null ? -1 : fromPi) + 1) : 0;
           for (let p = startP; p < list.length; p++) {
-            if (list[p] && !isAnswered(list[p].id)) return { gi: i, pi: p };
+            if (list[p] && !isAnswered(list[p].id, list[p])) return { gi: i, pi: p };
           }
-        } else if (g.question && !isAnswered(g.question.id)) {
+        } else if (g.question && !isAnswered(g.question.id, g.question)) {
           if (i > fromGi || fromPi < 0) return { gi: i, pi: 0 };
         }
       }
@@ -4057,6 +4180,40 @@ const App = {
       const progress = Math.round((gi / Math.max(groups.length, 1)) * 100);
       let body = '';
       let currentQ = null;
+
+      // Section instruction interstitial (once per section when instructions exist)
+      const secKey = (g.sectionId || g.sectionTitle || '') + '::' + (g.sectionInstructions || '');
+      const showSecIntro = !!(g.sectionInstructions && String(g.sectionInstructions).trim())
+        && window._seenSectionIntro !== secKey
+        && (gi === 0 || (groups[gi - 1] && (groups[gi - 1].sectionId || groups[gi - 1].sectionTitle) !== (g.sectionId || g.sectionTitle)));
+      if (showSecIntro) {
+        window._pendingSectionIntro = secKey;
+        document.getElementById('app').innerHTML = `
+          <div class="exam-take-wrap take-fullscreen">
+            <div class="take-topbar">
+              <div class="take-progress"><div class="take-progress-bar" style="width:${progress}%"></div></div>
+              <div class="take-topbar-meta">
+                <span class="take-count">Section</span>
+                <button type="button" class="theme-toggle-icon theme-exam-btn" data-theme-toggle onclick="Theme.cycleExamTheme()">${(typeof Theme!=='undefined'?Theme.icon():'🌙')}</button>
+              </div>
+            </div>
+            <div class="take-stage section-intro-stage">
+              <div class="section-intro-frame">
+                <div class="section-intro-inner">
+                  <div class="section-intro-title">${escapeHtml(g.sectionTitle || 'Section')}</div>
+                  <div class="section-intro-body">${escapeHtml(g.sectionInstructions)}</div>
+                  <button type="button" class="btn btn-primary section-intro-go" id="section-intro-continue">Continue</button>
+                </div>
+              </div>
+            </div>
+          </div>`;
+        document.getElementById('section-intro-continue').onclick = () => {
+          window._seenSectionIntro = window._pendingSectionIntro;
+          renderTake();
+        };
+        if (typeof Theme !== 'undefined') Theme.syncButtons();
+        return;
+      }
 
       if (g.kind === 'passage') {
         const list = g.questions && g.questions.length ? g.questions : [];
@@ -4114,6 +4271,7 @@ const App = {
               <span class="monitor-live-cue" title="Screen monitoring"><span class="monitor-dot"></span> Screen Monitoring Enabled</span>
               <span class="take-count">${gi + 1} / ${groups.length}</span>
               <span id="exam-timer" class="timer-badge">--:--</span>
+              <button type="button" class="theme-toggle-icon theme-exam-btn" data-theme-toggle onclick="Theme.cycleExamTheme()" aria-label="Theme" title="Theme: Light / Dark / Retro">${(typeof Theme !== 'undefined' ? Theme.icon() : '🌙')}</button>
               <button type="button" class="btn btn-sm btn-danger" id="take-end-btn">End assessment</button>
             </div>
           </div>
@@ -4248,7 +4406,7 @@ const App = {
         }
         if (g.kind === 'passage') {
           const list = g.questions || [];
-          if (list.find(q => q && !isAnswered(q.id))) {
+          if (list.find(q => q && !isAnswered(q.id, q))) {
             await UI.alert('Please answer all questions in this passage before continuing.', 'Answer required');
             return;
           }
@@ -4267,9 +4425,9 @@ const App = {
             try { Object.assign(answers, Regular.collectAnswers(stage)); } catch (_) {}
           }
           // Wordbox with child questions: parent answered if any child blank filled
-          let ok = isAnswered(q.id);
+          let ok = isAnswered(q.id, q);
           if (!ok && q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
-            ok = q.questions.some(kq => isAnswered(kq.id));
+            ok = isAnswered(q.id, q);
             if (ok) answers[q.id] = answers[q.id] || { _kids: true };
           }
           if (!ok && q.type === 'match') {
