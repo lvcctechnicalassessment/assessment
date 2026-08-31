@@ -227,7 +227,8 @@ const Regular = {
     const qCards = q.questions.map((kq, ki) => {
       const sent = kq.sentence || '';
       return `<div class="card pass-q-card" data-wb-qi="${ki}">
-        <textarea class="form-control wb-sentence-input wb-live-hl" data-wb-child-sentence="${index}:${ki}" rows="3" placeholder="e.g. The {Banana} is yellow." spellcheck="false">${escapeHtml(sent)}</textarea>
+        <textarea class="form-control wb-sentence-input" data-wb-child-sentence="${index}:${ki}" rows="3" placeholder="e.g. The {Banana} is yellow." spellcheck="false">${escapeHtml(sent)}</textarea>
+        <div class="wb-sentence-preview" data-wb-preview="${index}:${ki}">${highlightSentence(sent) || ''}</div>
         <button type="button" class="btn btn-sm btn-muted mt-1" data-wb-child-del="${index}:${ki}">Delete question</button>
       </div>`;
     }).join('');
@@ -430,7 +431,7 @@ const Regular = {
     const perItem = q.pointsPerItem != null && q.pointsPerItem !== '' ? Number(q.pointsPerItem) : 1;
     const autoPts = Math.max(1, itemCount) * (perItem || 1);
     return `<div class="categorize-dual" data-gidx="${index}">
-      <div class="form-group" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+      <div class="form-group cat-row-1" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
         <div style="flex:1;min-width:200px">
           <label>Prompt</label>
           <input class="form-control q-prompt" data-gidx="${index}" value="${escapeHtml(q.prompt||'')}" placeholder="Organize these items into the right categories." />
@@ -440,14 +441,17 @@ const Regular = {
           <label>Total points <input type="number" min="0" step="0.5" class="form-control points-input" data-points="${index}" value="${q.points != null ? q.points : autoPts}" style="width:70px;display:inline-block" readonly/></label>
         </div>
       </div>
-      <div class="action-btns mt-1" style="flex-wrap:wrap;gap:0.5rem">
+      <div class="cat-row-2" style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem">
+        <strong>Categories</strong>
         <button type="button" class="btn btn-sm btn-primary" data-cat-add="${index}">+ Add Category</button>
       </div>
-      <div class="cat-board mt-1">${catCols || '<p class="text-muted">No categories yet — click Add Category</p>'}</div>
-      <div class="mt-1"><strong>Items & answer key</strong> <span class="text-muted" style="font-size:0.8rem">(name + correct category; optional image)</span></div>
-      ${itemRows || '<p class="text-muted">Add items below, then set the name and category.</p>'}
-      <div class="mt-1">
+      <div class="cat-board cat-row-3 mt-1">${catCols || '<p class="text-muted">No categories yet — click Add Category</p>'}</div>
+      <div class="cat-row-4" style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem">
+        <strong>Items &amp; answer key</strong>
         <button type="button" class="btn btn-sm btn-primary" data-cat-add-item="${index}">+ Add Item</button>
+      </div>
+      <div class="cat-items-scroll cat-row-5 mt-1">
+        ${itemRows || '<p class="text-muted">Add items below, then set the name and category.</p>'}
       </div>
     </div>`;
   },
@@ -1075,12 +1079,29 @@ const Regular = {
     });
 
     container.querySelectorAll('.wb-inline-drop[data-blank]').forEach(z => {
-      const qid = z.getAttribute('data-qid') || z.closest('[data-qid]')?.getAttribute('data-qid');
       const blank = z.getAttribute('data-blank');
-      if (!qid || blank == null) return;
+      if (blank == null) return;
       const placed = z.querySelector('.wb-placed');
       const word = (placed && (placed.getAttribute('data-word') || placed.textContent) || '').trim();
-      if (word) ensureObj(qid)[blank] = word;
+      if (!word) return;
+      // Prefer explicit data-qid on the drop zone (child question id)
+      let qid = z.getAttribute('data-qid');
+      const childRoot = z.closest('.wb-child-q[data-qid]');
+      const parentRoot = z.closest('.wb-student[data-qid], .wb-dual[data-qid]');
+      if (!qid && childRoot) qid = childRoot.getAttribute('data-qid');
+      if (!qid && parentRoot) qid = parentRoot.getAttribute('data-qid');
+      if (!qid) return;
+      ensureObj(qid)[blank] = word;
+      // Also nest under parent wordbox id when this is a child sentence
+      if (childRoot && parentRoot) {
+        const parentId = parentRoot.getAttribute('data-qid');
+        const childId = childRoot.getAttribute('data-qid');
+        if (parentId && childId && parentId !== childId) {
+          if (!answers[parentId] || typeof answers[parentId] !== 'object' || Array.isArray(answers[parentId])) answers[parentId] = {};
+          if (!answers[parentId][childId] || typeof answers[parentId][childId] !== 'object') answers[parentId][childId] = {};
+          answers[parentId][childId][blank] = word;
+        }
+      }
     });
 
     container.querySelectorAll('.cat-student[data-qid]').forEach(root => {

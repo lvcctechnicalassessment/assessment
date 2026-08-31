@@ -3773,14 +3773,22 @@ body.nav-collapsed .nav-label { display: none; }
 
 /* v1.5.37 */
 .btn-muted, .btn-sm.btn-muted {
-  background: #6b7280 !important;
-  color: #fff !important;
-  border: 1px solid #4b5563 !important;
+  background: transparent !important;
+  color: #6b7280 !important;
+  border: 1px solid #9ca3af !important;
+  box-shadow: none !important;
 }
-.btn-muted:hover { background: #4b5563 !important; }
+.btn-muted:hover {
+  background: rgba(107,114,128,0.12) !important;
+  color: #4b5563 !important;
+}
 [data-theme="dark"] .btn-muted {
-  background: #6b7280 !important;
-  color: #f3f4f6 !important;
+  background: transparent !important;
+  color: #9ca3af !important;
+  border: 1px solid #6b7280 !important;
+}
+[data-theme="dark"] .btn-muted:hover {
+  background: rgba(156,163,175,0.15) !important;
 }
 
 .gq-option {
@@ -3924,3 +3932,162 @@ textarea.wb-live-hl {
 [data-theme="retro"] .take-progress-bar { background: #00e5ff !important; }
 
 .about-card img { border-radius: 8px; }
+
+
+/* v1.5.38 */
+.gq-option {
+  position: relative;
+  resize: both;
+  overflow: auto;
+  min-width: 140px;
+  min-height: 80px;
+}
+.gq-option .gq-option-input {
+  resize: none;
+}
+.gq-option::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.25) 50%);
+  pointer-events: none;
+  border-radius: 0 0 4px 0;
+}
+
+.cat-board.cat-row-3 {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  max-width: 100%;
+}
+.cat-board .cat-col {
+  flex: 0 0 200px;
+  min-width: 180px;
+}
+.cat-items-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  padding-bottom: 0.35rem;
+}
+
+.field-blink {
+  animation: fieldBlink 0.6s ease-in-out 4;
+  outline: 2px solid #ef4444 !important;
+  box-shadow: 0 0 0 4px rgba(239,68,68,0.25) !important;
+}
+@keyframes fieldBlink {
+  0%, 100% { outline-color: #ef4444; }
+  50% { outline-color: transparent; }
+}
+
+.wb-sentence-input {
+  font-family: inherit !important;
+  color: inherit !important;
+}
+.wb-sentence-preview {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  min-height: 0;
+}
+.wb-sentence-preview:empty { display: none; }
+.wb-ans-hl {
+  color: #ea580c !important;
+  font-family: Consolas, "Courier New", monospace !important;
+  font-weight: 700;
+  background: rgba(234, 88, 12, 0.1);
+  padding: 0 0.15rem;
+  border-radius: 3px;
+}
+
+.section-intro-page {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+}
+.section-intro-page .section-intro-stage {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 1rem;
+  overflow-y: auto;
+}
+.section-intro-footer {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.section-intro-footer .section-intro-go {
+  min-width: 160px;
+  font-size: 1.05rem;
+  padding: 0.65rem 1.5rem;
+}
+
+/* Dark mode: swap body / content surfaces */
+[data-theme="dark"] {
+  --bg: #0b1220;
+  --surface: #020617;
+  --surface-2: #0f172a;
+  --page-bg: #0b1220;
+  --content-bg: #020617;
+}
+[data-theme="dark"] body,
+[data-theme="dark"] .shell,
+[data-theme="dark"] .shell-main,
+[data-theme="dark"] .main-content {
+  background: #0b1220 !important;
+}
+[data-theme="dark"] .card,
+[data-theme="dark"] .join-card,
+[data-theme="dark"] .popover-card,
+[data-theme="dark"] .modal,
+[data-theme="dark"] .table-wrap,
+[data-theme="dark"] .gq-question-box,
+[data-theme="dark"] .hist-section,
+[data-theme="dark"] .sidebar {
+  background: #020617 !important;
+}
+
+/* Retro: smaller wordbank text */
+[data-theme="retro"] .wb-chip,
+[data-theme="retro"] .wb-bank-cell,
+[data-theme="retro"] .wb-bank-table,
+[data-theme="retro"] .wb-text,
+[data-theme="retro"] .wb-inline-drop,
+[data-theme="retro"] .wb-placed {
+  font-size: 0.65rem !important;
+  line-height: 1.3 !important;
+}
+[data-theme="retro"] .wb-bank-table {
+  gap: 0.25rem;
+}
+[data-theme="retro"] .take-opt,
+[data-theme="retro"] .gq-option {
+  font-size: 0.7rem !important;
+}
+[data-theme="retro"] .take-q-banner,
+[data-theme="retro"] .section-intro-body {
+  font-size: 0.75rem !important;
+}
+[data-theme="retro"] .section-intro-title {
+  font-size: 0.9rem !important;
+}
+
+.rte-editor img[data-resizable] {
+  outline: 1px dashed rgba(64,133,201,0.5);
+}

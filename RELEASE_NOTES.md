@@ -331,3 +331,21 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Section instructions shown in futuristic frame before section questions
 - Theme toggle on student join and during assessment
 - Retro exam theme (pixel HUD / neon cyan panels; cycles Light → Dark → Retro)
+
+## v1.5.38
+- Wordbox config: only matched {words} turn orange Consolas (preview); sentence text stays normal
+- Builder delete/muted buttons: clear background, gray text & border
+- Categorize rows: prompt+points → Categories title+Add → category scroll → Items title+Add → items scroll
+- Ctrl+Z / Ctrl+Y undo & redo in assessment configuration
+- Passage images resizable by dragging the bottom-right corner
+- MC option boxes resizable; resize affordance at the edge
+- Save validation scrolls to & blinks incomplete required fields
+- Table fill copy/paste/right-click never flagged as integrity issues
+- Wordbox drag answers nested correctly under child + parent ids
+- Live dashboard: View all screens / Specific student / Screens off
+- History answers matched by question id only (no cross-type leakage); MC text not [object Object]; table blanks as comma-separated row
+- Dark mode: darker page background, darker content cards
+- Screenshare stopped on assessment end (Monitor.stop tracks)
+- Student result PDF: professional colored report, no Q1/Q2 labels, section grouping
+- Retro: smaller wordbank/option text to prevent overflow
+- Section intro: full 100vh, Ready button centered at bottom

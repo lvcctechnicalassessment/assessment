@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.37</div>
+          <div class="app-version">Build v1.5.38</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -213,7 +213,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.37</div>
+              <div class="app-version">v1.5.38</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -737,6 +737,25 @@ const App = {
   _bhRedo: [],
   _bhMax: 40,
   _bhQuiet: false,
+
+  _bindBuilderHotkeys() {
+    if (this._bhKeysBound) return;
+    this._bhKeysBound = true;
+    document.addEventListener('keydown', (e) => {
+      const tag = (e.target && e.target.tagName) || '';
+      // Allow Ctrl+Z/Y even in inputs for builder undo (standard UX)
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (!document.getElementById('btn-builder-undo')) return;
+      const k = (e.key || '').toLowerCase();
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        this.undoBuilder();
+      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        this.redoBuilder();
+      }
+    });
+  },
   pushBuilderHistory() {
     if (this._bhQuiet) return;
     try {
@@ -783,6 +802,21 @@ const App = {
     if (r) r.disabled = !this._bhRedo.length;
   },
 
+
+  scrollToBuilderIssue(selector, message) {
+    try {
+      const el = typeof selector === 'string' ? document.querySelector(selector) : selector;
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('field-blink');
+        setTimeout(() => el.classList.remove('field-blink'), 2400);
+        if (el.focus) try { el.focus(); } catch (_) {}
+      }
+    } catch (_) {}
+    if (message) return Promise.resolve(UI.alert(message, 'Required'));
+    return Promise.resolve();
+  },
+
   async saveAssessment(status = 'draft', schedule = null) {
     let payload = this.collectAssessmentForm(status);
     if (!payload.title) {
@@ -796,23 +830,38 @@ const App = {
     }
     // All multiple-choice options must be non-blank
     const qs = payload.questions || [];
-    for (const q of qs) {
+    for (let qi = 0; qi < qs.length; qi++) {
+      const q = qs[qi];
       if (q && (q.type === 'multiple' || q.type === 'dropdown' || q.type === 'multiselect')) {
         const opts = q.options || [];
-        if (!opts.length || opts.some(o => !String(o == null ? '' : o).trim())) {
+        const blankIdx = opts.findIndex(o => !String(o == null ? '' : o).trim());
+        if (!opts.length || blankIdx >= 0) {
+          const el = document.querySelector(`[data-opt-text="${qi}:${Math.max(0, blankIdx)}"]`)
+            || document.querySelector(`[data-prompt="${qi}"]`)
+            || document.querySelector('.gq-block');
+          await this.scrollToBuilderIssue(el, 'All multiple choice options must have text (no blank choices).');
           throw new Error('All multiple choice options must have text (no blank choices).');
         }
+      }
+      if (q && !String(q.prompt || q.sentence || '').trim() && q.type === 'multiple') {
+        const el = document.querySelector(`[data-prompt="${qi}"]`);
+        await this.scrollToBuilderIssue(el, 'Question prompt is required.');
+        throw new Error('Question prompt is required.');
       }
       if (q && (q.type === 'passage' || q.isPassageSet) && Array.isArray(q.questions)) {
         for (const kq of q.questions) {
           if (kq && kq.type === 'multiple') {
             const opts = kq.options || [];
             if (!opts.length || opts.some(o => !String(o == null ? '' : o).trim())) {
+              await this.scrollToBuilderIssue('.passage-dual', 'All passage multiple choice options must have text (no blank choices).');
               throw new Error('All passage multiple choice options must have text (no blank choices).');
             }
           }
         }
       }
+    }
+    if (!payload.title) {
+      await this.scrollToBuilderIssue('#exam-title', 'Title is required.');
     }
     if (schedule) {
       payload.startAt = schedule.startAt;
@@ -881,6 +930,7 @@ const App = {
     }
     this._bhUndo = [];
     this._bhRedo = [];
+    this._bindBuilderHotkeys();
     if (!Auth.isInstructor()) {
       await UI.alert('Only instructors can create assessments. Students can generate mock assessments from History.', 'Access');
       this.showStudentHome();
@@ -1726,6 +1776,40 @@ const App = {
           if (ed) {
             ed.focus();
             document.execCommand('insertImage', false, dataUrl);
+            // Make newly inserted images resizable
+            setTimeout(() => {
+              ed.querySelectorAll('img').forEach(img => {
+                if (img.dataset.resizable) return;
+                img.dataset.resizable = '1';
+                img.style.maxWidth = '100%';
+                img.style.cursor = 'nwse-resize';
+                img.title = 'Drag corner to resize';
+                let startX, startW;
+                img.addEventListener('mousedown', (ev) => {
+                  if (ev.offsetX < img.clientWidth - 16 || ev.offsetY < img.clientHeight - 16) return;
+                  ev.preventDefault();
+                  startX = ev.clientX;
+                  startW = img.clientWidth;
+                  const move = (e2) => {
+                    const nw = Math.max(80, Math.min(ed.clientWidth - 20, startW + (e2.clientX - startX)));
+                    img.style.width = nw + 'px';
+                    img.style.height = 'auto';
+                  };
+                  const up = () => {
+                    document.removeEventListener('mousemove', move);
+                    document.removeEventListener('mouseup', up);
+                    const q = qAt(gi);
+                    if (q) {
+                      q.passageHtml = ed.innerHTML;
+                      const ti = Number(ed.dataset.passActiveTab || 0);
+                      if (q.passages && q.passages[ti]) q.passages[ti].html = ed.innerHTML;
+                    }
+                  };
+                  document.addEventListener('mousemove', move);
+                  document.addEventListener('mouseup', up);
+                });
+              });
+            }, 50);
             const q = qAt(gi);
             if (q) { q.passageHtml = ed.innerHTML; if (q.passages && q.passages[0]) q.passages[0].html = ed.innerHTML; }
           }
@@ -3182,17 +3266,33 @@ const App = {
   formatAnswerDisplay(q, value, isCorrectKey = false) {
     if (!q) return '—';
     if (q.type === 'wordbox' || q.type === 'fill') {
+      let blanks = q.blanks || [];
+      if (!blanks.length && q.sentence) {
+        let n = 0;
+        String(q.sentence).replace(/\{([^{}]+)\}/g, (_, w) => {
+          n += 1;
+          blanks.push({ id: String(n), correct: String(w).trim() });
+          return _;
+        });
+      }
       if (isCorrectKey) {
-        const blanks = q.blanks || [];
-        return blanks.map(b => String(b.correct || '').trim()).filter(Boolean).join(', ') || '—';
+        return blanks.map(b => String(Array.isArray(b.correct) ? b.correct[0] : (b.correct || '')).trim()).filter(Boolean).join(', ') || '—';
       }
       if (value && typeof value === 'object' && !Array.isArray(value)) {
-        const blanks = q.blanks || [];
-        const ordered = blanks.map(b => value[b.id] || value['b'+b.id] || '').filter(Boolean);
-        if (ordered.length) return ordered.join(', ');
-        return Object.values(value).filter(v => v != null && String(v).trim()).map(String).join(', ') || '—';
+        // Nested child map? flatten one level if values are objects
+        const flat = {};
+        Object.entries(value).forEach(([k, v]) => {
+          if (v && typeof v === 'object' && !Array.isArray(v)) {
+            Object.entries(v).forEach(([bk, bv]) => { flat[bk] = bv; });
+          } else {
+            flat[k] = v;
+          }
+        });
+        const ordered = blanks.map(b => flat[b.id] || flat['b'+b.id] || flat[String(b.id)] || '').filter(x => x != null && String(x).trim() !== '');
+        if (ordered.length) return ordered.map(String).join(', ');
+        return Object.values(flat).filter(v => v != null && String(v).trim() !== '' && typeof v !== 'object').map(String).join(', ') || '—';
       }
-      return value != null && value !== '' ? String(value) : '—';
+      return value != null && value !== '' && typeof value !== 'object' ? String(value) : '—';
     }
     if (q.type === 'categorize') {
       const items = q.items || [];
@@ -3274,12 +3374,25 @@ const App = {
       if (i != null && i !== '') return String(i);
       return '—';
     };
-    // Unwrap {choice: n} / arrays so we never show [object Object]
-    if (value && typeof value === 'object' && !Array.isArray(value) && value.choice != null) {
-      value = value.choice;
+    // Unwrap objects so we never show [object Object]
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (value.choice != null) value = value.choice;
+      else if (value.answer != null) value = value.answer;
+      else if (value.selected != null) value = value.selected;
+      else {
+        // last resort: first primitive value
+        const prim = Object.values(value).find(v => v != null && typeof v !== 'object');
+        if (prim != null) value = prim;
+        else return '—';
+      }
     }
-    if (Array.isArray(value) && (q.type === 'multiple' || q.type === 'multiselect' || q.type === 'dropdown')) {
+    if (Array.isArray(value) && (q.type === 'multiple' || q.type === 'multiselect' || q.type === 'dropdown' || q.type === 'truefalse')) {
       return value.map(labelAt).join(', ') || '—';
+    }
+    if (q.type === 'multiple' || q.type === 'truefalse' || q.type === 'modified_tf' || q.type === 'dropdown' || q.type === 'multiselect') {
+      if (typeof value === 'number' || (typeof value === 'string' && value !== '')) {
+        // fall through to isCorrectKey / labelAt below
+      }
     }
 
     if (isCorrectKey) {
@@ -3373,25 +3486,32 @@ const App = {
       }
       (sec.questions || []).forEach((q, i) => {
         let resp = answers[q.id];
-        if (resp === undefined) {
-          const keys = Object.keys(answers);
-          if (keys[i] != null) resp = answers[keys[i]];
-        }
+        // Do NOT fall back to answers by index — that mixes responses across question types
         // Table fill: one history row per blank (no cell indexes)
         if (q.type === 'table') {
           const cells = q.cells || {};
           const blankKeys = Object.keys(cells).filter(k => cells[k] && cells[k].blank).sort();
           if (blankKeys.length) {
-            blankKeys.forEach((k, bi) => {
+            // One history row representing the table blanks as a fill-in-the-blank style line
+            const studentParts = blankKeys.map(k => {
+              const v = (resp && typeof resp === 'object') ? (resp[k] ?? '') : '';
+              return v !== '' && v != null ? String(v) : '____';
+            });
+            const correctParts = blankKeys.map(k => {
               const c = cells[k] || {};
               const corr = Array.isArray(c.correct) ? c.correct[0] : (c.correct || '');
-              const studentVal = (resp && typeof resp === 'object') ? (resp[k] ?? '') : '';
-              rows.push({
-                prompt: this.cleanHistoryPrompt((q.prompt || 'Table fill') + ' — blank ' + (bi + 1)),
-                response: studentVal !== '' && studentVal != null ? String(studentVal) : '—',
-                correct: corr !== '' && corr != null ? String(corr) : '—',
-                q
-              });
+              return corr !== '' && corr != null ? String(corr) : '—';
+            });
+            // Also build a readable "row" prompt from data cells + blanks
+            let rowPrompt = this.cleanHistoryPrompt(q.prompt || 'Table fill');
+            const headers = q.headers || [];
+            if (headers.length) rowPrompt += ' [' + headers.filter(Boolean).join(', ') + ']';
+            rows.push({
+              prompt: rowPrompt,
+              response: studentParts.join(', '),
+              correct: correctParts.join(', '),
+              q,
+              qType: 'table'
             });
             return;
           }
@@ -3414,13 +3534,31 @@ const App = {
         // Wordbox with child questions
         if (q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
           q.questions.forEach((kq, ki) => {
-            let kresp = (resp && typeof resp === 'object') ? resp[kq.id] : undefined;
-            if (kresp === undefined) kresp = answers[kq.id];
+            let kresp = undefined;
+            if (resp && typeof resp === 'object' && resp[kq.id] != null) kresp = resp[kq.id];
+            else if (answers[kq.id] != null) kresp = answers[kq.id];
+            const qForFmt = {
+              type: 'wordbox',
+              id: kq.id,
+              sentence: kq.sentence || '',
+              blanks: kq.blanks || [],
+              wordBank: q.wordBank || []
+            };
+            // Ensure blanks from {Word} sentence if missing
+            if (!qForFmt.blanks.length && qForFmt.sentence) {
+              let n = 0;
+              String(qForFmt.sentence).replace(/\{([^{}]+)\}/g, (_, w) => {
+                n += 1;
+                qForFmt.blanks.push({ id: String(n), correct: String(w).trim() });
+                return _;
+              });
+            }
             rows.push({
               prompt: this.cleanHistoryPrompt(kq.sentence || kq.prompt || ('Wordbox ' + (ki + 1))),
-              response: this.formatAnswerDisplay(kq.type === 'wordbox' ? kq : { ...kq, type: 'wordbox', blanks: kq.blanks || q.blanks }, kresp, false),
-              correct: this.formatAnswerDisplay(kq.type === 'wordbox' ? kq : { ...kq, type: 'wordbox', blanks: kq.blanks || q.blanks }, null, true),
-              q: kq
+              response: this.formatAnswerDisplay(qForFmt, kresp, false),
+              correct: this.formatAnswerDisplay(qForFmt, null, true),
+              q: qForFmt,
+              qType: 'wordbox'
             });
           });
           return;
@@ -3490,51 +3628,178 @@ const App = {
   },
 
   async downloadAttemptPdf(session, exam, rows) {
-    const title = session.examTitle || exam?.title || 'Attempt';
+    const title = session.examTitle || exam?.title || 'Assessment Results';
+    const name = session.studentName || '';
+    const email = session.studentEmail || '';
+    const st = this.computeAttemptStats(session, exam);
+    const pct = st.accuracy != null ? st.accuracy : (st.total ? Math.round((st.correct / st.total) * 1000) / 10 : 0);
+    const safe = (s) => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Group rows by section / type for a clean report (no Q1/Q2 labels)
+    const blocks = [];
+    let current = { title: '', items: [] };
+    rows.forEach((r) => {
+      if (r.sectionHeader) {
+        if (current.items.length || current.title) blocks.push(current);
+        current = { title: r.sectionHeader, items: [] };
+      } else {
+        current.items.push(r);
+      }
+    });
+    if (current.items.length || current.title) blocks.push(current);
+
+    const typeColor = (r) => {
+      const t = (r.qType || r.q?.type || '').toLowerCase();
+      if (t === 'multiple' || t === 'truefalse') return '#3b82f6';
+      if (t === 'fill' || t === 'wordbox') return '#14b8a6';
+      if (t === 'table') return '#8b5cf6';
+      if (t === 'categorize' || t === 'match') return '#f59e0b';
+      if (t === 'essay') return '#64748b';
+      return '#4085C9';
+    };
+
     try {
       const jsPDF = await this.ensureJsPdf();
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-      const margin = 40;
-      let y = margin;
       const pageW = doc.internal.pageSize.getWidth();
-      const maxW = pageW - margin * 2;
-      doc.setFontSize(14);
-      doc.text(title, margin, y); y += 20;
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 36;
+      let y = 0;
+
+      // Dark header bar
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, pageW, 72, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(16);
+      doc.setFont(undefined, 'bold');
+      doc.text('ASSESSMENT RESULTS', margin, 32);
+      doc.setFontSize(11);
+      doc.setFont(undefined, 'normal');
+      doc.text(String(name || 'Student'), margin, 52);
+      doc.setFontSize(9);
+      doc.text('PERSONAL RESULTS ONLY', pageW - margin - 110, 32);
+
+      y = 92;
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.text(String(title), margin, y); y += 18;
+      doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
-      doc.text(`${session.studentName || ''}  ${session.studentEmail || ''}`, margin, y); y += 18;
-      const st = this.computeAttemptStats(session, exam);
-      doc.text(`Total: ${st.total}  Correct: ${st.correct}  Incorrect: ${st.incorrect}  Unattempted: ${st.unattempted}  Accuracy: ${st.accuracy}%`, margin, y); y += 22;
-      rows.forEach((r, i) => {
-        const block = `Q${i + 1}. ${r.prompt}\nYour response: ${r.response}\nCorrect answer: ${r.correct}\n`;
-        const lines = doc.splitTextToSize(block, maxW);
-        if (y + lines.length * 12 > doc.internal.pageSize.getHeight() - margin) {
+      doc.setTextColor(100, 116, 139);
+      if (email) { doc.text(String(email), margin, y); y += 14; }
+
+      // Score card
+      y += 8;
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(margin, y, pageW - margin * 2, 56, 8, 8, 'F');
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(9);
+      doc.text('YOUR OVERALL SCORE', margin + 14, y + 18);
+      doc.setFontSize(22);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(st.correct) + ' / ' + String(st.total), margin + 14, y + 42);
+      doc.setFontSize(18);
+      doc.setTextColor(234, 88, 12);
+      doc.text(String(pct) + '%', pageW - margin - 70, y + 42);
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.setFont(undefined, 'normal');
+      doc.text('of maximum', pageW - margin - 70, y + 54);
+      y += 72;
+
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text('Correct: ' + st.correct + '   Incorrect: ' + st.incorrect + '   Unattempted: ' + st.unattempted, margin, y);
+      y += 20;
+
+      const ensureSpace = (need) => {
+        if (y + need > pageH - margin) {
           doc.addPage();
           y = margin;
         }
-        doc.text(lines, margin, y);
-        y += lines.length * 12 + 10;
+      };
+
+      blocks.forEach((block) => {
+        if (block.title) {
+          ensureSpace(28);
+          doc.setFillColor(30, 64, 175);
+          doc.roundedRect(margin, y, pageW - margin * 2, 22, 4, 4, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(10);
+          doc.setFont(undefined, 'bold');
+          doc.text(String(block.title), margin + 10, y + 15);
+          doc.setFont(undefined, 'normal');
+          y += 30;
+        }
+        block.items.forEach((r) => {
+          const promptLines = doc.splitTextToSize(String(r.prompt || 'Question'), pageW - margin * 2 - 20);
+          const respLines = doc.splitTextToSize('Your response: ' + String(r.response || '—'), pageW - margin * 2 - 20);
+          const corrLines = doc.splitTextToSize('Correct answer: ' + String(r.correct || '—'), pageW - margin * 2 - 20);
+          const boxH = 16 + promptLines.length * 12 + respLines.length * 11 + corrLines.length * 11 + 16;
+          ensureSpace(boxH + 8);
+          const accent = typeColor(r);
+          // parse hex
+          const hx = accent.replace('#', '');
+          const rr = parseInt(hx.slice(0, 2), 16), gg = parseInt(hx.slice(2, 4), 16), bb = parseInt(hx.slice(4, 6), 16);
+          doc.setDrawColor(rr, gg, bb);
+          doc.setFillColor(255, 255, 255);
+          doc.setLineWidth(1.5);
+          doc.roundedRect(margin, y, pageW - margin * 2, boxH, 6, 6, 'FD');
+          doc.setFillColor(rr, gg, bb);
+          doc.rect(margin, y, 4, boxH, 'F');
+          let iy = y + 14;
+          doc.setTextColor(15, 23, 42);
+          doc.setFontSize(10);
+          doc.setFont(undefined, 'bold');
+          doc.text(promptLines, margin + 12, iy);
+          iy += promptLines.length * 12 + 6;
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(51, 65, 85);
+          doc.text(respLines, margin + 12, iy);
+          iy += respLines.length * 11 + 4;
+          doc.setTextColor(22, 163, 74);
+          doc.text(corrLines, margin + 12, iy);
+          y += boxH + 10;
+        });
       });
-      doc.save(`attempt-${session.id || 'export'}.pdf`);
+
+      const fname = String(title).replace(/[^\w\-]+/g, '_').slice(0, 40) + '-result-' + String(name).replace(/[^\w\-]+/g, '_').slice(0, 20);
+      doc.save(fname + '.pdf');
       await UI.alert('PDF downloaded.', 'Export');
     } catch (e) {
       console.error(e);
       try {
-        const st = this.computeAttemptStats(session, exam);
-        const body = `<h1>${String(title).replace(/</g,'')}</h1>
-          <p class="muted">${String(session.studentName||'').replace(/</g,'')} · ${String(session.studentEmail||'').replace(/</g,'')}</p>
-          <p>Total: ${st.total} · Correct: ${st.correct} · Incorrect: ${st.incorrect} · Unattempted: ${st.unattempted} · Accuracy: ${st.accuracy}%</p>
-          ${rows.map((r,i) => `<div style="margin:12px 0;padding:10px;border:1px solid #ddd;border-radius:8px">
-            <strong>Q${i+1}.</strong> ${String(r.prompt||'').replace(/</g,'')}<br/>
-            <span class="muted">Your response</span><br/>${String(r.response||'').replace(/</g,'')}<br/>
-            <span class="muted">Correct answer</span><br/>${String(r.correct||'').replace(/</g,'')}
-          </div>`).join('')}`;
-        this.exportHtmlAsPdf('attempt-' + (session.id || 'export'), title, body);
+        const body = `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:800px;margin:0 auto">
+          <div style="background:#0f172a;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0">
+            <h1 style="margin:0;font-size:1.25rem">ASSESSMENT RESULTS</h1>
+            <p style="margin:6px 0 0;opacity:.85">${safe(name)}</p>
+          </div>
+          <div style="border:1px solid #e2e8f0;border-top:0;padding:20px;border-radius:0 0 12px 12px">
+            <h2 style="margin-top:0">${safe(title)}</h2>
+            <div style="display:flex;justify-content:space-between;background:#f8fafc;padding:16px;border-radius:10px;margin:12px 0">
+              <div><div style="font-size:12px;color:#64748b">YOUR OVERALL SCORE</div>
+              <div style="font-size:28px;font-weight:700">${st.correct} / ${st.total}</div></div>
+              <div style="text-align:right;color:#ea580c;font-size:28px;font-weight:700">${pct}%<div style="font-size:11px;color:#64748b">of maximum</div></div>
+            </div>
+            ${blocks.map(b => `
+              ${b.title ? `<div style="background:#1e40af;color:#fff;padding:8px 12px;border-radius:6px;margin:16px 0 8px;font-weight:600">${safe(b.title)}</div>` : ''}
+              ${b.items.map(r => `<div style="border-left:4px solid #4085C9;border:1px solid #e2e8f0;border-left-width:4px;padding:12px;margin:8px 0;border-radius:8px">
+                <div style="font-weight:600;margin-bottom:6px">${safe(r.prompt)}</div>
+                <div style="color:#334155;font-size:14px"><span style="color:#64748b">Your response</span><br/>${safe(r.response)}</div>
+                <div style="color:#16a34a;font-size:14px;margin-top:6px"><span style="color:#64748b">Correct answer</span><br/>${safe(r.correct)}</div>
+              </div>`).join('')}
+            `).join('')}
+          </div></div>`;
+        this.exportHtmlAsPdf('assessment-result', title, body);
         await UI.alert('Opened printable export (use Print → Save as PDF).', 'Export');
       } catch (e2) {
         await UI.alert(e.message || 'Could not export PDF.', 'Export');
       }
     }
   },
+
 
   async startMockFromSelection(type, subject) {
     const boxes = [...document.querySelectorAll(`.mock-pick[data-type="${type}"][data-subject="${CSS.escape(subject)}"]:checked`)];
@@ -4189,7 +4454,7 @@ const App = {
       if (showSecIntro) {
         window._pendingSectionIntro = secKey;
         document.getElementById('app').innerHTML = `
-          <div class="exam-take-wrap take-fullscreen">
+          <div class="exam-take-wrap take-fullscreen section-intro-page">
             <div class="take-topbar">
               <div class="take-progress"><div class="take-progress-bar" style="width:${progress}%"></div></div>
               <div class="take-topbar-meta">
@@ -4197,14 +4462,16 @@ const App = {
                 <button type="button" class="theme-toggle-icon theme-exam-btn" data-theme-toggle onclick="Theme.cycleExamTheme()">${(typeof Theme!=='undefined'?Theme.icon():'🌙')}</button>
               </div>
             </div>
-            <div class="take-stage section-intro-stage">
+            <div class="section-intro-stage">
               <div class="section-intro-frame">
                 <div class="section-intro-inner">
                   <div class="section-intro-title">${escapeHtml(g.sectionTitle || 'Section')}</div>
                   <div class="section-intro-body">${escapeHtml(g.sectionInstructions)}</div>
-                  <button type="button" class="btn btn-primary section-intro-go" id="section-intro-continue">Continue</button>
                 </div>
               </div>
+            </div>
+            <div class="section-intro-footer">
+              <button type="button" class="btn btn-primary section-intro-go" id="section-intro-continue">Ready</button>
             </div>
           </div>`;
         document.getElementById('section-intro-continue').onclick = () => {

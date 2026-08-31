@@ -605,6 +605,7 @@ const Monitor = {
 
     document.addEventListener('contextmenu', (e) => {
       if (this.submitting) return;
+      if (window._tableFillActive) return; // table fill may use copy/paste menu
       e.preventDefault();
       this._recentRightClick = Date.now();
       this.recordViolation('right-click', true);

@@ -178,7 +178,12 @@ const Dashboard = {
             · <strong id="live-submitted-count">0 submitted</strong>
           </p>
         </div>
-        <div class="action-btns">
+        <div class="action-btns" style="flex-wrap:wrap">
+          <div class="live-screen-modes" style="display:flex;gap:0.35rem;flex-wrap:wrap;align-items:center">
+            <button type="button" class="btn btn-sm btn-ghost" id="live-screens-all" title="Show all student screens">View all screens</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="live-screens-one" title="Watch one student">Specific student</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="live-screens-off" title="Hide screens (quota saver)">Screens off</button>
+          </div>
           ${!isProctor ? `<button class="btn btn-primary" id="btn-extend-all">⏱ Extend all</button>` : ''}
           ${!isProctor ? `<button class="btn btn-danger" id="btn-end-all">End all assessments</button>` : ''}
           <button class="btn btn-ghost" onclick="App.showTeacherHome()">← Back</button>
@@ -218,6 +223,30 @@ const Dashboard = {
       liveToggle.checked = !!this.showLiveScreens;
       liveToggle.onchange = () => this.setLiveScreensEnabled(liveToggle.checked);
     }
+    const btnAll = document.getElementById('live-screens-all');
+    const btnOne = document.getElementById('live-screens-one');
+    const btnOff = document.getElementById('live-screens-off');
+    if (btnAll) btnAll.onclick = () => {
+      this.focusedSessionId = null;
+      this.setLiveScreensEnabled(true);
+      const sel = document.getElementById('live-focus-student');
+      if (sel) sel.value = '';
+    };
+    if (btnOff) btnOff.onclick = () => {
+      this.focusedSessionId = null;
+      this.setLiveScreensEnabled(false);
+      const sel = document.getElementById('live-focus-student');
+      if (sel) sel.value = '';
+    };
+    if (btnOne) btnOne.onclick = () => {
+      const sel = document.getElementById('live-focus-student');
+      if (sel && sel.options.length > 1) {
+        sel.focus();
+        UI.alert('Choose a student from the dropdown above the grid to view only their screen.', 'Specific student');
+      } else {
+        UI.alert('No active students yet. When students join, pick one from the student filter dropdown.', 'Specific student');
+      }
+    };
     // Sync preference to exam so students stop/start screen uploads
     try {
       window.db.collection('exams').doc(examId).update({
