@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.38</div>
+          <div class="app-version">Build v1.5.39</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -176,13 +176,17 @@ const App = {
         <div class="nav-item ${activeNav==='teachers'?'active':''}" title="Instructors" onclick="App.showSuperAdmin();App.closeNav()">
           <span class="nav-ico" aria-hidden="true">◎</span><span class="nav-label">Instructors</span></div>
         <div class="nav-item ${activeNav==='exams'?'active':''}" title="My Assessments" onclick="App.showInstructorHome();App.closeNav()">
-          <span class="nav-ico" aria-hidden="true">▤</span><span class="nav-label">My Assessments</span></div>`;
+          <span class="nav-ico" aria-hidden="true">▤</span><span class="nav-label">My Assessments</span></div>
+        <div class="nav-item ${activeNav==='sessions'?'active':''}" title="Sessions" onclick="App.showSessionsPage();App.closeNav()">
+          <span class="nav-ico" aria-hidden="true">▦</span><span class="nav-label">Sessions</span></div>`;
     } else if (role === 'teacher') {
       navItems = `
         <div class="nav-item ${activeNav==='dashboard'?'active':''}" title="Dashboard" onclick="App.showDashboard();App.closeNav()">
           <span class="nav-ico" aria-hidden="true">▣</span><span class="nav-label">Dashboard</span></div>
         <div class="nav-item ${activeNav==='exams'?'active':''}" title="My Assessments" onclick="App.showInstructorHome();App.closeNav()">
-          <span class="nav-ico" aria-hidden="true">▤</span><span class="nav-label">My Assessments</span></div>`;
+          <span class="nav-ico" aria-hidden="true">▤</span><span class="nav-label">My Assessments</span></div>
+        <div class="nav-item ${activeNav==='sessions'?'active':''}" title="Sessions" onclick="App.showSessionsPage();App.closeNav()">
+          <span class="nav-ico" aria-hidden="true">▦</span><span class="nav-label">Sessions</span></div>`;
     } else if (role === 'proctor') {
       navItems = `
         <div class="nav-item ${activeNav==='dashboard'?'active':''}" onclick="App.showDashboard();App.closeNav()">
@@ -213,7 +217,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.38</div>
+              <div class="app-version">v1.5.39</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -2692,7 +2696,7 @@ const App = {
       }
       const payload = {
         active: true,
-        status: 'published',
+        status: 'published', runId: 'run_' + Date.now(),
         startAt: sched.startAt,
         endAt: sched.endAt,
         durationMinutes: sched.durationMinutes || Math.max(1, Math.round((sched.endAt - sched.startAt) / 60000)),
@@ -2908,8 +2912,15 @@ const App = {
     `, 'student');
   },
 
+  async withLoading(fn, msg = 'Loading…') {
+    try { UI.showLoading(msg); } catch (_) {}
+    try { return await fn(); }
+    finally { try { UI.hideLoading(); } catch (_) {} }
+  },
+
   async showStudentHistory() {
     this._mockSelectMode = false;
+    try { UI.showLoading('Loading assessments…'); } catch (_) {}
     this.renderShell(`
       <h2 class="page-title">Assessment History</h2>
       <div class="hist-section">
@@ -2917,7 +2928,7 @@ const App = {
           <h3 style="margin:0">Code assessments</h3>
           <div class="hist-filter-row" style="display:contents">
             <input type="search" id="hist-filter-code" class="form-control" placeholder="Filter code assessments..." />
-            <button type="button" class="btn btn-primary" id="mock-from-code">Create mock exam</button>
+            <!-- Create mock moved to Mock History -->
           </div>
         </div>
         <div id="hist-code" class="table-wrap mt-2"><p class="text-muted" style="text-align:left">Loading…</p></div>
@@ -2927,7 +2938,7 @@ const App = {
           <h3 style="margin:0">Regular assessments</h3>
           <div class="hist-filter-row" style="display:contents">
             <input type="search" id="hist-filter-reg" class="form-control" placeholder="Filter regular assessments..." />
-            <button type="button" class="btn btn-primary" id="mock-from-reg">Create mock exam</button>
+            <!-- Create mock moved to Mock History -->
           </div>
         </div>
         <div id="hist-reg" class="table-wrap mt-2">Loading...</div>
@@ -2979,6 +2990,7 @@ const App = {
     renderTables();
     document.getElementById('hist-filter-code').oninput = renderTables;
     document.getElementById('hist-filter-reg').oninput = renderTables;
+    try { UI.hideLoading(); } catch (_) {}
 
     const startMockFlow = async (type) => {
       if (!this._mockSelectMode) {
@@ -3005,15 +3017,18 @@ const App = {
         durationMinutes: Math.max(5, Number(mins) || 30)
       });
     };
-    document.getElementById('mock-from-code').onclick = () => startMockFlow('code');
-    document.getElementById('mock-from-reg').onclick = () => startMockFlow('regular');
+    // Create mock exam is on Mock History page
   },
 
   async showMockHistory() {
     this.renderShell(`
-      <h2 class="page-title">Mock History</h2>
-      <div id="mock-hist-table" class="table-wrap">Loading...</div>
+      <div class="card-header page-header-responsive" style="align-items:center">
+        <h2 class="page-title" style="margin:0">Mock History</h2>
+        <button type="button" class="btn btn-primary" id="btn-create-mock">Create mock exam</button>
+      </div>
+      <div id="mock-hist-table" class="table-wrap mt-2">Loading...</div>
     `, 'mock');
+    document.getElementById('btn-create-mock').onclick = () => this.openCreateMockModal();
     let sessions = [];
     try { sessions = (await Exam.listStudentSessions(Auth.currentUser.uid)).filter(s => s.isMock === true); } catch (_) {}
     const el = document.getElementById('mock-hist-table');
@@ -3097,7 +3112,10 @@ const App = {
     } catch (e) {
       console.warn('mock persist', e);
     }
-    window._testMode = true;
+    // Mock is a real student practice attempt — never instructor testMode
+    window._testMode = false;
+    window._isMockExam = true;
+    sessionLocal.isMock = true;
     window._mockSessionMeta = { questions: allQ, type: mockExam.examType };
     if (mockExam.examType === 'regular') return this.startRegularExam(sessionLocal);
     return this.startCodeExam(sessionLocal);
@@ -3582,6 +3600,54 @@ const App = {
     }
 
     const stats = this.computeAttemptStats(session, exam);
+    // Split normal vs special (match, passage, table) for full-width blocks at end
+    const normalRows = [];
+    const matchBlocks = [];
+    const passageBlocks = [];
+    const tableBlocks = [];
+    let curSec = '';
+    rows.forEach(r => {
+      if (r.sectionHeader) { curSec = r.sectionHeader; normalRows.push(r); return; }
+      const t = (r.qType || r.q?.type || '').toLowerCase();
+      if (t === 'match') matchBlocks.push({ ...r, section: curSec });
+      else if (t === 'passage' || r.q?.isPassageSet) passageBlocks.push({ ...r, section: curSec });
+      else if (t === 'table') tableBlocks.push({ ...r, section: curSec });
+      else normalRows.push(r);
+    });
+    // Also expand passage/match/table from answers for richer HTML
+    const specialHtml = this._renderSpecialResultBlocks(session, exam, answers, matchBlocks, passageBlocks, tableBlocks);
+
+    // Group normal rows into collapsible sections
+    const sections = [];
+    let cur = { title: 'Questions', items: [] };
+    normalRows.forEach(r => {
+      if (r.sectionHeader) {
+        if (cur.items.length || cur.title !== 'Questions') sections.push(cur);
+        cur = { title: r.sectionHeader, items: [] };
+      } else cur.items.push(r);
+    });
+    if (cur.items.length || sections.length === 0) sections.push(cur);
+
+    const sectionHtml = sections.map((sec, si) => `
+      <div class="result-section card" data-result-sec="${si}">
+        <button type="button" class="result-sec-toggle" data-toggle-sec="${si}">
+          <span>${escapeHtml(sec.title)}</span>
+          <span class="result-chevron">▼</span>
+        </button>
+        <div class="result-sec-body" id="result-sec-${si}">
+          <table class="table result-equal-cols">
+            <thead><tr><th>Question</th><th>Your response</th><th>Correct answer</th></tr></thead>
+            <tbody>
+              ${sec.items.map(r => `<tr class="hist-q-row">
+                <td data-label="Question" class="hist-cell-q"><div class="hist-label">Question</div><div class="hist-value">${escapeHtml(r.prompt)}</div></td>
+                <td data-label="Response" class="hist-cell-r"><div class="hist-label">Response</div><div class="hist-value">${escapeHtml(r.response)}</div></td>
+                <td data-label="Correct" class="hist-cell-c"><div class="hist-label">Correct</div><div class="hist-value">${escapeHtml(r.correct)}</div></td>
+              </tr>`).join('') || '<tr><td colspan="3" class="text-muted">No items</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>`).join('');
+
     this.renderShell(`
       <div class="card-header page-header-responsive">
         <h2 class="page-title">${escapeHtml(session.examTitle || exam?.title || 'Attempt')}</h2>
@@ -3595,36 +3661,148 @@ const App = {
         <div class="attempt-stat"><div class="val">${stats.correct}</div><div class="lbl">Correct</div></div>
         <div class="attempt-stat"><div class="val">${stats.incorrect}</div><div class="lbl">Incorrect</div></div>
         <div class="attempt-stat"><div class="val">${stats.unattempted}</div><div class="lbl">Unattempted</div></div>
+        <div class="attempt-stat"><div class="val">${stats.accuracy}%</div><div class="lbl">Accuracy</div></div>
       </div>
-      <p class="text-muted">Accuracy: <strong>${stats.accuracy}%</strong></p>
-      <div class="table-wrap">
-        <table class="table" id="attempt-detail-table">
-          <thead><tr><th>Question</th><th>Your response</th><th>Correct answer</th></tr></thead>
-          <tbody>
-            ${rows.map((r) => r.sectionHeader
-              ? `<tr class="hist-section-row"><td colspan="3"><strong>${escapeHtml(r.sectionHeader)}</strong></td></tr>`
-              : `<tr class="hist-q-row">
-              <td data-label="Question" class="hist-cell-q">
-                <div class="hist-label">Question</div>
-                <div class="hist-value">${escapeHtml(r.prompt)}</div>
-              </td>
-              <td data-label="Response" class="hist-cell-r">
-                <div class="hist-label">Response</div>
-                <div class="hist-value">${escapeHtml(r.response)}</div>
-              </td>
-              <td data-label="Correct" class="hist-cell-c">
-                <div class="hist-label">Correct</div>
-                <div class="hist-value">${escapeHtml(r.correct)}</div>
-              </td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    `, 'history');
+      <div class="result-sections mt-2">${sectionHtml}</div>
+      ${specialHtml}
+    `, session.isMock ? 'mock' : 'history');
 
+    document.querySelectorAll('[data-toggle-sec]').forEach(btn => {
+      btn.onclick = () => {
+        const body = document.getElementById('result-sec-' + btn.getAttribute('data-toggle-sec'));
+        if (!body) return;
+        const open = body.classList.toggle('collapsed');
+        btn.querySelector('.result-chevron').textContent = open ? '▶' : '▼';
+      };
+    });
     document.getElementById('export-attempt-pdf').onclick = () => {
       this.downloadAttemptPdf(session, exam, rows);
     };
+  },
+
+  _renderSpecialResultBlocks(session, exam, answers, matchBlocks, passageBlocks, tableBlocks) {
+    const esc = escapeHtml;
+    let html = '';
+    // MATCH full width
+    if (matchBlocks.length) {
+      html += `<div class="result-special card mt-2"><h3 class="result-special-title">Match</h3>`;
+      matchBlocks.forEach(r => {
+        const q = r.q || {};
+        const left = q.left || [];
+        const right = q.right || [];
+        const val = answers[q.id];
+        const pairs = left.map((a, i) => {
+          const ri = val && typeof val === 'object' ? (val[i] != null ? val[i] : val[String(i)]) : null;
+          const b = ri != null ? right[Number(ri)] : null;
+          const key = Array.isArray(q.correct) ? q.correct[i] : i;
+          const ok = ri != null && Number(ri) === Number(key);
+          return `<div class="match-result-pair ${ok ? 'ok' : 'bad'}">
+            <span class="match-a">${esc(a || ('A'+(i+1)))}</span>
+            <span class="match-line">———</span>
+            <span class="match-b">${esc(b != null ? b : '—')}</span>
+          </div>`;
+        }).join('');
+        html += `<div class="match-result-block">${q.prompt ? `<p><strong>${esc(q.prompt)}</strong></p>` : ''}${pairs}</div>`;
+      });
+      html += `</div>`;
+    }
+    // PASSAGE full width
+    if (passageBlocks.length) {
+      html += `<div class="result-special card mt-2"><h3 class="result-special-title">Passage</h3>`;
+      // Group by parent passage if possible
+      const seen = new Set();
+      const flat = Regular.flattenQuestions ? Regular.flattenQuestions(exam || session) : [];
+      const passages = (exam?.sections || []).flatMap(s => (s.questions||[]).filter(q => q.type==='passage' || q.isPassageSet));
+      const passList = passages.length ? passages : [];
+      if (passList.length) {
+        passList.forEach(pq => {
+          const tabs = pq.passages || [{ html: pq.passageHtml || '', title: 'Passage' }];
+          html += `<div class="passage-result-block">`;
+          tabs.forEach((t, ti) => {
+            html += `<div class="passage-tab-label">${esc(t.title || ('Passage '+(ti+1)))}</div>
+              <div class="passage-result-html">${t.html || pq.passageHtml || ''}</div>`;
+          });
+          (pq.questions || []).forEach(kq => {
+            const resp = answers[kq.id] != null ? answers[kq.id] : (answers[pq.id] && answers[pq.id][kq.id]);
+            html += `<div class="passage-result-q">
+              <div><strong>${esc(kq.prompt || 'Question')}</strong></div>
+              <div class="text-muted" style="font-size:0.85rem">Your response</div>
+              <div>${esc(this.formatAnswerDisplay(kq, resp, false))}</div>
+              <div class="text-muted" style="font-size:0.85rem">Correct answer</div>
+              <div style="color:var(--success,#16a34a)">${esc(this.formatAnswerDisplay(kq, null, true))}</div>
+            </div>`;
+          });
+          html += `</div>`;
+        });
+      } else {
+        passageBlocks.forEach(r => {
+          html += `<div class="passage-result-q">
+            <div><strong>${esc(r.prompt)}</strong></div>
+            <div class="text-muted">Your response</div><div>${esc(r.response)}</div>
+            <div class="text-muted">Correct answer</div><div style="color:var(--success,#16a34a)">${esc(r.correct)}</div>
+          </div>`;
+        });
+      }
+      html += `</div>`;
+    }
+    // TABLE FILL full width
+    if (tableBlocks.length) {
+      html += `<div class="result-special card mt-2"><h3 class="result-special-title">Table fill</h3>`;
+      tableBlocks.forEach(r => {
+        const q = r.q || {};
+        const cells = q.cells || {};
+        const rowsN = Number(q.rows) || 0;
+        const colsN = Number(q.cols) || 0;
+        const headers = q.headers || [];
+        const tableRows = q.tableRows || null;
+        const resp = answers[q.id] || {};
+        let tableHtml = `<p>${esc(q.prompt || 'Table fill')}</p><table class="table tf-result-table"><tbody>`;
+        if (headers.length) {
+          tableHtml += '<tr class="tf-header-row">' + headers.map(h => `<th>${esc(h)}</th>`).join('') + '</tr>';
+        }
+        const blankKeys = Object.keys(cells).filter(k => cells[k] && cells[k].blank);
+        const correctList = [];
+        if (tableRows && tableRows.length) {
+          tableRows.forEach((tr, ri) => {
+            if (tr.type === 'subheader') {
+              tableHtml += `<tr class="tf-subheader-row"><td colspan="${colsN || headers.length || 1}">${esc(tr.label || '')}</td></tr>`;
+              return;
+            }
+            tableHtml += '<tr>';
+            for (let c = 0; c < (colsN || (tr.cells||[]).length); c++) {
+              const key = ri + '_' + c;
+              const cell = cells[key] || {};
+              if (cell.blank) {
+                const stud = resp[key] != null ? String(resp[key]) : '';
+                const corr = Array.isArray(cell.correct) ? cell.correct[0] : (cell.correct || '');
+                const ok = stud.trim().toLowerCase() === String(corr).trim().toLowerCase();
+                tableHtml += `<td class="${ok ? 'tf-cell-ok' : 'tf-cell-bad'}">${esc(stud || '—')}</td>`;
+                correctList.push(String(corr || '—'));
+              } else {
+                const val = (tr.cells && tr.cells[c]) != null ? tr.cells[c] : (cell.value || '');
+                tableHtml += `<td>${esc(val)}</td>`;
+              }
+            }
+            tableHtml += '</tr>';
+          });
+        } else {
+          // fallback single row of blanks
+          tableHtml += '<tr>' + blankKeys.map(k => {
+            const stud = resp[k] != null ? String(resp[k]) : '';
+            const c = cells[k] || {};
+            const corr = Array.isArray(c.correct) ? c.correct[0] : (c.correct || '');
+            const ok = stud.trim().toLowerCase() === String(corr).trim().toLowerCase();
+            correctList.push(String(corr || '—'));
+            return `<td class="${ok ? 'tf-cell-ok' : 'tf-cell-bad'}">${esc(stud || '—')}</td>`;
+          }).join('') + '</tr>';
+        }
+        tableHtml += '</tbody></table>';
+        tableHtml += `<div class="tf-correct-key"><strong>Correct answers:</strong> ${esc(correctList.join(', '))}</div>`;
+        html += tableHtml;
+      });
+      html += `</div>`;
+    }
+    return html;
   },
 
   async downloadAttemptPdf(session, exam, rows) {
@@ -4154,6 +4332,7 @@ const App = {
 
   injectStudentChatFab(sessionId) {
     if (!sessionId || String(sessionId).startsWith('test_')) return;
+    if (window._isMockExam) return;
     document.getElementById('student-chat-fab')?.remove();
     const fab = document.createElement('button');
     fab.id = 'student-chat-fab';
@@ -4536,7 +4715,7 @@ const App = {
             <div class="take-progress"><div class="take-progress-bar" style="width:${progress}%"></div></div>
             <div class="take-topbar-meta">
               <span class="monitor-live-cue" title="Screen monitoring"><span class="monitor-dot"></span> Screen Monitoring Enabled</span>
-              <span class="take-count">${gi + 1} / ${groups.length}</span>
+              <!-- progress count removed (redundant) -->
               <span id="exam-timer" class="timer-badge">--:--</span>
               <button type="button" class="theme-toggle-icon theme-exam-btn" data-theme-toggle onclick="Theme.cycleExamTheme()" aria-label="Theme" title="Theme: Light / Dark / Retro">${(typeof Theme !== 'undefined' ? Theme.icon() : '🌙')}</button>
               <button type="button" class="btn btn-sm btn-danger" id="take-end-btn">End assessment</button>
@@ -4674,7 +4853,7 @@ const App = {
         if (g.kind === 'passage') {
           const list = g.questions || [];
           if (list.find(q => q && !isAnswered(q.id, q))) {
-            await UI.alert('Please answer all questions in this passage before continuing.', 'Answer required');
+            await UI.alert('All questions in this passage should be answered before continuing.', 'Answer required');
             return;
           }
         } else if (g.question) {
@@ -4702,7 +4881,7 @@ const App = {
             ok = pairs && typeof pairs === 'object' && Object.keys(pairs).length > 0;
           }
           if (!ok) {
-            await UI.alert('Please answer this question before continuing.', 'Answer required');
+            await UI.alert('All blanks/questions should be answered/filled before continuing.', 'Answer required');
             return;
           }
           window._takeAnswers = answers;
@@ -4859,16 +5038,18 @@ const App = {
       `, 'dashboard');
       return;
     }
+    const isMock = !!(session.isMock || window._isMockExam);
+    try { window._isMockExam = false; } catch (_) {}
     this.renderShell(`
       <div class="card empty-state times-up-card">
-        <h2>${reason === 'time-up' ? "Time's up!" : 'Assessment submitted'}</h2>
+        <h2>${reason === 'time-up' ? "Time's up!" : (isMock ? 'Mock assessment submitted' : 'Assessment submitted')}</h2>
         <p>Your answers were submitted${reason === 'time-up' ? ' automatically' : ''}.</p>
         <div class="action-btns" style="justify-content:center">
-          <button class="btn btn-primary" onclick="App.showStudentHistory()">View results</button>
+          <button class="btn btn-primary" onclick="${isMock ? 'App.showMockHistory()' : 'App.showStudentHistory()'}">${isMock ? 'View mock history' : 'View results'}</button>
           <button class="btn btn-ghost" onclick="App.showDashboard()">Back to home</button>
         </div>
       </div>
-    `, 'history');
+    `, isMock ? 'mock' : 'history');
   },
 
   _runTimer(session, onExpireExtra) {
@@ -4920,7 +5101,7 @@ const App = {
     const payload = {
       startAt: schedule.startAt,
       endAt: schedule.endAt,
-      status: 'published',
+      status: 'published', runId: 'run_' + Date.now(),
       active: true,
       durationMinutes: schedule.durationMinutes || Math.max(1, Math.round((schedule.endAt - schedule.startAt) / 60000)),
       assessmentCode

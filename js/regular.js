@@ -1154,7 +1154,17 @@ const Regular = {
       };
     });
     container.querySelectorAll('[data-essay], textarea[data-qid]').forEach(ta => {
-      ta.oninput = () => { if (onChange) onChange(); };
+      ta.oninput = () => {
+        const qid = ta.getAttribute('data-qid');
+        const max = Number(ta.getAttribute('maxlength') || 1000);
+        const counter = container.querySelector(`[data-count="${qid}"]`) || document.querySelector(`[data-count="${qid}"]`);
+        if (counter) counter.textContent = String((ta.value || '').length);
+        if (onChange) onChange();
+      };
+      // init count
+      const qid = ta.getAttribute('data-qid');
+      const counter = container.querySelector(`[data-count="${qid}"]`);
+      if (counter) counter.textContent = String((ta.value || '').length);
     });
   },
 

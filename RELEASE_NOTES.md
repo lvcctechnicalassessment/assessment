@@ -349,3 +349,22 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Student result PDF: professional colored report, no Q1/Q2 labels, section grouping
 - Retro: smaller wordbank/option text to prevent overflow
 - Section intro: full 100vh, Ready button centered at bottom
+
+## v1.5.39
+- Mock assessments are real student practice (not instructor test mode) and appear in Mock History
+- Create mock exam moved to Mock History (modal with filters/checkboxes)
+- Student results: Accuracy in stats, equal columns, collapsible sections; Match/Passage/Table full-width special blocks
+- Result PDF: colored professional layout with blue headers (template-style)
+- Global loading blur overlay
+- Retro is a full theme option for students (Settings + toggle)
+- Section instructions & buttons centered; categorize 100vh full-width columns; progress counter removed
+- No floating message on mock assessments
+- Retro-only: wordbank fit, larger centered MC with glow selection, answer-required modal spacing, open-ended note in default gray font, buttons use retro font, app chrome uses Segoe UI
+- Answer-required copy: all blanks/questions should be answered before continuing
+- Open-ended character counter updates live
+- About: centered, themed card, no Close button, contact Ma'am Pau email
+- Categorize config: single-column rows (title+button then content scroll)
+- Dark mode page background matches menu
+- Live dashboard no longer re-shows the last student message on open
+- Publish/reopen stamps runId; student sessions carry runId + teacherId
+- New Sessions page for instructors (past runs, participants, integrity popup, session detail)

@@ -257,22 +257,37 @@ const Dashboard = {
     this.showLiveScreens = false;
     this._liveExamId = examId;
     this.currentExamId = examId;
+    this._liveMsgsPrimed = false;
+    this._livePastePrimed = false;
 
     this._seenStudentMsgs = this._seenStudentMsgs || {};
     this._liveThumbs = this._liveThumbs || {};
+    this._liveMsgsPrimed = false; // first snapshot only seeds — no popup for old messages
+    document.getElementById('student-msg-modal')?.remove();
+    document.getElementById('critical-paste-modal')?.remove();
     const unsub = Exam.listenToSessions(examId, (sessions) => {
       let list = sessions;
       if (proctorFilterIds) list = sessions.filter(s => proctorFilterIds.includes(s.studentId));
+      if (!this._liveMsgsPrimed) {
+        list.forEach(s => {
+          if (s.chatPing) this._seenStudentMsgs[s.id] = s.chatPing;
+        });
+        this._liveMsgsPrimed = true;
+      } else {
+        list.forEach(s => {
+          if (this._liveThumbs[s.id] && !s.screenThumb) s.screenThumb = this._liveThumbs[s.id];
+          if (s.lastStudentMessage && s.chatPing && this._seenStudentMsgs[s.id] !== s.chatPing) {
+            this._seenStudentMsgs[s.id] = s.chatPing;
+            if (s.awaitingAdmit || s.lockedUntilAdmit) {
+              this.showAdmitRequest(s);
+            } else {
+              this.showIncomingStudentMessage(s);
+            }
+          }
+        });
+      }
       list.forEach(s => {
         if (this._liveThumbs[s.id] && !s.screenThumb) s.screenThumb = this._liveThumbs[s.id];
-        if (s.lastStudentMessage && s.chatPing && this._seenStudentMsgs[s.id] !== s.chatPing) {
-          this._seenStudentMsgs[s.id] = s.chatPing;
-          if (s.awaitingAdmit || s.lockedUntilAdmit) {
-            this.showAdmitRequest(s);
-          } else {
-            this.showIncomingStudentMessage(s);
-          }
-        }
       });
       this.sessionsCache = list;
       this._renderSessions(list, exam);
@@ -311,7 +326,14 @@ const Dashboard = {
         });
       }
       this._allIntegrity = filtered;
-      this._handlePasteNotifications(filtered);
+      if (!this._livePastePrimed) {
+        filtered.forEach(n => {
+          if (n.type === 'paste-critical' || n.type === 'paste-message') this._lastPasteAlert = n.id;
+        });
+        this._livePastePrimed = true;
+      } else {
+        this._handlePasteNotifications(filtered);
+      }
       this.renderIntegrityPanel(filtered);
     });
     this.unsubscribers.push(unsubN);
@@ -402,6 +424,20 @@ const Dashboard = {
   },
 
   _lastPasteAlert: null,
+  /** Call when opening live dashboard so prior messages are not re-shown */
+  seedSeenMessages(sessions) {
+    this._seenStudentMsgs = this._seenStudentMsgs || {};
+    (sessions || []).forEach(s => {
+      if (s.chatPing) this._seenStudentMsgs[s.id] = s.chatPing;
+      if (s.lastStudentMessageAt) {
+        const t = s.lastStudentMessageAt.toMillis ? s.lastStudentMessageAt.toMillis() : s.lastStudentMessageAt;
+        this._seenStudentMsgs[s.id + '_ts'] = t;
+      }
+    });
+    // Clear any leftover modal from a previous visit
+    document.getElementById('student-msg-modal')?.remove();
+    document.getElementById('critical-paste-modal')?.remove();
+  },
   _handlePasteNotifications(notifs) {
     this._endedSessions = this._endedSessions || {};
     this._pasteIgnoreSessions = this._pasteIgnoreSessions || {};

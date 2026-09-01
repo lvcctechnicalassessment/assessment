@@ -4091,3 +4091,194 @@ textarea.wb-live-hl {
 .rte-editor img[data-resizable] {
   outline: 1px dashed rgba(64,133,201,0.5);
 }
+
+
+/* v1.5.39 */
+.global-loading {
+  position: fixed; inset: 0; z-index: 99999;
+  background: rgba(15,23,42,0.45);
+  backdrop-filter: blur(6px);
+  display: none; align-items: center; justify-content: center;
+}
+.global-loading.visible { display: flex; }
+.global-loading-card {
+  background: var(--surface, #fff);
+  color: var(--text, #111);
+  padding: 1.5rem 2rem;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  text-align: center;
+  min-width: 160px;
+}
+.global-loading-card .spinner {
+  width: 36px; height: 36px; margin: 0 auto 0.75rem;
+  border: 3px solid rgba(64,133,201,0.25);
+  border-top-color: #4085C9;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.result-equal-cols th, .result-equal-cols td { width: 33.33%; }
+.result-sec-toggle {
+  width: 100%; display: flex; justify-content: space-between; align-items: center;
+  background: transparent; border: none; padding: 0.75rem 1rem; cursor: pointer;
+  font-weight: 600; font-size: 1rem; color: inherit; text-align: left;
+}
+.result-sec-body.collapsed { display: none; }
+.result-special { padding: 1rem; }
+.result-special-title { margin-top: 0; }
+.match-result-pair { display: flex; align-items: center; gap: 0.75rem; margin: 0.35rem 0; flex-wrap: wrap; }
+.match-result-pair.ok .match-b { color: #16a34a; }
+.match-result-pair.bad .match-b { color: #dc2626; }
+.match-line { color: #94a3b8; }
+.tf-result-table td, .tf-result-table th { border: 1px solid #cbd5e1; padding: 0.4rem 0.5rem; }
+.tf-cell-ok { background: #dcfce7 !important; border-color: #16a34a !important; }
+.tf-cell-bad { background: #fee2e2 !important; border-color: #dc2626 !important; }
+.tf-correct-key { margin-top: 0.75rem; font-size: 0.9rem; }
+.passage-result-html { border: 1px solid var(--border); padding: 0.75rem; border-radius: 8px; margin: 0.5rem 0; max-height: 240px; overflow: auto; }
+.passage-result-q { margin: 0.75rem 0; padding: 0.75rem; border-left: 3px solid #4085C9; background: var(--surface-2, #f8fafc); border-radius: 0 8px 8px 0; }
+
+.categorize-dual { display: block !important; }
+.cat-board { display: flex; flex-wrap: nowrap; gap: 0.75rem; overflow-x: auto; }
+.cat-items-scroll { display: block; overflow-x: auto; }
+
+.section-intro-title, .section-intro-body, .section-intro-footer { text-align: center !important; }
+.take-nav { text-align: center; }
+.take-nav .btn { margin: 0 auto; }
+
+/* Categorize take: expand to full width, 100vh */
+.cat-student, .wb-student.wb-dual {
+  height: calc(100vh - 140px);
+  max-height: calc(100dvh - 140px);
+}
+.cat-board {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.75rem;
+  overflow-x: auto;
+  width: 100%;
+}
+.cat-board .cat-col {
+  flex: 1 1 0;
+  min-width: 140px;
+  max-width: none;
+}
+
+/* Dark mode: page bg = menu bg */
+[data-theme="dark"] {
+  --bg: #020C12;
+  --page-bg: #020C12;
+  --surface: #031926;
+  --surface-2: #0a1f2e;
+}
+[data-theme="dark"] body,
+[data-theme="dark"] .shell,
+[data-theme="dark"] .shell-main,
+[data-theme="dark"] .main-content {
+  background: #020C12 !important;
+}
+[data-theme="dark"] .sidebar {
+  background: #020C12 !important;
+}
+[data-theme="dark"] .card,
+[data-theme="dark"] .join-card,
+[data-theme="dark"] .popover-card,
+[data-theme="dark"] .modal,
+[data-theme="dark"] .table-wrap,
+[data-theme="dark"] .gq-question-box,
+[data-theme="dark"] .hist-section {
+  background: #031926 !important;
+}
+[data-theme="dark"] .passage-dual button,
+[data-theme="dark"] .pass-q-add-bar .btn,
+[data-theme="dark"] [data-pass-add-q],
+[data-theme="dark"] .pass-tab {
+  color: #fff !important;
+}
+
+.about-themed {
+  background: var(--surface) !important;
+  box-shadow: 0 0 0 1px var(--border), 0 12px 40px rgba(0,0,0,0.25);
+}
+[data-theme="dark"] .about-themed {
+  box-shadow: 0 0 0 1px rgba(64,133,201,0.35), 0 0 24px rgba(64,133,201,0.15);
+}
+[data-theme="retro"] .about-themed {
+  box-shadow: 0 0 0 2px #22d3ee, 0 0 24px rgba(34,211,238,0.35);
+}
+
+/* Retro-only adjustments */
+[data-theme="retro"] .wb-chip,
+[data-theme="retro"] .wb-bank-cell {
+  font-size: clamp(0.55rem, 1.8vw, 0.75rem) !important;
+  white-space: normal !important;
+  word-break: break-word;
+  min-height: auto;
+  padding: 0.35rem 0.4rem;
+}
+[data-theme="retro"] .take-opt,
+[data-theme="retro"] .gq-option.gq-student,
+[data-theme="retro"] .gq-option.take-opt {
+  font-family: "Press Start 2P", "VT323", "Courier New", monospace !important;
+  font-size: 0.72rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+}
+[data-theme="retro"] .take-opt.selected,
+[data-theme="retro"] .gq-option.selected {
+  box-shadow: 0 0 12px #22d3ee, 0 0 4px #fff inset !important;
+  border-color: #22d3ee !important;
+}
+[data-theme="retro"] .btn {
+  font-family: "Press Start 2P", "VT323", "Courier New", monospace !important;
+  font-size: 0.65rem !important;
+}
+[data-theme="retro"] .sidebar,
+[data-theme="retro"] .app-title,
+[data-theme="retro"] .nav-item,
+[data-theme="retro"] .page-title {
+  font-family: "Segoe UI", system-ui, sans-serif !important;
+}
+[data-theme="retro"] .essay-caption,
+[data-theme="retro"] .essay-caption * {
+  font-family: "Segoe UI", system-ui, sans-serif !important;
+  color: #9ca3af !important;
+  font-size: 0.8rem !important;
+}
+[data-theme="retro"] .wb-dual-right .wb-sentence-bar,
+[data-theme="retro"] .wb-text {
+  font-size: 0.85rem !important;
+}
+[data-theme="retro"] .wb-bank-title,
+[data-theme="retro"] .wb-hint {
+  font-size: 0.6rem !important;
+}
+[data-theme="retro"] .tf-student-blank,
+[data-theme="retro"] .fill-inline-input {
+  font-family: "Press Start 2P", monospace !important;
+  font-size: 0.65rem !important;
+  border: 2px solid #22d3ee !important;
+  background: #0a0a12 !important;
+  color: #e0f2fe !important;
+}
+[data-theme="retro"] .ui-modal,
+[data-theme="retro"] .ui-modal h2,
+[data-theme="retro"] .ui-modal-body {
+  text-align: center !important;
+  font-family: "Press Start 2P", monospace !important;
+  font-size: 0.7rem !important;
+  line-height: 1.6 !important;
+}
+[data-theme="retro"] .ui-modal {
+  border: 2px solid #22d3ee !important;
+  box-shadow: 0 0 20px rgba(34,211,238,0.4) !important;
+  padding: 1.5rem !important;
+}
+[data-theme="retro"] .ui-modal .btn {
+  margin-top: 1rem;
+}
+
+.ui-modal-body { line-height: 1.6; }

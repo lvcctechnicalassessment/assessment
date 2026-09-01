@@ -2,6 +2,26 @@
  * Themed modal system (replaces alert/confirm/prompt)
  */
 const UI = {
+  showLoading(msg = 'Loading…') {
+    let el = document.getElementById('global-loading');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'global-loading';
+      el.className = 'global-loading';
+      el.innerHTML = `<div class="global-loading-card"><div class="spinner"></div><p class="global-loading-msg"></p></div>`;
+      document.body.appendChild(el);
+    }
+    el.querySelector('.global-loading-msg').textContent = msg;
+    el.classList.add('visible');
+    el.setAttribute('aria-busy', 'true');
+  },
+  hideLoading() {
+    const el = document.getElementById('global-loading');
+    if (el) {
+      el.classList.remove('visible');
+      el.setAttribute('aria-busy', 'false');
+    }
+  },
   _root() {
     let el = document.getElementById('ui-modal-root');
     if (!el) {

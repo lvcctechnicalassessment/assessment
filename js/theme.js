@@ -16,44 +16,50 @@ const Theme = {
   isRetro() {
     return document.documentElement.getAttribute('data-theme') === 'retro';
   },
+  _isStudent() {
+    try {
+      const role = window.Auth?.userProfile?.role || window.Auth?.currentUser?.role;
+      return role === 'student';
+    } catch (_) { return false; }
+  },
   apply(theme, persist = true) {
     let t = theme;
     if (t !== 'light' && t !== 'dark' && t !== 'retro') t = 'light';
+    // Retro is a full theme for students; instructors/admin stay light/dark
+    if (t === 'retro' && !this._isStudent()) t = 'dark';
     document.documentElement.setAttribute('data-theme', t);
     document.body && document.body.setAttribute('data-theme', t);
-    if (persist && t !== 'retro') {
+    if (persist) {
       localStorage.setItem(this.KEY, t);
       this.saveToProfile(t);
     }
-    if (t === 'retro') {
-      try { sessionStorage.setItem(this.EXAM_KEY, 'retro'); } catch (_) {}
-    }
     this.syncButtons();
   },
-  /** Permanent preference only (light/dark) */
   applyPreferred() {
     const saved = localStorage.getItem(this.KEY) || this.DEFAULT;
-    this.apply(saved === 'retro' ? 'light' : saved, false);
+    this.apply(saved, false);
   },
   toggle() {
-    const c = this.current();
-    if (c === 'retro') this.apply('dark', true);
-    else this.apply(c === 'dark' ? 'light' : 'dark', true);
+    if (this._isStudent()) {
+      // Student: light → dark → retro → light
+      const order = ['light', 'dark', 'retro'];
+      const c = this.current();
+      const i = order.indexOf(c);
+      this.apply(order[(i + 1) % order.length], true);
+    } else {
+      const c = this.current();
+      this.apply(c === 'dark' ? 'light' : 'dark', true);
+    }
   },
   cycleExamTheme() {
-    // During exam: light → dark → retro → light
-    const order = ['light', 'dark', 'retro'];
-    const c = this.current();
-    const i = order.indexOf(c);
-    const next = order[(i + 1) % order.length];
-    this.apply(next, next !== 'retro');
+    // Same as toggle for students during exam
+    this.toggle();
   },
   async saveToProfile(theme) {
     try {
       if (!window.auth?.currentUser || !window.db) return;
-      const t = theme === 'retro' ? 'dark' : theme;
       await window.db.collection('users').doc(window.auth.currentUser.uid).set(
-        { theme: t, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+        { theme: theme, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
         { merge: true }
       );
     } catch (e) { console.warn('theme save', e); }
@@ -100,16 +106,15 @@ const Theme = {
     return `<button type="button" class="theme-toggle-icon theme-exam-btn" data-theme-toggle onclick="Theme.cycleExamTheme()" aria-label="Switch exam theme" title="Theme">${this.icon()}</button>`;
   },
   settingsSwitchHtml() {
-    const on = this.current() === 'dark';
-    return `<div class="theme-switch-row">
+    const c = this.current();
+    const student = this._isStudent();
+    return `<div class="theme-switch-row" style="flex-direction:column;align-items:stretch;gap:0.5rem">
       <span>Theme</span>
-      <button type="button" class="theme-switch ${on ? 'on' : ''}" data-theme-switch role="switch"
-        aria-checked="${on}" onclick="Theme.toggle()">
-        <span class="theme-switch-track">
-          <span class="theme-switch-knob">${on ? '🌙' : '☀️'}</span>
-        </span>
-        <span class="theme-switch-label">${on ? 'Dark' : 'Light'}</span>
-      </button>
+      <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
+        <button type="button" class="btn btn-sm ${c==='light'?'btn-primary':'btn-ghost'}" onclick="Theme.apply('light',true)">☀️ Light</button>
+        <button type="button" class="btn btn-sm ${c==='dark'?'btn-primary':'btn-ghost'}" onclick="Theme.apply('dark',true)">🌙 Dark</button>
+        ${student ? `<button type="button" class="btn btn-sm ${c==='retro'?'btn-primary':'btn-ghost'}" onclick="Theme.apply('retro',true)">👾 Retro</button>` : ''}
+      </div>
     </div>`;
   },
   openSettings() {
@@ -118,10 +123,11 @@ const Theme = {
     const overlay = document.createElement('div');
     overlay.id = 'settings-popover';
     overlay.className = 'popover-overlay';
-    overlay.innerHTML = `<div class="popover-card settings-card">
-      <h3>Settings</h3>
+    overlay.innerHTML = `<div class="popover-card settings-card" style="display:flex;flex-direction:column;min-height:220px">
+      <h3 style="margin-top:0">Settings</h3>
       ${this.settingsSwitchHtml()}
-      <button type="button" class="btn btn-ghost btn-block mt-1" id="settings-about-btn">About</button>
+      <div style="flex:1"></div>
+      <button type="button" class="btn btn-ghost btn-block" id="settings-about-btn" style="margin-top:1.5rem">About</button>
     </div>`;
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);
@@ -133,27 +139,29 @@ const Theme = {
   },
   openAbout() {
     document.getElementById('about-popover')?.remove();
-    const ver = (document.querySelector('.app-version')?.textContent || 'v1.5.37').replace('Build ', '');
+    const ver = (document.querySelector('.app-version')?.textContent || 'v1.5.39').replace('Build ', '');
     const overlay = document.createElement('div');
     overlay.id = 'about-popover';
     overlay.className = 'popover-overlay';
-    overlay.innerHTML = `<div class="popover-card about-card" style="max-width:420px;text-align:center">
-      <img src="assets/lvcc-logo.png" alt="LVCC" width="72" height="72" style="margin:0.5rem auto;display:block" />
-      <h3 style="margin:0.35rem 0">LVCC Assessment Portal</h3>
-      <p class="text-muted" style="margin:0.25rem 0">Integrity - We live with honesty, truthfulness, and moral courage.</p>
-      <p style="font-size:0.85rem;margin:0.5rem 0"><strong>${ver}</strong></p>
-      <p style="text-align:left;font-size:0.9rem;line-height:1.5;margin:0.75rem 0">
+    overlay.innerHTML = `<div class="popover-card about-card about-themed" style="max-width:420px;text-align:center;padding:1.5rem 1.25rem 1.25rem">
+      <img src="assets/lvcc-logo.png" alt="LVCC" width="72" height="72" style="margin:0.25rem auto 0.75rem;display:block" />
+      <h3 style="margin:0.35rem 0;text-align:center">LVCC Assessment Portal</h3>
+      <p class="text-muted" style="margin:0.35rem 0;text-align:center">Integrity - We live with honesty, truthfulness, and moral courage.</p>
+      <p style="font-size:0.85rem;margin:0.75rem 0;text-align:center"><strong>${ver}</strong></p>
+      <p style="text-align:center;font-size:0.9rem;line-height:1.55;margin:0.85rem 0">
         This app was created for La Verdad Christian College students and instructors to have their own secure assessment platform —
         supporting both coding and regular assessments, integrity monitoring, and fair evaluation.
       </p>
-      <p style="text-align:left;font-size:0.9rem;line-height:1.5;margin:0.5rem 0">
-        <strong>Developer:</strong> Ms. Joane Pauline S. Maunes
+      <p style="text-align:center;font-size:0.9rem;line-height:1.55;margin:1rem 0 1.5rem">
+        If you encounter any issues, contact Ma'am Pau at
+        <a href="mailto:joanepaulinemaunes@laverdad.edu.ph">joanepaulinemaunes@laverdad.edu.ph</a>.
       </p>
-      <button type="button" class="btn btn-primary" id="about-close">Close</button>
+      <div style="margin-top:1.25rem;padding-top:0.75rem;border-top:1px solid var(--border);text-align:center">
+        <span class="text-muted" style="font-size:0.8rem">About</span>
+      </div>
     </div>`;
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);
-    document.getElementById('about-close')?.addEventListener('click', () => overlay.remove());
   }
 };
 window.Theme = Theme;
