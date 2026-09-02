@@ -77,7 +77,7 @@ const App = {
       <div class="auth-container">
         <img src="assets/lvcc-logo.png" alt="LVCC Logo" class="brand-logo" width="120" height="120" />
         <h1>LVCC Assessment Portal</h1>
-        <p class="brand-subtitle">Integrity - We live with honesty, truthfulness, and moral courage.</p>
+        <p class="brand-subtitle">We live with honesty, truthfulness, and moral courage.</p>
         <button class="google-btn" id="google-signin">
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" />
           Sign in with Google
@@ -88,7 +88,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.39</div>
+          <div class="app-version">Build v1.5.40</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -217,7 +217,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.39</div>
+              <div class="app-version">v1.5.40</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -317,19 +317,34 @@ const App = {
           <div style="text-align:center;margin-bottom:1.25rem">
             <img src="assets/lvcc-logo.png" width="56" height="56" alt="LVCC" />
             <h1 style="font-size:1.25rem;margin-top:0.75rem">LVCC Assessment Portal</h1>
-            <p class="text-muted">Enter your assessment code to begin</p>
+            <p class="text-muted join-code-hint" style="font-family:'Segoe UI',system-ui,sans-serif !important">Enter your assessment code to begin</p>
           </div>
           <div class="join-input-wrap">
             <input id="join-code-input" type="text" inputmode="numeric" maxlength="9" placeholder="1234-5678" autocomplete="off" />
             <button type="button" class="btn btn-primary" id="join-code-btn">Join</button>
           </div>
-          <div class="join-actions-row" style="display:flex;gap:0.5rem;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:0.75rem">
+          <div class="join-actions-row" style="display:flex;flex-direction:column;gap:0.85rem;align-items:center;justify-content:center;margin-top:1.25rem">
             <button type="button" class="btn btn-ghost join-dashboard-btn" id="join-go-dash">Go to my Dashboard</button>
-            <button type="button" class="theme-toggle-icon" data-theme-toggle onclick="Theme.toggle()" aria-label="Switch theme">${Theme.icon()}</button>
+            <div class="theme-tri-switch" id="join-theme-tri" style="margin-top:0.35rem">
+              <button type="button" class="theme-tri-btn" data-theme-set="light" title="Light">☀️</button>
+              <button type="button" class="theme-tri-btn" data-theme-set="dark" title="Dark">🌙</button>
+              <button type="button" class="theme-tri-btn" data-theme-set="retro" title="Retro">👾</button>
+            </div>
           </div>
         </div>
       </div>`;
     document.getElementById('join-go-dash').onclick = () => this.showDashboard();
+    document.querySelectorAll('#join-theme-tri [data-theme-set]').forEach(btn => {
+      btn.onclick = () => {
+        if (typeof Theme !== 'undefined') Theme.apply(btn.getAttribute('data-theme-set'), true);
+        document.querySelectorAll('#join-theme-tri [data-theme-set]').forEach(b => {
+          b.classList.toggle('active', b.getAttribute('data-theme-set') === (Theme.current && Theme.current()));
+        });
+      };
+      if (typeof Theme !== 'undefined' && Theme.current) {
+        btn.classList.toggle('active', btn.getAttribute('data-theme-set') === Theme.current());
+      }
+    });
     document.getElementById('join-code-btn').onclick = () => this.joinByAssessmentCode();
     const inp = document.getElementById('join-code-input');
     this.bindExamCodeInput(inp);
@@ -1786,8 +1801,49 @@ const App = {
                 if (img.dataset.resizable) return;
                 img.dataset.resizable = '1';
                 img.style.maxWidth = '100%';
-                img.style.cursor = 'nwse-resize';
-                img.title = 'Drag corner to resize';
+                img.style.cursor = 'pointer';
+                img.title = 'Click for Wrap Text · drag corner to resize';
+                img.addEventListener('click', (ev) => {
+                  if (ev.offsetX >= img.clientWidth - 16 && ev.offsetY >= img.clientHeight - 16) return;
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  document.getElementById('img-wrap-pop')?.remove();
+                  const pop = document.createElement('div');
+                  pop.id = 'img-wrap-pop';
+                  pop.className = 'img-wrap-popover';
+                  pop.innerHTML = `<div class="img-wrap-title">Wrap Text</div>
+                    ${['In line with text','Square','Tight','Through','Top and bottom','Behind text','In front of text'].map(opt =>
+                      `<button type="button" class="img-wrap-opt" data-wrap="${opt}">${opt}</button>`
+                    ).join('')}`;
+                  const rect = img.getBoundingClientRect();
+                  pop.style.left = Math.min(window.innerWidth - 200, rect.left) + 'px';
+                  pop.style.top = (rect.bottom + 4) + 'px';
+                  document.body.appendChild(pop);
+                  pop.querySelectorAll('[data-wrap]').forEach(b => {
+                    b.onclick = () => {
+                      const w = b.getAttribute('data-wrap');
+                      img.style.float = '';
+                      img.style.display = '';
+                      img.style.position = '';
+                      img.style.zIndex = '';
+                      img.style.margin = '0.5rem';
+                      if (w === 'In line with text') { img.style.display = 'inline-block'; img.style.verticalAlign = 'middle'; }
+                      else if (w === 'Square' || w === 'Tight' || w === 'Through') { img.style.float = 'left'; }
+                      else if (w === 'Top and bottom') { img.style.display = 'block'; img.style.marginLeft = 'auto'; img.style.marginRight = 'auto'; }
+                      else if (w === 'Behind text') { img.style.position = 'relative'; img.style.zIndex = '0'; img.style.opacity = '0.85'; }
+                      else if (w === 'In front of text') { img.style.position = 'relative'; img.style.zIndex = '2'; }
+                      const q = qAt(gi);
+                      if (q) {
+                        q.passageHtml = ed.innerHTML;
+                        const ti = Number(ed.dataset.passActiveTab || 0);
+                        if (q.passages && q.passages[ti]) q.passages[ti].html = ed.innerHTML;
+                      }
+                      pop.remove();
+                    };
+                  });
+                  const close = (e2) => { if (!pop.contains(e2.target)) { pop.remove(); document.removeEventListener('click', close); } };
+                  setTimeout(() => document.addEventListener('click', close), 10);
+                });
                 let startX, startW;
                 img.addEventListener('mousedown', (ev) => {
                   if (ev.offsetX < img.clientWidth - 16 || ev.offsetY < img.clientHeight - 16) return;
@@ -3054,6 +3110,69 @@ const App = {
     }).join('')}</tbody></table>`;
   },
 
+
+  async openCreateMockModal() {
+    try { UI.showLoading('Loading assessments…'); } catch (_) {}
+    let sessions = [];
+    try {
+      sessions = await Exam.listStudentSessions(Auth.currentUser.uid);
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      try { UI.hideLoading(); } catch (_) {}
+    }
+    sessions = (sessions || []).filter(s => !s.isMock && (s.status === 'submitted' || s.status === 'ended'));
+    const codeS = sessions.filter(s => (s.examType || 'code') === 'code');
+    const regS = sessions.filter(s => (s.examType || '') === 'regular');
+    const row = (s) => `<label class="mock-modal-row" style="display:flex;gap:0.5rem;align-items:center;padding:0.45rem 0;border-bottom:1px solid var(--border);cursor:pointer">
+      <input type="checkbox" class="mock-pick-modal" data-sid="${s.id}" data-type="${s.examType||'code'}" />
+      <span style="flex:1;text-align:left">${escapeHtml(s.examTitle || 'Assessment')}
+        <span class="text-muted" style="font-size:0.8rem"> · ${escapeHtml(s.subject||'')}</span>
+      </span>
+      <span class="text-muted" style="font-size:0.8rem">${s.score != null ? s.score : '—'}/${s.maxScore != null ? s.maxScore : '—'}</span>
+    </label>`;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay ui-modal-overlay';
+    overlay.id = 'create-mock-modal';
+    overlay.innerHTML = `<div class="modal ui-modal" style="max-width:560px;max-height:85vh;display:flex;flex-direction:column">
+      <h2 style="margin-top:0;text-align:center">Create mock exam</h2>
+      <input type="search" class="form-control" id="mock-modal-filter" placeholder="Filter assessments…" style="margin-bottom:0.5rem" />
+      <div id="mock-modal-list" style="overflow-y:auto;flex:1;min-height:120px;max-height:40vh;text-align:left">
+        ${regS.length ? '<div class="text-muted" style="font-size:0.75rem;margin:0.35rem 0">Regular</div>' + regS.map(row).join('') : ''}
+        ${codeS.length ? '<div class="text-muted" style="font-size:0.75rem;margin:0.35rem 0">Code</div>' + codeS.map(row).join('') : ''}
+        ${!sessions.length ? '<p class="text-muted">No completed assessments yet. Finish an assessment first.</p>' : ''}
+      </div>
+      <div class="modal-actions action-btns" style="margin-top:0.75rem;justify-content:center">
+        <button type="button" class="btn btn-ghost" id="mock-modal-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="mock-modal-go">Create mock assessment</button>
+      </div>
+    </div>`;
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+    document.getElementById('mock-modal-cancel').onclick = () => overlay.remove();
+    document.getElementById('mock-modal-filter').oninput = (e) => {
+      const q = e.target.value.toLowerCase();
+      overlay.querySelectorAll('.mock-modal-row').forEach(r => {
+        r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    };
+    document.getElementById('mock-modal-go').onclick = async () => {
+      const boxes = [...overlay.querySelectorAll('.mock-pick-modal:checked')];
+      if (!boxes.length) { await UI.alert('Select at least one assessment.', 'Mock exam'); return; }
+      const types = new Set(boxes.map(b => b.getAttribute('data-type')));
+      const type = types.has('regular') && !types.has('code') ? 'regular' : (types.has('code') && !types.has('regular') ? 'code' : 'regular');
+      const name = await UI.prompt('Mock exam name:', 'My mock exam', 'Mock exam', 'Name');
+      if (name == null) return;
+      const mins = await UI.prompt('Time limit (minutes):', '30', 'Mock exam', 'Minutes');
+      if (mins == null) return;
+      overlay.remove();
+      await this.startMockFromSessions(boxes.map(b => b.getAttribute('data-sid')), type, {
+        title: String(name).trim() || 'Mock exam',
+        durationMinutes: Math.max(5, Number(mins) || 30)
+      });
+    };
+  },
+
   async startMockFromSessions(sessionIds, type, opts = {}) {
     const allQ = [];
     for (const sid of sessionIds) {
@@ -3639,9 +3758,9 @@ const App = {
             <thead><tr><th>Question</th><th>Your response</th><th>Correct answer</th></tr></thead>
             <tbody>
               ${sec.items.map(r => `<tr class="hist-q-row">
-                <td data-label="Question" class="hist-cell-q"><div class="hist-label">Question</div><div class="hist-value">${escapeHtml(r.prompt)}</div></td>
-                <td data-label="Response" class="hist-cell-r"><div class="hist-label">Response</div><div class="hist-value">${escapeHtml(r.response)}</div></td>
-                <td data-label="Correct" class="hist-cell-c"><div class="hist-label">Correct</div><div class="hist-value">${escapeHtml(r.correct)}</div></td>
+                <td data-label="Question" class="hist-cell-q"><div class="hist-value">${escapeHtml(r.prompt)}</div></td>
+                <td data-label="Response" class="hist-cell-r"><div class="hist-value">${escapeHtml(r.response)}</div></td>
+                <td data-label="Correct" class="hist-cell-c"><div class="hist-value">${escapeHtml(r.correct)}</div></td>
               </tr>`).join('') || '<tr><td colspan="3" class="text-muted">No items</td></tr>'}
             </tbody>
           </table>
@@ -3656,8 +3775,8 @@ const App = {
           <button class="btn btn-ghost" onclick="App.showStudentHistory()">Back</button>
         </div>
       </div>
-      <div class="attempt-stats">
-        <div class="attempt-stat"><div class="val">${stats.total}</div><div class="lbl">Total Questions</div></div>
+      <div class="attempt-stats attempt-stats-row">
+        <div class="attempt-stat"><div class="val">${stats.total}</div><div class="lbl">Total</div></div>
         <div class="attempt-stat"><div class="val">${stats.correct}</div><div class="lbl">Correct</div></div>
         <div class="attempt-stat"><div class="val">${stats.incorrect}</div><div class="lbl">Incorrect</div></div>
         <div class="attempt-stat"><div class="val">${stats.unattempted}</div><div class="lbl">Unattempted</div></div>
@@ -3691,18 +3810,30 @@ const App = {
         const left = q.left || [];
         const right = q.right || [];
         const val = answers[q.id];
-        const pairs = left.map((a, i) => {
+        // Build SVG connecting lines (like assessment UI)
+        const h = Math.max(left.length, right.length) * 48 + 24;
+        const pairs = [];
+        left.forEach((a, i) => {
           const ri = val && typeof val === 'object' ? (val[i] != null ? val[i] : val[String(i)]) : null;
-          const b = ri != null ? right[Number(ri)] : null;
-          const key = Array.isArray(q.correct) ? q.correct[i] : i;
-          const ok = ri != null && Number(ri) === Number(key);
-          return `<div class="match-result-pair ${ok ? 'ok' : 'bad'}">
-            <span class="match-a">${esc(a || ('A'+(i+1)))}</span>
-            <span class="match-line">———</span>
-            <span class="match-b">${esc(b != null ? b : '—')}</span>
-          </div>`;
-        }).join('');
-        html += `<div class="match-result-block">${q.prompt ? `<p><strong>${esc(q.prompt)}</strong></p>` : ''}${pairs}</div>`;
+          if (ri != null) pairs.push({ li: i, ri: Number(ri) });
+        });
+        let lines = '';
+        pairs.forEach(p => {
+          const y1 = 24 + p.li * 48;
+          const y2 = 24 + p.ri * 48;
+          lines += `<line x1="28%" y1="${y1}" x2="72%" y2="${y2}" stroke="#3b82f6" stroke-width="2"/>`;
+        });
+        const leftHtml = left.map((a, i) => `<div class="match-node match-node-l" style="top:${12 + i * 48}px"><span class="match-dot"></span><span>${esc((i+1)+'. '+(a||''))}</span></div>`).join('');
+        const rightHtml = right.map((b, i) => `<div class="match-node match-node-r" style="top:${12 + i * 48}px"><span>${esc(b||'')}</span><span class="match-dot"></span></div>`).join('');
+        html += `<div class="match-result-block">
+          <p class="match-result-instr"><strong>${esc(q.prompt || 'Match')}</strong></p>
+          <p class="text-muted" style="text-align:center;font-size:0.85rem">Click an item in Column A, then click its pair in Column B to match.</p>
+          <div class="match-visual" style="height:${h}px;position:relative">
+            <svg class="match-svg" width="100%" height="${h}" style="position:absolute;left:0;top:0;pointer-events:none">${lines}</svg>
+            <div class="match-col-l">${leftHtml}</div>
+            <div class="match-col-r">${rightHtml}</div>
+          </div>
+        </div>`;
       });
       html += `</div>`;
     }
@@ -3843,20 +3974,25 @@ const App = {
       const margin = 36;
       let y = 0;
 
-      // Dark header bar
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, pageW, 72, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(16);
-      doc.setFont(undefined, 'bold');
-      doc.text('ASSESSMENT RESULTS', margin, 32);
-      doc.setFontSize(11);
-      doc.setFont(undefined, 'normal');
-      doc.text(String(name || 'Student'), margin, 52);
-      doc.setFontSize(9);
-      doc.text('PERSONAL RESULTS ONLY', pageW - margin - 110, 32);
-
-      y = 92;
+      const drawPageHeader = (pageNum) => {
+        doc.setFillColor(15, 23, 42); // navy
+        doc.rect(0, 0, pageW, 64, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        const hdr = pageNum > 1 ? 'ASSESSMENT RESULTS (continued)' : 'ASSESSMENT RESULTS';
+        doc.text(hdr, margin, 28);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.text(String(name || 'Student'), margin, 48);
+        // badge
+        doc.setFillColor(30, 41, 59);
+        doc.roundedRect(pageW - margin - 118, 18, 110, 22, 10, 10, 'F');
+        doc.setFontSize(8);
+        doc.text('PERSONAL RESULTS ONLY', pageW - margin - 108, 32);
+      };
+      drawPageHeader(1);
+      y = 88;
       doc.setTextColor(30, 41, 59);
       doc.setFontSize(12);
       doc.setFont(undefined, 'bold');
@@ -3866,25 +4002,27 @@ const App = {
       doc.setTextColor(100, 116, 139);
       if (email) { doc.text(String(email), margin, y); y += 14; }
 
-      // Score card
-      y += 8;
+      // Score card (colored like peer-eval template)
+      y += 6;
       doc.setFillColor(248, 250, 252);
-      doc.roundedRect(margin, y, pageW - margin * 2, 56, 8, 8, 'F');
-      doc.setTextColor(30, 41, 59);
-      doc.setFontSize(9);
-      doc.text('YOUR OVERALL SCORE', margin + 14, y + 18);
-      doc.setFontSize(22);
-      doc.setFont(undefined, 'bold');
-      doc.setTextColor(15, 23, 42);
-      doc.text(String(st.correct) + ' / ' + String(st.total), margin + 14, y + 42);
-      doc.setFontSize(18);
-      doc.setTextColor(234, 88, 12);
-      doc.text(String(pct) + '%', pageW - margin - 70, y + 42);
-      doc.setFontSize(8);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margin, y, pageW - margin * 2, 64, 10, 10, 'FD');
       doc.setTextColor(100, 116, 139);
-      doc.setFont(undefined, 'normal');
-      doc.text('of maximum', pageW - margin - 70, y + 54);
-      y += 72;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text('YOUR OVERALL SCORE', margin + 16, y + 20);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(26);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(st.correct) + ' / ' + String(st.total), margin + 16, y + 48);
+      doc.setFontSize(22);
+      doc.setTextColor(234, 88, 12); // orange %
+      doc.text(String(pct) + '%', pageW - margin - 80, y + 42);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text('of maximum', pageW - margin - 80, y + 56);
+      y += 80;
 
       doc.setFontSize(9);
       doc.setTextColor(71, 85, 105);
@@ -3894,14 +4032,15 @@ const App = {
       const ensureSpace = (need) => {
         if (y + need > pageH - margin) {
           doc.addPage();
-          y = margin;
+          drawPageHeader(doc.internal.getNumberOfPages());
+          y = 88;
         }
       };
 
       blocks.forEach((block) => {
         if (block.title) {
           ensureSpace(28);
-          doc.setFillColor(30, 64, 175);
+          doc.setFillColor(30, 64, 175); // blue section
           doc.roundedRect(margin, y, pageW - margin * 2, 22, 4, 4, 'F');
           doc.setTextColor(255, 255, 255);
           doc.setFontSize(10);
@@ -4895,9 +5034,20 @@ const App = {
         gi += 1; pi = 0; window._passageTab = 0;
         if (gi >= groups.length) {
           const n = findNextUnanswered(0, -1);
-          if (n) { gi = n.gi; pi = n.pi; renderTake(); return; }
+          // Avoid infinite loop: if we already visited all groups, prefer submit
+          const allVisited = groups.every((_, i) => {
+            const g = groups[i];
+            if (g.kind === 'passage') return (g.questions || []).every(q => q && Object.prototype.hasOwnProperty.call(answers, q.id));
+            return g.question && Object.prototype.hasOwnProperty.call(answers, g.question.id);
+          });
+          if (n && !allVisited) { gi = n.gi; pi = n.pi; renderTake(); return; }
           const ok = await UI.confirm('Submit this assessment? You will not be able to change answers after submitting.', 'Submit assessment');
-          if (!ok) return;
+          if (!ok) {
+            // stay on last answered group
+            gi = Math.max(0, groups.length - 1);
+            renderTake();
+            return;
+          }
           await this.finishRegularTake(session, answers, 'manual');
         } else renderTake();
       };
@@ -4966,8 +5116,9 @@ const App = {
             if (isTest) {
               try { await this.finishRegularTake(session, window._takeAnswers || {}, 'idle-timeout'); } catch (_) {}
               try { window._testMode = false; } catch (_) {}
-              try { await Auth.signOut(); } catch (_) {}
-              location.reload();
+              // Do not sign out / reload — return to instructor home
+              try { this.clearExamQuery(); } catch (_) {}
+              try { this.showInstructorHome ? this.showInstructorHome() : this.showDashboard(); } catch (_) {}
               return;
             }
             await this.finishRegularTake(session, window._takeAnswers || {}, 'idle-timeout');
@@ -5443,10 +5594,23 @@ const App = {
   },
 
   async showExamResults(examId) {
-    const exam = await Exam.getExam(examId);
+    try { UI.showLoading('Loading results…'); } catch (_) {}
+    let exam;
+    try {
+      exam = await Exam.getExam(examId);
+    } catch (e) {
+      try { UI.hideLoading(); } catch (_) {}
+      await UI.alert(e.message || 'Could not load assessment.', 'Results');
+      return this.showInstructorHome ? this.showInstructorHome() : this.showDashboard();
+    }
+    if (!exam) {
+      try { UI.hideLoading(); } catch (_) {}
+      await UI.alert('Assessment not found.', 'Results');
+      return this.showInstructorHome ? this.showInstructorHome() : this.showDashboard();
+    }
     this.renderShell(`
       <div class="card-header page-header-responsive">
-        <h2 class="page-title">Results — ${escapeHtml(exam.title)}</h2>
+        <h2 class="page-title">Results — ${escapeHtml(exam.title || 'Assessment')}</h2>
         <div class="action-btns">
           <button class="btn btn-ghost" id="btn-export-xlsx">Export Excel</button>
           <button class="btn btn-ghost" onclick="App.showInstructorHome()">Back</button>
@@ -5462,14 +5626,28 @@ const App = {
     const gradeMap = Object.fromEntries(grades.map(g => [g.sessionId, g]));
     const questions = Regular.flattenQuestions(exam);
 
-    // Auto-grade missing where possible
+    // Auto-grade missing (use session accuracy/score when already computed — much faster)
     for (const s of sessions) {
-      if (!gradeMap[s.id] && questions.length && s.answers) {
-        const g = Regular.gradeAnswers(questions, s.answers);
-        gradeMap[s.id] = { ...g, sessionId: s.id };
-      } else if (!gradeMap[s.id] && s.code && exam.answerKey) {
-        const g = Exam.autoGrade(s.code, exam.answerKey, exam.maxScore || 100);
-        gradeMap[s.id] = { score: g.score, maxScore: exam.maxScore || 100, percent: g.percent, sessionId: s.id };
+      if (gradeMap[s.id]) continue;
+      if (s.score != null && s.maxScore != null) {
+        gradeMap[s.id] = {
+          score: s.score,
+          maxScore: s.maxScore,
+          percent: s.accuracy != null ? s.accuracy : (s.maxScore ? Math.round((s.score / s.maxScore) * 1000) / 10 : 0),
+          sessionId: s.id
+        };
+        continue;
+      }
+      if (questions.length && s.answers) {
+        try {
+          const g = Regular.gradeAnswers(questions, s.answers);
+          gradeMap[s.id] = { ...g, sessionId: s.id };
+        } catch (_) {}
+      } else if (s.code && exam.answerKey) {
+        try {
+          const g = Exam.autoGrade(s.code, exam.answerKey, exam.maxScore || 100);
+          gradeMap[s.id] = { score: g.score, maxScore: exam.maxScore || 100, percent: g.percent, sessionId: s.id };
+        } catch (_) {}
       }
     }
 
@@ -5482,11 +5660,15 @@ const App = {
     // Most incorrect: for regular, count wrong per question
     const wrongCount = {};
     questions.forEach(q => { wrongCount[q.id] = { prompt: q.prompt || q.id, wrong: 0 }; });
-    sessions.forEach(s => {
-      if (!s.answers || !questions.length) return;
-      questions.forEach(q => {
-        const g = Regular.gradeAnswers([q], { [q.id]: s.answers[q.id] });
-        if ((g.score || 0) < (g.maxScore || 1)) wrongCount[q.id].wrong++;
+    // Limit hardest-Q scan for speed (max 80 questions × 60 sessions)
+    const qSample = questions.slice(0, 80);
+    const sSample = sessions.filter(s => s.answers).slice(0, 60);
+    sSample.forEach(s => {
+      qSample.forEach(q => {
+        try {
+          const g = Regular.gradeAnswers([q], { [q.id]: s.answers[q.id] });
+          if ((g.score || 0) < (g.maxScore || 1) && wrongCount[q.id]) wrongCount[q.id].wrong++;
+        } catch (_) {}
       });
     });
     const hardest = Object.values(wrongCount).sort((a, b) => b.wrong - a.wrong).slice(0, 5);
@@ -5527,6 +5709,7 @@ const App = {
       `<div class="pie-legend-item"><strong>#${i+1}</strong> ${escapeHtml(p.name)} — ${p.percent}%${p.duration ? (' · ' + Math.round(p.duration/60000) + ' min') : ''}</div>`
     ).join('') || '<div class="text-muted">No data</div>';
 
+    try { UI.hideLoading(); } catch (_) {}
     document.getElementById('results-stats').innerHTML = `
       <div class="results-stats-row">
         <div class="stats-grid stats-4">

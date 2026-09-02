@@ -68,7 +68,12 @@ const Theme = {
     try {
       if (!window.auth?.currentUser || !window.db) return;
       const snap = await window.db.collection('users').doc(window.auth.currentUser.uid).get();
-      if (snap.exists && snap.data().theme) this.apply(snap.data().theme, true);
+      if (snap.exists && snap.data().theme) {
+        this.apply(snap.data().theme, true);
+      } else if (this._isStudent()) {
+        // First login for students defaults to Light
+        this.apply('light', true);
+      }
     } catch (e) { console.warn('theme load', e); }
   },
   icon() {
@@ -108,13 +113,27 @@ const Theme = {
   settingsSwitchHtml() {
     const c = this.current();
     const student = this._isStudent();
-    return `<div class="theme-switch-row" style="flex-direction:column;align-items:stretch;gap:0.5rem">
+    if (student) {
+      return `<div class="theme-switch-row" style="flex-direction:column;align-items:center;gap:0.75rem;padding-top:0.5rem">
+        <span style="align-self:flex-start">Theme</span>
+        <div class="theme-tri-switch">
+          <button type="button" class="theme-tri-btn ${c==='light'?'active':''}" onclick="Theme.apply('light',true);Theme.openSettings()" title="Light">☀️</button>
+          <button type="button" class="theme-tri-btn ${c==='dark'?'active':''}" onclick="Theme.apply('dark',true);Theme.openSettings()" title="Dark">🌙</button>
+          <button type="button" class="theme-tri-btn ${c==='retro'?'active':''}" onclick="Theme.apply('retro',true);Theme.openSettings()" title="Retro">👾</button>
+        </div>
+      </div>`;
+    }
+    // Instructor / admin: classic light-dark switch
+    const on = c === 'dark';
+    return `<div class="theme-switch-row">
       <span>Theme</span>
-      <div style="display:flex;gap:0.35rem;flex-wrap:wrap">
-        <button type="button" class="btn btn-sm ${c==='light'?'btn-primary':'btn-ghost'}" onclick="Theme.apply('light',true)">☀️ Light</button>
-        <button type="button" class="btn btn-sm ${c==='dark'?'btn-primary':'btn-ghost'}" onclick="Theme.apply('dark',true)">🌙 Dark</button>
-        ${student ? `<button type="button" class="btn btn-sm ${c==='retro'?'btn-primary':'btn-ghost'}" onclick="Theme.apply('retro',true)">👾 Retro</button>` : ''}
-      </div>
+      <button type="button" class="theme-switch ${on ? 'on' : ''}" data-theme-switch role="switch"
+        aria-checked="${on}" onclick="Theme.toggle();setTimeout(()=>Theme.openSettings(),50)">
+        <span class="theme-switch-track">
+          <span class="theme-switch-knob">${on ? '🌙' : '☀️'}</span>
+        </span>
+        <span class="theme-switch-label">${on ? 'Dark' : 'Light'}</span>
+      </button>
     </div>`;
   },
   openSettings() {
@@ -127,7 +146,7 @@ const Theme = {
       <h3 style="margin-top:0">Settings</h3>
       ${this.settingsSwitchHtml()}
       <div style="flex:1"></div>
-      <button type="button" class="btn btn-ghost btn-block" id="settings-about-btn" style="margin-top:1.5rem">About</button>
+      <button type="button" class="btn btn-ghost btn-block" id="settings-about-btn" style="margin-top:1.5rem;text-align:center;display:block;width:100%">About</button>
     </div>`;
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);
@@ -146,19 +165,18 @@ const Theme = {
     overlay.innerHTML = `<div class="popover-card about-card about-themed" style="max-width:420px;text-align:center;padding:1.5rem 1.25rem 1.25rem">
       <img src="assets/lvcc-logo.png" alt="LVCC" width="72" height="72" style="margin:0.25rem auto 0.75rem;display:block" />
       <h3 style="margin:0.35rem 0;text-align:center">LVCC Assessment Portal</h3>
-      <p class="text-muted" style="margin:0.35rem 0;text-align:center">Integrity - We live with honesty, truthfulness, and moral courage.</p>
+      <p class="text-muted" style="margin:0.35rem 0;text-align:center">We live with honesty, truthfulness, and moral courage.</p>
       <p style="font-size:0.85rem;margin:0.75rem 0;text-align:center"><strong>${ver}</strong></p>
       <p style="text-align:center;font-size:0.9rem;line-height:1.55;margin:0.85rem 0">
         This app was created for La Verdad Christian College students and instructors to have their own secure assessment platform —
         supporting both coding and regular assessments, integrity monitoring, and fair evaluation.
       </p>
-      <p style="text-align:center;font-size:0.9rem;line-height:1.55;margin:1rem 0 1.5rem">
+      <p style="text-align:center;font-size:0.9rem;line-height:1.55;margin:1rem 0 0.5rem">
         If you encounter any issues, contact Ma'am Pau at
-        <a href="mailto:joanepaulinemaunes@laverdad.edu.ph">joanepaulinemaunes@laverdad.edu.ph</a>.
       </p>
-      <div style="margin-top:1.25rem;padding-top:0.75rem;border-top:1px solid var(--border);text-align:center">
-        <span class="text-muted" style="font-size:0.8rem">About</span>
-      </div>
+      <p class="about-email" style="text-align:center;font-family:Consolas,'Courier New',monospace;color:#ea580c;font-size:0.95rem;margin:0.25rem 0 1rem">
+        joanepaulinemaunes@laverdad.edu.ph
+      </p>
     </div>`;
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);

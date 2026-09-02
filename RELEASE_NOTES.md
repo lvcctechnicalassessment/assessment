@@ -368,3 +368,18 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Live dashboard no longer re-shows the last student message on open
 - Publish/reopen stamps runId; student sessions carry runId + teacherId
 - New Sessions page for instructors (past runs, participants, integrity popup, session detail)
+
+## v1.5.40
+- Student join: default Segoe UI for code hint; tri-state Light/Dark/Retro theme switch; student default Light
+- Create mock exam modal restored and working
+- Student result PDF: navy header on every page, orange %, blue section bars (peer-eval style)
+- Removed "Integrity -" prefix from subtitles
+- About: Consolas orange email (not a link); removed bottom "About" label; About button centered
+- Instructor settings: classic Light/Dark switch again; students keep tri-state
+- Faster assessment/results loading (reuse session scores; limited hardest-Q scan)
+- Instructor Results null-exam guard + loading overlay
+- Section intro fonts ~3×; Ready centered; MC centered all themes; no MC resize; fill blanks ~3× font
+- Test-as-student: no submit loop / no sign-out reload on idle end
+- Categorize Remove question no longer overlaps items
+- Passage image Wrap Text (MS Word-style options)
+- Student results: accuracy on same stats row; no per-row Question/Response/Correct labels; Match SVG lines; Table fill visual like assessment; Passage at bottom special section
