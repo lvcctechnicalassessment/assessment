@@ -663,6 +663,7 @@ const Regular = {
     const left = q.left || [];
     const right = q.right || [];
     const pairs = (answer && typeof answer === 'object') ? answer : {};
+    // Column A: words LEFT of bullet (bullet toward center). Column B: bullet then words.
     const leftHtml = left.map((t, i) => `
       <div class="match-item match-left" data-match-left="${i}" data-qid="${q.id}">
         <span class="match-label">${i + 1}. ${escapeHtml(t)}</span>
@@ -1393,7 +1394,7 @@ const Regular = {
         chip.classList.add('wb-selected');
       });
     });
-    root.querySelectorAll('.cat-col-drop').forEach(zone => {
+    const bindZone = (zone) => {
       zone.style.cursor = 'copy';
       zone.style.pointerEvents = 'auto';
       zone.style.minHeight = '48px';
@@ -1419,7 +1420,10 @@ const Regular = {
         dragId = ''; dragName = '';
         root.querySelectorAll('.cat-item-chip').forEach(c => c.classList.remove('wb-selected'));
       });
-    });
+    };
+    root.querySelectorAll('.cat-col-drop').forEach(bindZone);
+    // Allow returning items to the options bank
+    root.querySelectorAll('.cat-items-pool, .cat-items-scroll, .cat-bank').forEach(bindZone);
   },
 
 

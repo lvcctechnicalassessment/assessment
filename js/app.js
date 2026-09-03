@@ -90,7 +90,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.41</div>
+          <div class="app-version">Build v1.5.42</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -155,7 +155,7 @@ const App = {
     if (role === 'superadmin') this.showDashboard();
     else if (role === 'teacher') this.showDashboard();
     else if (role === 'proctor') this.showProctorHome();
-    else this.showStudentJoinScreen();
+    else this.showDashboard(); // students land on dashboard (not join screen) after login/refresh
   },
 
   toggleMobileNav() {
@@ -219,7 +219,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.41</div>
+              <div class="app-version">v1.5.42</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -2828,6 +2828,166 @@ const App = {
     }
   },
 
+
+  async showSessionsPage() {
+    this.renderShell(`
+      <h2 class="page-title">Sessions</h2>
+      <p class="page-subtitle">Past assessment runs — results and integrity history are kept per session.</p>
+      <div id="sessions-grid" class="table-wrap">Loading…</div>
+    `, 'sessions');
+    try { UI.showLoading('Loading sessions…'); } catch (_) {}
+    try {
+      const uid = Auth.currentUser.uid;
+      let rows = [];
+      try {
+        const snap = await window.db.collection('sessions').where('teacherId', '==', uid).limit(500).get();
+        rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (_) {}
+      if (!rows.length) {
+        try {
+          const exams = await Exam.listMyExams();
+          for (const ex of (exams || []).slice(0, 40)) {
+            try {
+              const ss = await window.db.collection('sessions').where('examId', '==', ex.id).limit(100).get();
+              ss.docs.forEach(d => rows.push({ id: d.id, ...d.data(), _examTitle: ex.title }));
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+      const map = {};
+      rows.forEach(s => {
+        if (s.isMock) return;
+        const run = s.runId || s.sessionWave || s.examId || 'unknown';
+        const key = (s.examId || '') + '|' + run;
+        if (!map[key]) {
+          map[key] = {
+            examId: s.examId,
+            runId: s.runId || null,
+            title: s.examTitle || s._examTitle || 'Assessment',
+            code: s.examCode || '',
+            participants: 0,
+            submitted: 0,
+            date: s.startedAt || s.createdAt || null,
+            sessionIds: []
+          };
+        }
+        map[key].participants += 1;
+        if (s.status === 'submitted' || s.status === 'ended') map[key].submitted += 1;
+        map[key].sessionIds.push(s.id);
+        if (s.examTitle) map[key].title = s.examTitle;
+        const t = s.startedAt || s.createdAt;
+        if (t) map[key].date = t;
+      });
+      const list = Object.values(map).sort((a, b) => {
+        const ta = a.date?.toMillis?.() || a.date || 0;
+        const tb = b.date?.toMillis?.() || b.date || 0;
+        return tb - ta;
+      });
+      const el = document.getElementById('sessions-grid');
+      if (!list.length) {
+        el.innerHTML = '<p class="text-muted">No sessions yet. Publish an assessment and have students take it.</p>';
+        return;
+      }
+      el.innerHTML = `<table class="table sessions-table">
+        <thead><tr><th>Assessment</th><th>Date</th><th>Participants</th><th>Code</th><th>Integrity</th></tr></thead>
+        <tbody>${list.map(r => {
+          const d = r.date?.toDate ? r.date.toDate() : (r.date ? new Date(r.date) : null);
+          const ds = d && !isNaN(d) ? d.toLocaleString() : '—';
+          return `<tr class="sessions-row" data-exam="${r.examId||''}" data-run="${r.runId||''}" style="cursor:pointer">
+            <td><div>${escapeHtml(r.title)}</div><div class="text-muted" style="font-size:0.75rem">${escapeHtml(ds)}</div></td>
+            <td>${escapeHtml(ds)}</td>
+            <td>${r.submitted}/${r.participants}</td>
+            <td>${escapeHtml(r.code || '—')}</td>
+            <td><button type="button" class="btn btn-sm btn-ghost btn-sess-integrity" data-exam="${r.examId||''}">Integrity issues</button></td>
+          </tr>`;
+        }).join('')}</tbody></table>`;
+      el.querySelectorAll('.sessions-row').forEach(tr => {
+        tr.onclick = (e) => {
+          if (e.target.closest('.btn-sess-integrity')) return;
+          const examId = tr.getAttribute('data-exam');
+          if (examId) this.showSessionDetail(examId, tr.getAttribute('data-run'));
+        };
+      });
+      el.querySelectorAll('.btn-sess-integrity').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          this.showSessionIntegrity(btn.getAttribute('data-exam'), '');
+        };
+      });
+    } catch (e) {
+      console.error(e);
+      const el = document.getElementById('sessions-grid');
+      if (el) el.innerHTML = `<p class="text-muted">Could not load sessions: ${escapeHtml(e.message||'')}</p>`;
+    } finally {
+      try { UI.hideLoading(); } catch (_) {}
+    }
+  },
+
+  async showSessionDetail(examId, runId) {
+    try { UI.showLoading('Loading session…'); } catch (_) {}
+    try {
+      const exam = await Exam.getExam(examId);
+      const snap = await window.db.collection('sessions').where('examId', '==', examId).get();
+      let sessions = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => !s.isMock);
+      if (runId) sessions = sessions.filter(s => !s.runId || s.runId === runId);
+      const title = exam?.title || sessions[0]?.examTitle || 'Session';
+      this.renderShell(`
+        <div class="card-header page-header-responsive">
+          <div>
+            <h2 class="page-title">${escapeHtml(title)}</h2>
+            <p class="page-subtitle text-muted">${sessions.length} participant(s)</p>
+          </div>
+          <button class="btn btn-ghost" onclick="App.showSessionsPage()">← Sessions</button>
+        </div>
+        <div class="table-wrap mt-2"><table class="table">
+          <thead><tr><th>Participant</th><th>Status</th><th>Score</th><th>Accuracy</th></tr></thead>
+          <tbody>${sessions.map(s => `<tr>
+            <td>${escapeHtml(s.studentName||s.studentEmail||'—')}<div class="text-muted" style="font-size:0.75rem">${escapeHtml(s.studentEmail||'')}</div></td>
+            <td>${escapeHtml(s.status||'—')}</td>
+            <td>${s.score!=null?s.score:'—'} / ${s.maxScore!=null?s.maxScore:'—'}</td>
+            <td>${s.accuracy!=null?s.accuracy+'%':'—'}</td>
+          </tr>`).join('') || '<tr><td colspan="4">No participants</td></tr>'}</tbody>
+        </table></div>
+      `, 'sessions');
+    } catch (e) {
+      await UI.alert(e.message || String(e), 'Error');
+    } finally {
+      try { UI.hideLoading(); } catch (_) {}
+    }
+  },
+
+  async showSessionIntegrity(examId, runId) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay ui-modal-overlay';
+    overlay.innerHTML = `<div class="modal ui-modal" style="max-width:900px;width:95%;height:90vh;display:flex;flex-direction:column">
+      <h2 style="margin-top:0">Integrity issues</h2>
+      <div id="sess-integrity-body" style="flex:1;overflow-y:auto">Loading…</div>
+      <div class="modal-actions"><button class="btn btn-ghost" id="sess-int-close">Close</button></div>
+    </div>`;
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+    document.getElementById('sess-int-close').onclick = () => overlay.remove();
+    try {
+      const snap = await window.db.collection('integrityHistory').where('examId', '==', examId).limit(500).get();
+      let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+      const body = document.getElementById('sess-integrity-body');
+      if (!items.length) {
+        body.innerHTML = '<p class="text-muted">No integrity issues recorded for this session.</p>';
+        return;
+      }
+      body.innerHTML = `<table class="table"><thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>When</th></tr></thead><tbody>
+        ${items.map(n => {
+          const t = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '—';
+          return `<tr><td>${escapeHtml(n.studentName||'—')}</td><td>${escapeHtml(n.studentEmail||'—')}</td>
+            <td><span class="chip">${escapeHtml(n.type||'')}</span> ${escapeHtml(n.details||'')}</td>
+            <td>${escapeHtml(t)}</td></tr>`;
+        }).join('')}</tbody></table>`;
+    } catch (e) {
+      document.getElementById('sess-integrity-body').innerHTML = `<p>${escapeHtml(e.message||'Error')}</p>`;
+    }
+  },
+
   openLiveDashboard(examId) {
     this.renderShell(`
       <div class="card-header page-header-responsive">
@@ -3237,16 +3397,31 @@ const App = {
       questionsSnapshot: allQ,
       maxScore: allQ.reduce((s, q) => s + (Number(q.points) || 1), 0)
     };
-    // Persist so Mock History can list it
+    // Persist so Mock History can list / view / retake it (strip nested exam to stay under 1MB)
     try {
-      const ref = await window.db.collection('sessions').add({
-        ...sessionLocal,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        startedAt: Date.now()
-      });
+      const payload = {
+        examId: sessionLocal.examId,
+        examTitle: sessionLocal.examTitle,
+        examType: sessionLocal.examType,
+        subject: sessionLocal.subject,
+        status: 'active',
+        isMock: true,
+        studentId: sessionLocal.studentId,
+        studentEmail: sessionLocal.studentEmail,
+        studentName: sessionLocal.studentName,
+        answers: {},
+        endsAt: sessionLocal.endsAt,
+        startedAt: Date.now(),
+        durationMinutes: sessionLocal.durationMinutes,
+        questionsSnapshot: allQ,
+        maxScore: sessionLocal.maxScore,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+      const ref = await window.db.collection('sessions').add(payload);
       sessionLocal.id = ref.id;
     } catch (e) {
       console.warn('mock persist', e);
+      await UI.alert('Could not save mock session: ' + (e.message || e) + '. You can still practice, but history may not list it.', 'Mock');
     }
     // Mock is a real student practice attempt — never instructor testMode
     window._testMode = false;
@@ -3258,23 +3433,82 @@ const App = {
   },
 
   async retakeMock(sessionId) {
-    const snap = await window.db.collection('sessions').doc(sessionId).get();
-    if (!snap.exists) {
-      // local-only mock may not be in DB — rebuild from meta if needed
-      await UI.alert('Could not load that mock. Create a new mock from history.', 'Retake');
-      return;
+    try { UI.showLoading('Preparing retake…'); } catch (_) {}
+    try {
+      const snap = await window.db.collection('sessions').doc(sessionId).get();
+      if (!snap.exists) {
+        await UI.alert('Could not load that mock. Create a new mock from history.', 'Retake');
+        return;
+      }
+      const s = snap.data();
+      let qs = (s.questionsSnapshot || []).map(q => ({ ...q }));
+      if (!qs.length) {
+        await UI.alert('No questions stored for this mock.', 'Retake');
+        return;
+      }
+      for (let i = qs.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [qs[i], qs[j]] = [qs[j], qs[i]];
+      }
+      const title = (s.examTitle || 'Mock') + ' (Retake)';
+      const mins = Number(s.durationMinutes) || Math.max(30, qs.length * 2);
+      // Start directly without re-querying source sessions
+      const mockExam = {
+        id: 'mock_' + Date.now(),
+        title,
+        examType: s.examType || 'regular',
+        subject: 'Mock',
+        sections: [{ id: 'm1', title: 'Mock', instructions: 'Retake — questions randomized.', questions: qs }],
+        questions: qs,
+        durationMinutes: mins
+      };
+      const sessionLocal = {
+        id: 'mock_' + Date.now(),
+        examId: mockExam.id,
+        exam: mockExam,
+        answers: {},
+        status: 'active',
+        isMock: true,
+        examTitle: title,
+        examType: mockExam.examType,
+        subject: 'Mock',
+        endsAt: Date.now() + mins * 60000,
+        startedAt: Date.now(),
+        durationMinutes: mins,
+        studentId: Auth.currentUser.uid,
+        studentEmail: Auth.userProfile.email,
+        studentName: Auth.userProfile.name || '',
+        questionsSnapshot: qs,
+        maxScore: qs.reduce((sum, q) => sum + (Number(q.points) || 1), 0)
+      };
+      try {
+        const ref = await window.db.collection('sessions').add({
+          examId: sessionLocal.examId,
+          examTitle: sessionLocal.examTitle,
+          examType: sessionLocal.examType,
+          subject: 'Mock',
+          status: 'active',
+          isMock: true,
+          studentId: sessionLocal.studentId,
+          studentEmail: sessionLocal.studentEmail,
+          studentName: sessionLocal.studentName,
+          answers: {},
+          endsAt: sessionLocal.endsAt,
+          startedAt: Date.now(),
+          durationMinutes: mins,
+          questionsSnapshot: qs,
+          maxScore: sessionLocal.maxScore,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        sessionLocal.id = ref.id;
+      } catch (e) { console.warn(e); }
+      window._testMode = false;
+      window._isMockExam = true;
+      if (mockExam.examType === 'regular') return this.startRegularExam(sessionLocal);
+      return this.startCodeExam(sessionLocal);
+    } finally {
+      try { UI.hideLoading(); } catch (_) {}
     }
-    const s = snap.data();
-    let qs = s.questionsSnapshot || [];
-    if (!qs.length) {
-      await UI.alert('No questions stored for this mock.', 'Retake');
-      return;
-    }
-    for (let i = qs.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [qs[i], qs[j]] = [qs[j], qs[i]];
-    }
-    await this.startMockFromSessions([sessionId], s.examType || 'regular');
   },
 
 
@@ -3350,12 +3584,13 @@ const App = {
   },
 
   computeAttemptStats(session, exam) {
-    if (session && session.totalQuestions != null && session.correctCount != null) {
-      const total = Number(session.totalQuestions) || 0;
-      const correct = Number(session.correctCount) || 0;
+    if (session && (session.totalQuestions != null || session.correctCount != null) && (session.correctCount != null || session.score != null)) {
+      const total = Number(session.totalQuestions != null ? session.totalQuestions : session.maxScore) || 0;
+      const correct = Number(session.correctCount != null ? session.correctCount : session.score) || 0;
       const incorrect = Number(session.incorrectCount) || 0;
-      const unattempted = Number(session.unattemptedCount) != null ? Number(session.unattemptedCount) : Math.max(0, total - correct - incorrect);
-      return { total, correct, incorrect, unattempted, accuracy: total ? Math.round((correct / total) * 100) : (session.accuracy || 0) };
+      const unattempted = session.unattemptedCount != null ? Number(session.unattemptedCount) : Math.max(0, total - correct - incorrect);
+      const accuracy = session.accuracy != null ? Number(session.accuracy) : (total ? Math.round((correct / total) * 100) : 0);
+      return { total, correct, incorrect, unattempted, accuracy };
     }
     const questions = session.questionsSnapshot?.length
       ? session.questionsSnapshot
@@ -4244,10 +4479,12 @@ const App = {
       // Monitor gate handles fullscreen + capture
       session._testMode = isTest;
       window._testMode = isTest;
-      if (!isTest) {
+      // CRITICAL: dismiss joining blur before gate so Accept is clickable
+      try { if (window.UI) UI.hideLoading(); } catch (_) {}
+      if (!isTest && !window._isMockExam) {
         await Monitor.showEntryGate(session.id, exam.id || examId);
       } else {
-        window._testMode = true;
+        window._testMode = isTest;
         if (window.Monitor) { Monitor.sessionId = session.id; Monitor.examId = exam.id; Monitor.started = true; Monitor.submitting = false; }
       }
       const et = exam.examType || session.examType ||
@@ -4265,6 +4502,7 @@ const App = {
         return this.showStudentHome();
       }
     } catch (err) {
+      try { if (window.UI) UI.hideLoading(); } catch (_) {}
       this.clearExamQuery();
       if (err.code === 'already-submitted') {
         await UI.alert('You already submitted this assessment.', 'Already submitted');
@@ -4272,6 +4510,8 @@ const App = {
       }
       await UI.alert(err.message || String(err), 'Error');
       this.showStudentHome();
+    } finally {
+      try { if (window.UI) UI.hideLoading(); } catch (_) {}
     }
   },
 
@@ -4775,7 +5015,9 @@ const App = {
               <button type="button" class="btn btn-primary section-intro-go" id="section-intro-continue">Ready</button>
             </div>
           </div>`;
+        this._timerPaused = true;
         document.getElementById('section-intro-continue').onclick = () => {
+          this._timerPaused = false;
           window._seenSectionIntro = window._pendingSectionIntro;
           renderTake();
         };
@@ -5217,8 +5459,26 @@ const App = {
   },
 
   _runTimer(session, onExpireExtra) {
-    let endsAt = session.endsAt || Date.now() + 3600000;
+    let endsAt = Number(session.endsAt) || (Date.now() + 3600000);
+    this._timerPaused = false;
+    this._timerPauseStarted = null;
     this._examTimerInterval = setInterval(async () => {
+      // Pause while section instruction is showing
+      if (this._timerPaused) {
+        if (!this._timerPauseStarted) this._timerPauseStarted = Date.now();
+        const el = document.getElementById('exam-timer');
+        if (el) {
+          const remain = Math.max(0, endsAt - Date.now());
+          el.textContent = formatMs(remain);
+          el.classList.remove('timer-warn');
+        }
+        return;
+      }
+      if (this._timerPauseStarted) {
+        endsAt += (Date.now() - this._timerPauseStarted);
+        session.endsAt = endsAt;
+        this._timerPauseStarted = null;
+      }
       const remain = endsAt - Date.now();
       const el = document.getElementById('exam-timer');
       if (el) {

@@ -4595,3 +4595,192 @@ input.fill-inline-text,
   font-size: 1.25rem !important;
   text-align: center !important;
 }
+
+
+/* v1.5.42 Match take layout — bullets in center, labels outside */
+.match-take .match-board,
+.match-board {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 3rem;
+  align-items: stretch;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  min-height: 200px;
+}
+.match-lines {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: none;
+  z-index: 1;
+}
+.match-col {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1rem;
+  z-index: 2;
+  position: relative;
+}
+.match-col-a {
+  align-items: flex-end !important;
+}
+.match-col-b {
+  align-items: flex-start !important;
+}
+.match-item.match-left {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: right !important;
+}
+.match-item.match-left .match-label {
+  order: 1;
+  text-align: right !important;
+  flex: 1;
+}
+.match-item.match-left .match-node {
+  order: 2;
+  flex-shrink: 0;
+}
+.match-item.match-right {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: left !important;
+}
+.match-item.match-right .match-node {
+  order: 1;
+  flex-shrink: 0;
+}
+.match-item.match-right .match-label {
+  order: 2;
+  text-align: left !important;
+}
+.match-node {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px;
+  border-radius: 50% !important;
+  border: 2px solid #3b82f6 !important;
+  background: #0f172a !important;
+  padding: 0 !important;
+  cursor: pointer;
+}
+.match-item.pending .match-node,
+.match-item.selected .match-node,
+.match-item.match-pending .match-node {
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.35);
+  background: #3b82f6 !important;
+}
+
+/* Wordbox blanks: rounded rect, not oval; font matches sentence */
+.wb-inline-drop,
+.wb-student .wb-inline-drop {
+  border-radius: 8px !important;
+  min-height: 1.6em !important;
+  height: auto !important;
+  padding: 0.15em 0.45em !important;
+  font-size: inherit !important;
+  line-height: 1.4 !important;
+  display: inline-flex !important;
+  align-items: center;
+  vertical-align: baseline;
+}
+.wb-bank-cell,
+.wb-chip {
+  display: inline-flex !important;
+  width: auto !important;
+  max-width: 100%;
+  flex: 0 1 auto;
+  white-space: normal !important;
+  word-break: break-word;
+  font-size: inherit !important;
+}
+.wb-bank,
+.wb-bank-grid {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.4rem !important;
+  width: 100%;
+}
+
+/* Categorize 100vh + per-column scroll; return-to-bank */
+.cat-student {
+  height: calc(100vh - 130px) !important;
+  max-height: calc(100dvh - 130px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+.cat-student .cat-board {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  display: flex !important;
+  gap: 0.75rem;
+}
+.cat-student .cat-col {
+  flex: 1 1 0;
+  min-width: 140px;
+  max-height: 100%;
+  overflow-y: auto !important;
+  display: flex;
+  flex-direction: column;
+}
+.cat-student .cat-items-pool {
+  max-height: 30%;
+  overflow-y: auto !important;
+  flex-shrink: 0;
+}
+
+/* Passage panels equal height */
+.passage-take,
+.passage-dual.take {
+  height: calc(100vh - 130px) !important;
+  max-height: calc(100dvh - 130px) !important;
+  overflow: hidden !important;
+}
+.passage-take .passage-left,
+.passage-take .passage-right,
+.passage-doc-scroll,
+.pass-q-list {
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow-y: auto !important;
+}
+
+/* Retro stronger glow like about popup */
+[data-theme="retro"] .take-opt.selected,
+[data-theme="retro"] .gq-option.selected {
+  border: 2px solid #22d3ee !important;
+  box-shadow: 0 0 0 1px #22d3ee, 0 0 24px rgba(34,211,238,0.55), 0 0 8px rgba(34,211,238,0.8) !important;
+}
+[data-theme="retro"] .hist-section,
+[data-theme="retro"] .table-wrap,
+[data-theme="retro"] .attempt-stats {
+  background: transparent !important;
+}
+[data-theme="retro"] .table {
+  font-size: 0.8rem !important;
+}
+[data-theme="retro"] .hist-section .page-title,
+[data-theme="retro"] .hist-head-grid h3 {
+  font-size: 1rem !important;
+}
+
+/* History overview bg matches page */
+.hist-section {
+  background: transparent !important;
+  box-shadow: none !important;
+}

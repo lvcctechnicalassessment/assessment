@@ -400,3 +400,17 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Live dashboard: broader active-session filter so student cards show
 - Table fill copy/paste allowed (target-aware); other pastes log clipboard snippet
 - After submit (assessment + mock) opens result detail view
+
+## v1.5.42
+- Sessions page restored and working
+- Wordbox blanks: rounded rectangle (not oval); font matches sentence; bank chips responsive flex
+- Timer pauses during section instructions; continues without reset/blink per question
+- Categorize: per-column scroll, 100vh fit, drag items back to options bank
+- Passage left/right equal height with independent scroll
+- Match take layout fixed: labels outside, bullets toward center for connecting lines
+- Retro: stronger cyan glow on selected options; history fonts scaled for desktop fit
+- Join assessment: loading blur dismissed before integrity gate (no more stuck overlay)
+- Mock View/Retake: reliable Firestore persist of questionsSnapshot; retake builds new session
+- PDF export always clears "Generating PDF…" overlay; direct download preferred
+- Logged-in refresh routes to Dashboard (not join screen)
+- History stats use stored total/correct/incorrect/unattempted/accuracy with score fallbacks
