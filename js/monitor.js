@@ -97,7 +97,7 @@ const Monitor = {
         const multi = await this.detectMultiMonitor();
         if (multi && !this._mmLocked) {
           this._mmLocked = true;
-          this.recordViolation('second-monitor', true);
+          this.beginViolation('second-monitor', true);
           this.showLockOverlay(
             'A second monitor was detected. Remove the 2nd monitor before returning to the assessment.',
             'Connected 2nd Monitor'
@@ -459,19 +459,86 @@ const Monitor = {
     return { screenHq, cameraHq };
   },
 
-  async recordViolation(type, forceHq = true) {
+  /** Format ms → m:ss or h:mm:ss */
+  _fmtDur(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+    return m + ':' + String(sec).padStart(2,'0');
+  },
+
+  /**
+   * Duration-based integrity: start episode on leave, close on return with mm:ss.
+   * Instant events (paste/copy/right-click) log once with optional clipboard snippet.
+   */
+  async recordViolation(type, forceHq = true, extraIn = {}) {
     if (this.submitting) return;
-    // Grace after join: ignore focus/fullscreen/blur noise for 30s
+    if (window._isMockExam) return;
     const joined = this._joinedAt || 0;
     const grace = this._graceMs || 30000;
-    const soft = ['exited-fullscreen','tab-hidden','outside-assessment','resize','right-click','screen-share-stopped'];
-    if (joined && (Date.now() - joined) < grace && soft.includes(type)) {
+    const soft = ['exited-fullscreen','tab-hidden','outside-assessment','window-blur','resize','right-click','screen-share-stopped','second-monitor'];
+    // Before assessment fully started / grace: never log soft or second-monitor
+    if ((!joined || (Date.now() - joined) < grace) && (soft.includes(type) || type === 'second-monitor' || type === 'multi-monitor')) {
       return;
     }
-    this.violationCount += 1;
     if (!this.sessionId || String(this.sessionId).startsWith('test_')) return;
 
-    let extra = { violationCount: this.violationCount };
+    this._episodes = this._episodes || {};
+    this._episodeSeq = this._episodeSeq || {};
+    const durationTypes = ['tab-hidden','outside-assessment','window-blur','exited-fullscreen','second-monitor','multi-monitor','screen-share-stopped'];
+
+    // Start duration episode (do not log yet)
+    if (durationTypes.includes(type) && extraIn.phase === 'start') {
+      if (this._episodes[type]) return; // already open
+      this._episodes[type] = Date.now();
+      return;
+    }
+
+    // End duration episode → log with duration
+    if (durationTypes.includes(type) && extraIn.phase === 'end') {
+      const start = this._episodes[type];
+      if (!start) return;
+      const ms = Date.now() - start;
+      delete this._episodes[type];
+      if (ms < 800) return; // ignore flicker
+      this._episodeSeq[type] = (this._episodeSeq[type] || 0) + 1;
+      const n = this._episodeSeq[type];
+      this.violationCount += 1;
+      const labels = {
+        'tab-hidden': 'Switched tab / left assessment',
+        'outside-assessment': 'Clicked outside assessment page',
+        'window-blur': 'Clicked outside assessment page',
+        'exited-fullscreen': 'Exited full-screen mode',
+        'second-monitor': 'Connected 2nd monitor',
+        'multi-monitor': 'Connected 2nd monitor',
+        'screen-share-stopped': 'Stopped screen sharing'
+      };
+      const detail = (labels[type] || type) + ' for ' + this._fmtDur(ms) + ' (episode #' + n + ')';
+      let extra = { violationCount: this.violationCount, durationMs: ms, episode: n, ...(extraIn.payload || {}) };
+      if (forceHq) {
+        try {
+          const hq = await this.captureHqBundle();
+          if (hq.screenHq) extra.screenshot = hq.screenHq;
+          if (hq.cameraHq) extra.cameraScreenshot = hq.cameraHq;
+        } catch (_) {}
+      }
+      try { await Exam.logEvent(this.sessionId, type, detail, extra); } catch (_) {}
+      try {
+        if (window.WriteBudget && !WriteBudget.recordWrite(1)) return;
+        await window.db.collection('sessions').doc(this.sessionId).update({
+          violationCount: this.violationCount,
+          lastViolation: type,
+          lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (_) {}
+      return;
+    }
+
+    // Instant events (paste, copy, etc.)
+    this.violationCount += 1;
+    let extra = { violationCount: this.violationCount, ...(extraIn.payload || {}) };
     if (forceHq) {
       try {
         const hq = await this.captureHqBundle();
@@ -479,11 +546,16 @@ const Monitor = {
         if (hq.cameraHq) extra.cameraScreenshot = hq.cameraHq;
       } catch (_) {}
     }
-    try {
-      const detail = type === 'connection-loss' ? 'Left due to loss of connection / poor network' : `Violation #${this.violationCount}`;
-      await Exam.logEvent(this.sessionId, type, detail, extra);
-    } catch (_) {}
-    // bump session fields
+    let detail = type === 'connection-loss'
+      ? 'Left due to loss of connection / poor network'
+      : (extraIn.detail || type);
+    if (type === 'paste' || type === 'copy') {
+      const clip = (extraIn.clipboard || '').slice(0, 500);
+      detail = (type === 'paste' ? 'Pasted content' : 'Copied content')
+        + (clip ? ': "' + clip.replace(/\s+/g, ' ').slice(0, 120) + (clip.length > 120 ? '…' : '') + '"' : '');
+      if (clip) extra.clipboard = clip;
+    }
+    try { await Exam.logEvent(this.sessionId, type, detail, extra); } catch (_) {}
     try {
       if (window.WriteBudget && !WriteBudget.recordWrite(1)) return;
       await window.db.collection('sessions').doc(this.sessionId).update({
@@ -492,6 +564,13 @@ const Monitor = {
         lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
       });
     } catch (_) {}
+  },
+
+  beginViolation(type) {
+    this.recordViolation(type, false, { phase: 'start' });
+  },
+  endViolation(type) {
+    this.recordViolation(type, true, { phase: 'end' });
   },
 
   startLiveFeedFlagWatcher() {
@@ -533,7 +612,7 @@ const Monitor = {
     const onFs = () => {
       if (this.submitting) return;
       if (this.deviceType === 'desktop' && !this.isFullscreen()) {
-        this.recordViolation('exited-fullscreen', true);
+        this.beginViolation('exited-fullscreen');
         this.showLockOverlay('You exited full screen. Return to full screen to continue the assessment.');
       }
     };
@@ -541,10 +620,18 @@ const Monitor = {
     document.addEventListener('webkitfullscreenchange', onFs);
 
     document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        try { this.endViolation('tab-hidden'); } catch (_) {}
+        try { this.endViolation('outside-assessment'); } catch (_) {}
+        try { this.endViolation('window-blur'); } catch (_) {}
+      } else if (document.visibilityState === 'hidden') {
+        try { this.beginViolation('tab-hidden'); } catch (_) {}
+      }
+
       if (this.submitting) return;
       if (document.hidden) {
         this._hiddenAt = Date.now();
-        this.recordViolation('tab-hidden', true);
+        this.beginViolation('tab-hidden');
       } else {
         // Returned to tab — if session still active, allow continue (resume)
         this._hiddenAt = null;
@@ -576,18 +663,32 @@ const Monitor = {
         if (this._uiBusy || this.submitting) return;
         if (document.getElementById('ui-modal-root')?.innerHTML?.trim()) return;
         if (document.querySelector('.ui-modal-overlay, .modal-overlay')) return;
-        this.recordViolation('outside-assessment', true);
+        this.beginViolation('outside-assessment');
       }, 400);
     });
 
     // Copy / paste (regular assessment + global)
+    
+    window.addEventListener('focus', () => {
+      if (this.submitting) return;
+      try { this.endViolation('window-blur'); } catch (_) {}
+      try { this.endViolation('outside-assessment'); } catch (_) {}
+      try { this.endViolation('tab-hidden'); } catch (_) {}
+      try { this.endViolation('exited-fullscreen'); } catch (_) {}
+    });
+    window.addEventListener('blur', () => {
+      if (this.submitting || window._testMode || window._isMockExam) return;
+      if (window.Monitor && Monitor._uiBusy) return;
+      try { this.beginViolation('window-blur'); } catch (_) {}
+    });
+
     document.addEventListener('paste', (e) => {
-      if (this.submitting || window._testMode) return;
-      // Table fill allows calculator ↔ cell copy/paste without integrity flag
-      if (window._tableFillActive) return;
+      if (this.submitting || window._testMode || window._isMockExam) return;
+      const t = e.target;
+      const inTable = !!(t && t.closest && t.closest('.table-fill-take, .tf-calculator, .tf-clip-history, .tf-student-blank, [data-table-fill="1"]'));
+      if (inTable || window._tableFillActive) return; // TABLE FILL ONLY — allowed
       const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
-      const lines = text ? text.split(/\r?\n/).length : 1;
-      this.recordViolation('paste', true);
+      this.recordViolation('paste', true, { clipboard: text, detail: 'Pasted content' });
       try {
         if (window.CodeEditor && CodeEditor._studentPasteWarn) {
           Promise.resolve(CodeEditor._studentPasteWarn()).catch(() => {});
@@ -597,10 +698,14 @@ const Monitor = {
       } catch (_) {}
     }, true);
 
-    document.addEventListener('copy', () => {
-      if (this.submitting || window._testMode) return;
-      if (window._tableFillActive) return;
-      this.recordViolation('copy', true);
+    document.addEventListener('copy', (e) => {
+      if (this.submitting || window._testMode || window._isMockExam) return;
+      const t = e.target;
+      const inTable = !!(t && t.closest && t.closest('.table-fill-take, .tf-calculator, .tf-clip-history, .tf-student-blank, [data-table-fill="1"]'));
+      if (inTable || window._tableFillActive) return;
+      let text = '';
+      try { text = (e.clipboardData || window.clipboardData)?.getData('text') || window.getSelection()?.toString() || ''; } catch (_) {}
+      this.recordViolation('copy', true, { clipboard: text, detail: 'Copied content' });
     }, true);
 
     document.addEventListener('contextmenu', (e) => {
@@ -664,7 +769,7 @@ const Monitor = {
         if (this.deviceType === 'desktop' && !this.stream) {
           const ok = await this.startDesktopCapture();
           if (!ok) {
-            if (window.UI) await UI.alert('Screen share is required to continue.', 'Screen share');
+            if (window.UI) await UI.alert('Screen share is required. If no prompt appears, allow screen sharing for this site (and third-party cookies if blocked) in your browser settings, then try again to continue.', 'Screen share');
             if (btn) { btn.disabled = false; btn.textContent = 'Return to Fullscreen'; }
             return;
           }

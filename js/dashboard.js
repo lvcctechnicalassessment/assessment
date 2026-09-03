@@ -900,9 +900,17 @@ const Dashboard = {
     // In-progress sessions on live board (not submitted/ended/test)
     let list = all.filter(s => {
       if (String(s.id).startsWith('test_')) return false;
+      if (s.isMock) return false;
       const st = String(s.status || 'active').toLowerCase();
-      return st !== 'submitted' && st !== 'ended' && st !== 'graded';
+      if (st === 'submitted' || st === 'ended' || st === 'graded') return false;
+      // Include active / in-progress / missing status / monitoring still on
+      return true;
     });
+    // If still empty but integrity exists, try showing any non-submitted from cache
+    if (!list.length && all.length) {
+      list = all.filter(s => !String(s.id).startsWith('test_') && !s.isMock
+        && String(s.status || '').toLowerCase() !== 'submitted');
+    }
     const q = (this._sessionScreenFilter || '').toLowerCase();
     if (q) {
       list = list.filter(s =>
@@ -912,10 +920,12 @@ const Dashboard = {
     }
     // Instructor: watch only one student's screen (others removed from grid)
     if (this.focusedSessionId) {
-      list = list.filter(s => s.id === this.focusedSessionId);
+      const still = list.some(s => s.id === this.focusedSessionId);
+      if (!still) this.focusedSessionId = null;
+      else list = list.filter(s => s.id === this.focusedSessionId);
     }
     if (!list.length) {
-      grid.innerHTML = '<div class="empty-state">Waiting for students...</div>';
+      grid.innerHTML = '<div class="empty-state">Waiting for students… (no active sessions for this assessment yet)</div>';
       return;
     }
     // Sort by violation count then name (no forced paste-on-top)

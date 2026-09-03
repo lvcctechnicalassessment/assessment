@@ -383,3 +383,20 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Categorize Remove question no longer overlaps items
 - Passage image Wrap Text (MS Word-style options)
 - Student results: accuracy on same stats row; no per-row Question/Response/Correct labels; Match SVG lines; Table fill visual like assessment; Passage at bottom special section
+
+## v1.5.41
+- Integrity: duration-based episodes (mm:ss) instead of duplicate Violation #N; new episode when leave→return→leave again
+- Favicon: LVCC logo on all tabs
+- Loading blur on login, join, mock create, PDF export
+- Results: match/table only in special full-width blocks (not redundant grid rows); match lines connect dots; table visual improved
+- PDF: html2pdf A4 template — full-width navy header, score card, blue section bars, white cards, green correct answers
+- Mock: list modal closes before name/time prompts; loading; no Screen Monitoring cue; timer endsAt fixed; results after submit; recorded in Mock History
+- Match col A: text right-aligned, bullet toward center; categorize centered; retro stronger glow; categorize 100vh
+- Reopen refreshes My Assessments cards live
+- Screen-share: clearer message if prompt blocked
+- Retro login 100vh; integrity rules centered
+- Second monitor during join grace not logged as integrity issue
+- Instructor→student message no longer reappears every question
+- Live dashboard: broader active-session filter so student cards show
+- Table fill copy/paste allowed (target-aware); other pastes log clipboard snippet
+- After submit (assessment + mock) opens result detail view

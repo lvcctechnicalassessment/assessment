@@ -16,6 +16,7 @@ const App = {
 
   async init() {
     Theme.init();
+    try { if (window.UI) UI.showLoading('Signing in…'); } catch (_) {}
     const loading = document.getElementById('loading');
     try {
       const ok = await this.waitForFirebase(8000);
@@ -37,6 +38,7 @@ const App = {
       this.showError(err.message || String(err));
     } finally {
       loading?.classList.add('hidden');
+      try { if (window.UI) UI.hideLoading(); } catch (_) {}
     }
   },
 
@@ -88,7 +90,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.40</div>
+          <div class="app-version">Build v1.5.41</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -217,7 +219,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.40</div>
+              <div class="app-version">v1.5.41</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -2785,6 +2787,12 @@ const App = {
         }
       } catch (_) {}
       await this.showPublishSuccessModal(examId);
+      // Refresh My Assessments cards so Live/Closed/Reopen buttons update without full page reload
+      try {
+        const el = document.getElementById('exams-container');
+        if (el && window.Dashboard && Dashboard.renderMyExams) await Dashboard.renderMyExams(el);
+        else await this.showInstructorHome();
+      } catch (_) {}
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
     }
@@ -3161,15 +3169,22 @@ const App = {
       if (!boxes.length) { await UI.alert('Select at least one assessment.', 'Mock exam'); return; }
       const types = new Set(boxes.map(b => b.getAttribute('data-type')));
       const type = types.has('regular') && !types.has('code') ? 'regular' : (types.has('code') && !types.has('regular') ? 'code' : 'regular');
+      const ids = boxes.map(b => b.getAttribute('data-sid'));
+      // Hide list first so name/time prompts are visible
+      overlay.remove();
       const name = await UI.prompt('Mock exam name:', 'My mock exam', 'Mock exam', 'Name');
       if (name == null) return;
       const mins = await UI.prompt('Time limit (minutes):', '30', 'Mock exam', 'Minutes');
       if (mins == null) return;
-      overlay.remove();
-      await this.startMockFromSessions(boxes.map(b => b.getAttribute('data-sid')), type, {
-        title: String(name).trim() || 'Mock exam',
-        durationMinutes: Math.max(5, Number(mins) || 30)
-      });
+      try { UI.showLoading('Creating mock assessment…'); } catch (_) {}
+      try {
+        await this.startMockFromSessions(ids, type, {
+          title: String(name).trim() || 'Mock exam',
+          durationMinutes: Math.max(5, Number(mins) || 30)
+        });
+      } finally {
+        try { UI.hideLoading(); } catch (_) {}
+      }
     };
   },
 
@@ -3213,7 +3228,9 @@ const App = {
       examTitle: mockExam.title,
       examType: mockExam.examType,
       subject: 'Mock',
-      endsAt: Date.now() + mockExam.durationMinutes * 60000,
+      endsAt: Date.now() + Math.max(5, Number(mockExam.durationMinutes) || 30) * 60000,
+      startedAt: Date.now(),
+      durationMinutes: mockExam.durationMinutes,
       studentId: Auth.currentUser.uid,
       studentEmail: Auth.userProfile.email,
       studentName: Auth.userProfile.name || '',
@@ -3700,11 +3717,13 @@ const App = {
           });
           return;
         }
+        // Mark type so special blocks (match/table/passage) are not also listed in grid sections
         rows.push({
           prompt: this.cleanHistoryPrompt(q.prompt || q.statement || q.sentence || 'Question'),
           response: this.formatAnswerDisplay(q, resp, false),
           correct: this.formatAnswerDisplay(q, null, true),
-          q
+          q,
+          qType: q.type || ''
         });
       });
     });
@@ -3797,6 +3816,42 @@ const App = {
     document.getElementById('export-attempt-pdf').onclick = () => {
       this.downloadAttemptPdf(session, exam, rows);
     };
+    // Connect match result lines after layout
+    requestAnimationFrame(() => this._drawMatchResultLines());
+  },
+
+  _drawMatchResultLines() {
+    document.querySelectorAll('.match-visual-flex').forEach(board => {
+      const svg = board.querySelector('.mres-svg');
+      if (!svg) return;
+      const br = board.getBoundingClientRect();
+      svg.setAttribute('width', br.width);
+      svg.setAttribute('height', br.height);
+      svg.style.position = 'absolute';
+      svg.style.left = '0';
+      svg.style.top = '0';
+      svg.style.width = '100%';
+      svg.style.height = '100%';
+      svg.style.pointerEvents = 'none';
+      svg.innerHTML = '';
+      const pairs = String(board.getAttribute('data-pairs') || '').split(',').filter(Boolean);
+      pairs.forEach(p => {
+        const [li, ri] = p.split(':').map(Number);
+        const a = board.querySelector('.mres-a[data-li="' + li + '"] .mres-dot');
+        const b = board.querySelector('.mres-b[data-ri="' + ri + '"] .mres-dot');
+        if (!a || !b) return;
+        const ar = a.getBoundingClientRect();
+        const bb = b.getBoundingClientRect();
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', ar.left + ar.width / 2 - br.left);
+        line.setAttribute('y1', ar.top + ar.height / 2 - br.top);
+        line.setAttribute('x2', bb.left + bb.width / 2 - br.left);
+        line.setAttribute('y2', bb.top + bb.height / 2 - br.top);
+        line.setAttribute('stroke', '#3b82f6');
+        line.setAttribute('stroke-width', '2.5');
+        svg.appendChild(line);
+      });
+    });
   },
 
   _renderSpecialResultBlocks(session, exam, answers, matchBlocks, passageBlocks, tableBlocks) {
@@ -3811,27 +3866,20 @@ const App = {
         const right = q.right || [];
         const val = answers[q.id];
         // Build SVG connecting lines (like assessment UI)
-        const h = Math.max(left.length, right.length) * 48 + 24;
         const pairs = [];
         left.forEach((a, i) => {
           const ri = val && typeof val === 'object' ? (val[i] != null ? val[i] : val[String(i)]) : null;
-          if (ri != null) pairs.push({ li: i, ri: Number(ri) });
+          if (ri != null && !Number.isNaN(Number(ri))) pairs.push({ li: i, ri: Number(ri) });
         });
-        let lines = '';
-        pairs.forEach(p => {
-          const y1 = 24 + p.li * 48;
-          const y2 = 24 + p.ri * 48;
-          lines += `<line x1="28%" y1="${y1}" x2="72%" y2="${y2}" stroke="#3b82f6" stroke-width="2"/>`;
-        });
-        const leftHtml = left.map((a, i) => `<div class="match-node match-node-l" style="top:${12 + i * 48}px"><span class="match-dot"></span><span>${esc((i+1)+'. '+(a||''))}</span></div>`).join('');
-        const rightHtml = right.map((b, i) => `<div class="match-node match-node-r" style="top:${12 + i * 48}px"><span>${esc(b||'')}</span><span class="match-dot"></span></div>`).join('');
+        const leftHtml = left.map((a, i) => `<div class="mres-item mres-a" data-li="${i}"><span class="mres-text">${esc((i+1)+'. '+(a||''))}</span><span class="mres-dot"></span></div>`).join('');
+        const rightHtml = right.map((b, i) => `<div class="mres-item mres-b" data-ri="${i}"><span class="mres-dot"></span><span class="mres-text">${esc(b||'')}</span></div>`).join('');
+        const pairData = pairs.map(p => p.li + ':' + p.ri).join(',');
         html += `<div class="match-result-block">
           <p class="match-result-instr"><strong>${esc(q.prompt || 'Match')}</strong></p>
-          <p class="text-muted" style="text-align:center;font-size:0.85rem">Click an item in Column A, then click its pair in Column B to match.</p>
-          <div class="match-visual" style="height:${h}px;position:relative">
-            <svg class="match-svg" width="100%" height="${h}" style="position:absolute;left:0;top:0;pointer-events:none">${lines}</svg>
-            <div class="match-col-l">${leftHtml}</div>
-            <div class="match-col-r">${rightHtml}</div>
+          <div class="match-visual-flex" data-pairs="${pairData}">
+            <div class="mres-col mres-col-a">${leftHtml}</div>
+            <svg class="mres-svg"></svg>
+            <div class="mres-col mres-col-b">${rightHtml}</div>
           </div>
         </div>`;
       });
@@ -3938,182 +3986,117 @@ const App = {
 
   async downloadAttemptPdf(session, exam, rows) {
     const title = session.examTitle || exam?.title || 'Assessment Results';
-    const name = session.studentName || '';
-    const email = session.studentEmail || '';
+    const name = session.studentName || session.studentEmail || 'Student';
     const st = this.computeAttemptStats(session, exam);
-    const pct = st.accuracy != null ? st.accuracy : (st.total ? Math.round((st.correct / st.total) * 1000) / 10 : 0);
-    const safe = (s) => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Group rows by section / type for a clean report (no Q1/Q2 labels)
-    const blocks = [];
-    let current = { title: '', items: [] };
-    rows.forEach((r) => {
-      if (r.sectionHeader) {
-        if (current.items.length || current.title) blocks.push(current);
-        current = { title: r.sectionHeader, items: [] };
-      } else {
-        current.items.push(r);
-      }
-    });
-    if (current.items.length || current.title) blocks.push(current);
+    const pct = st.accuracy != null ? st.accuracy : 0;
+    const pctColor = pct >= 70 ? '#16a34a' : (pct >= 40 ? '#f97316' : '#f97316');
+    const safe = (s) => String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    const typeColor = (r) => {
-      const t = (r.qType || r.q?.type || '').toLowerCase();
-      if (t === 'multiple' || t === 'truefalse') return '#3b82f6';
-      if (t === 'fill' || t === 'wordbox') return '#14b8a6';
-      if (t === 'table') return '#8b5cf6';
-      if (t === 'categorize' || t === 'match') return '#f59e0b';
-      if (t === 'essay') return '#64748b';
-      return '#4085C9';
+    // Group by question type for blue bars
+    const typeOrder = ['multiple','truefalse','modified_tf','fill','wordbox','categorize','essay','match','passage','table'];
+    const typeLabel = {
+      multiple: 'Multiple choice', truefalse: 'True or False', modified_tf: 'Modified True or False',
+      fill: 'Fill in the blank', wordbox: 'Word Box', categorize: 'Categorize', essay: 'Open-ended',
+      match: 'Match', passage: 'Passage', table: 'Table fill'
     };
+    const groups = {};
+    rows.forEach(r => {
+      if (r.sectionHeader) return;
+      const t = (r.qType || r.q?.type || 'other').toLowerCase();
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(r);
+    });
+    const ordered = [...typeOrder.filter(t => groups[t]), ...Object.keys(groups).filter(t => !typeOrder.includes(t))];
 
-    try {
-      const jsPDF = await this.ensureJsPdf();
-      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-      const pageW = doc.internal.pageSize.getWidth();
-      const pageH = doc.internal.pageSize.getHeight();
-      const margin = 36;
-      let y = 0;
-
-      const drawPageHeader = (pageNum) => {
-        doc.setFillColor(15, 23, 42); // navy
-        doc.rect(0, 0, pageW, 64, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(14);
-        const hdr = pageNum > 1 ? 'ASSESSMENT RESULTS (continued)' : 'ASSESSMENT RESULTS';
-        doc.text(hdr, margin, 28);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.text(String(name || 'Student'), margin, 48);
-        // badge
-        doc.setFillColor(30, 41, 59);
-        doc.roundedRect(pageW - margin - 118, 18, 110, 22, 10, 10, 'F');
-        doc.setFontSize(8);
-        doc.text('PERSONAL RESULTS ONLY', pageW - margin - 108, 32);
-      };
-      drawPageHeader(1);
-      y = 88;
-      doc.setTextColor(30, 41, 59);
-      doc.setFontSize(12);
-      doc.setFont(undefined, 'bold');
-      doc.text(String(title), margin, y); y += 18;
-      doc.setFont(undefined, 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      if (email) { doc.text(String(email), margin, y); y += 14; }
-
-      // Score card (colored like peer-eval template)
-      y += 6;
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(margin, y, pageW - margin * 2, 64, 10, 10, 'FD');
-      doc.setTextColor(100, 116, 139);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.text('YOUR OVERALL SCORE', margin + 16, y + 20);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(26);
-      doc.setTextColor(15, 23, 42);
-      doc.text(String(st.correct) + ' / ' + String(st.total), margin + 16, y + 48);
-      doc.setFontSize(22);
-      doc.setTextColor(234, 88, 12); // orange %
-      doc.text(String(pct) + '%', pageW - margin - 80, y + 42);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text('of maximum', pageW - margin - 80, y + 56);
-      y += 80;
-
-      doc.setFontSize(9);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Correct: ' + st.correct + '   Incorrect: ' + st.incorrect + '   Unattempted: ' + st.unattempted, margin, y);
-      y += 20;
-
-      const ensureSpace = (need) => {
-        if (y + need > pageH - margin) {
-          doc.addPage();
-          drawPageHeader(doc.internal.getNumberOfPages());
-          y = 88;
-        }
-      };
-
-      blocks.forEach((block) => {
-        if (block.title) {
-          ensureSpace(28);
-          doc.setFillColor(30, 64, 175); // blue section
-          doc.roundedRect(margin, y, pageW - margin * 2, 22, 4, 4, 'F');
-          doc.setTextColor(255, 255, 255);
-          doc.setFontSize(10);
-          doc.setFont(undefined, 'bold');
-          doc.text(String(block.title), margin + 10, y + 15);
-          doc.setFont(undefined, 'normal');
-          y += 30;
-        }
-        block.items.forEach((r) => {
-          const promptLines = doc.splitTextToSize(String(r.prompt || 'Question'), pageW - margin * 2 - 20);
-          const respLines = doc.splitTextToSize('Your response: ' + String(r.response || '—'), pageW - margin * 2 - 20);
-          const corrLines = doc.splitTextToSize('Correct answer: ' + String(r.correct || '—'), pageW - margin * 2 - 20);
-          const boxH = 16 + promptLines.length * 12 + respLines.length * 11 + corrLines.length * 11 + 16;
-          ensureSpace(boxH + 8);
-          const accent = typeColor(r);
-          // parse hex
-          const hx = accent.replace('#', '');
-          const rr = parseInt(hx.slice(0, 2), 16), gg = parseInt(hx.slice(2, 4), 16), bb = parseInt(hx.slice(4, 6), 16);
-          doc.setDrawColor(rr, gg, bb);
-          doc.setFillColor(255, 255, 255);
-          doc.setLineWidth(1.5);
-          doc.roundedRect(margin, y, pageW - margin * 2, boxH, 6, 6, 'FD');
-          doc.setFillColor(rr, gg, bb);
-          doc.rect(margin, y, 4, boxH, 'F');
-          let iy = y + 14;
-          doc.setTextColor(15, 23, 42);
-          doc.setFontSize(10);
-          doc.setFont(undefined, 'bold');
-          doc.text(promptLines, margin + 12, iy);
-          iy += promptLines.length * 12 + 6;
-          doc.setFont(undefined, 'normal');
-          doc.setFontSize(9);
-          doc.setTextColor(51, 65, 85);
-          doc.text(respLines, margin + 12, iy);
-          iy += respLines.length * 11 + 4;
-          doc.setTextColor(22, 163, 74);
-          doc.text(corrLines, margin + 12, iy);
-          y += boxH + 10;
-        });
+    let sectionsHtml = '';
+    ordered.forEach(t => {
+      const items = groups[t] || [];
+      if (!items.length) return;
+      sectionsHtml += `<div class="pdf-section" style="page-break-inside:avoid;break-inside:avoid;margin:16px 0">
+        <div class="pdf-sec-bar" style="background:#1d4ed8;color:#fff;font-weight:700;padding:10px 14px;border-radius:10px 10px 0 0;font-size:13px">${safe(typeLabel[t] || t)}</div>`;
+      items.forEach(r => {
+        sectionsHtml += `<div class="pdf-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;padding:14px 16px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid">
+          <div style="font-weight:600;color:#0f172a;margin-bottom:8px;font-size:13px">${safe(r.prompt || 'Question')}</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:2px">Your response</div>
+          <div style="color:#0f172a;font-size:13px;margin-bottom:8px">${safe(r.response || '—')}</div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:2px">Correct answer</div>
+          <div style="color:#16a34a;font-size:13px;font-weight:500">${safe(r.correct || '—')}</div>
+        </div>`;
       });
+      sectionsHtml += `</div>`;
+    });
 
-      const fname = String(title).replace(/[^\w\-]+/g, '_').slice(0, 40) + '-result-' + String(name).replace(/[^\w\-]+/g, '_').slice(0, 20);
-      doc.save(fname + '.pdf');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+      <link rel="icon" href="assets/lvcc-logo.png"/>
+      <style>
+        @page { size: A4 portrait; margin: 0; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f1f5f9; color: #0f172a; }
+        .hdr { background: #0b1220; color: #fff; padding: 22px 28px; width: 100%; }
+        .hdr h1 { margin: 0; font-size: 18px; letter-spacing: 0.04em; font-weight: 700; }
+        .hdr .sub { margin: 6px 0 0; color: #94a3b8; font-size: 13px; font-weight: 400; }
+        .body { padding: 20px 28px 32px; background: #f1f5f9; }
+        .atitle { font-size: 15px; font-weight: 600; margin: 0 0 14px; color: #0f172a; }
+        .score { display: flex; justify-content: space-between; align-items: center;
+          background: #eef6fb; border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; }
+        .score .lab { font-size: 10px; letter-spacing: 0.06em; color: #64748b; text-transform: uppercase; }
+        .score .big { font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 4px; }
+        .score .pct { font-size: 28px; font-weight: 700; color: ${pctColor}; text-align: right; }
+        .score .ofmax { font-size: 11px; color: #64748b; text-align: right; }
+      </style></head><body>
+      <div class="hdr">
+        <h1>ASSESSMENT RESULTS</h1>
+        <div class="sub">${safe(name)}</div>
+      </div>
+      <div class="body">
+        <div class="atitle">${safe(title)}</div>
+        <div class="score">
+          <div><div class="lab">Your overall score</div><div class="big">${st.correct} / ${st.total}</div></div>
+          <div><div class="pct">${pct}%</div><div class="ofmax">of maximum</div></div>
+        </div>
+        ${sectionsHtml}
+      </div>
+    </body></html>`;
+
+    const fname = 'Assessment_Results_' + String(name).replace(/[^\\w\\-]+/g, '_').slice(0, 40) + '.pdf';
+
+    try { UI.showLoading('Generating PDF…'); } catch (_) {}
+    try {
+      // Prefer html2pdf from CDN
+      if (!window.html2pdf) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+          s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const host = document.createElement('div');
+      host.style.position = 'fixed';
+      host.style.left = '-9999px';
+      host.style.top = '0';
+      host.style.width = '210mm';
+      host.innerHTML = html;
+      document.body.appendChild(host);
+      const opt = {
+        margin: 0,
+        filename: fname,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] }
+      };
+      await window.html2pdf().set(opt).from(host).save();
+      host.remove();
       await UI.alert('PDF downloaded.', 'Export');
     } catch (e) {
       console.error(e);
-      try {
-        const body = `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:800px;margin:0 auto">
-          <div style="background:#0f172a;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0">
-            <h1 style="margin:0;font-size:1.25rem">ASSESSMENT RESULTS</h1>
-            <p style="margin:6px 0 0;opacity:.85">${safe(name)}</p>
-          </div>
-          <div style="border:1px solid #e2e8f0;border-top:0;padding:20px;border-radius:0 0 12px 12px">
-            <h2 style="margin-top:0">${safe(title)}</h2>
-            <div style="display:flex;justify-content:space-between;background:#f8fafc;padding:16px;border-radius:10px;margin:12px 0">
-              <div><div style="font-size:12px;color:#64748b">YOUR OVERALL SCORE</div>
-              <div style="font-size:28px;font-weight:700">${st.correct} / ${st.total}</div></div>
-              <div style="text-align:right;color:#ea580c;font-size:28px;font-weight:700">${pct}%<div style="font-size:11px;color:#64748b">of maximum</div></div>
-            </div>
-            ${blocks.map(b => `
-              ${b.title ? `<div style="background:#1e40af;color:#fff;padding:8px 12px;border-radius:6px;margin:16px 0 8px;font-weight:600">${safe(b.title)}</div>` : ''}
-              ${b.items.map(r => `<div style="border-left:4px solid #4085C9;border:1px solid #e2e8f0;border-left-width:4px;padding:12px;margin:8px 0;border-radius:8px">
-                <div style="font-weight:600;margin-bottom:6px">${safe(r.prompt)}</div>
-                <div style="color:#334155;font-size:14px"><span style="color:#64748b">Your response</span><br/>${safe(r.response)}</div>
-                <div style="color:#16a34a;font-size:14px;margin-top:6px"><span style="color:#64748b">Correct answer</span><br/>${safe(r.correct)}</div>
-              </div>`).join('')}
-            `).join('')}
-          </div></div>`;
-        this.exportHtmlAsPdf('assessment-result', title, body);
-        await UI.alert('Opened printable export (use Print → Save as PDF).', 'Export');
-      } catch (e2) {
-        await UI.alert(e.message || 'Could not export PDF.', 'Export');
-      }
+      // Fallback: open printable HTML with same template
+      this.exportHtmlAsPdf(fname.replace(/\\.pdf$/, ''), title, html);
+      await UI.alert('Opened printable export (use Print → Save as PDF).', 'Export');
+    } finally {
+      try { UI.hideLoading(); } catch (_) {}
     }
   },
 
@@ -4211,6 +4194,7 @@ const App = {
   },
 
   async startStudentExam(examId, opts = {}) {
+    try { if (window.UI) UI.showLoading('Joining assessment…'); } catch (_) {}
     try {
       const isTest = !!opts.testMode;
       // Instructors / superadmins cannot take real assessments
@@ -4405,16 +4389,14 @@ const App = {
         this._showEndedOverlay();
         return;
       }
-      // Reply from paste modal
-      if (s.instructorReply && s.instructorReply !== this._lastInstructorReply) {
-        this._lastInstructorReply = s.instructorReply;
-        await UI.alert(String(s.instructorReply || ''), 'Message from Instructor');
-      }
-      // Chat / reply from instructor (paste reply or message student)
+      // Single path for instructor messages — key by chatPing so progression never re-shows
       const msg = s.lastInstructorMessage || s.instructorReply;
-      if (msg && msg !== this._lastInstructorChat) {
+      const ping = s.chatPing || s.instructorReplyAt?.toMillis?.() || s.instructorReplyAt || null;
+      const key = ping != null ? String(ping) : (msg || '');
+      if (msg && key && key !== this._lastInstructorChatKey) {
+        this._lastInstructorChatKey = key;
         this._lastInstructorChat = msg;
-        this._lastInstructorReply = s.instructorReply || this._lastInstructorReply;
+        this._lastInstructorReply = s.instructorReply || msg;
         await UI.alert(String(msg), 'Message from Instructor');
       }
     });
@@ -4509,6 +4491,7 @@ const App = {
   },
 
   async startRegularExam(session) {
+    try { if (window.UI) UI.hideLoading(); } catch (_) {}
     const isTestSession = !!(session._testMode || window._testMode || String(session.id || '').startsWith('test_'));
     // Resume vs lock: intentional leave requires instructor Admit (not for Test as student)
     if (!isTestSession && session.lockedUntilAdmit && !session.instructorAdmitted) {
@@ -4853,7 +4836,7 @@ const App = {
           <div class="take-topbar">
             <div class="take-progress"><div class="take-progress-bar" style="width:${progress}%"></div></div>
             <div class="take-topbar-meta">
-              <span class="monitor-live-cue" title="Screen monitoring"><span class="monitor-dot"></span> Screen Monitoring Enabled</span>
+              ${!(session.isMock || window._isMockExam) ? '<span class="monitor-live-cue" title="Screen monitoring"><span class="monitor-dot"></span> Screen Monitoring Enabled</span>' : ''}
               <!-- progress count removed (redundant) -->
               <span id="exam-timer" class="timer-badge">--:--</span>
               <button type="button" class="theme-toggle-icon theme-exam-btn" data-theme-toggle onclick="Theme.cycleExamTheme()" aria-label="Theme" title="Theme: Light / Dark / Retro">${(typeof Theme !== 'undefined' ? Theme.icon() : '🌙')}</button>
@@ -5191,6 +5174,36 @@ const App = {
     }
     const isMock = !!(session.isMock || window._isMockExam);
     try { window._isMockExam = false; } catch (_) {}
+    // Persist isMock + score on session so Mock History lists it
+    if (!isTest && session.id && !String(session.id).startsWith('test_')) {
+      try {
+        const exam = session.exam || (session.examId && !String(session.examId).startsWith('mock_') ? await Exam.getExam(session.examId) : null);
+        const st = this.computeAttemptStats({ ...session, answers: answers || {} }, exam || session.exam || { questions: session.questionsSnapshot || [] });
+        const patch = {
+          status: 'submitted',
+          isMock: !!isMock,
+          score: st.correct,
+          maxScore: st.total,
+          accuracy: st.accuracy,
+          correctCount: st.correct,
+          incorrectCount: st.incorrect,
+          unattemptedCount: st.unattempted,
+          totalQuestions: st.total,
+          answers: answers || {},
+          questionsSnapshot: session.questionsSnapshot || [],
+          submittedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await window.db.collection('sessions').doc(session.id).set(patch, { merge: true });
+        session = { ...session, ...patch, answers: answers || {} };
+      } catch (e) { console.warn('finish persist', e); }
+    }
+    // Always open the result detail for this attempt
+    try {
+      if (session.id && !String(session.id).startsWith('test_')) {
+        await this.showStudentAttempt(session.id);
+        return;
+      }
+    } catch (e) { console.warn(e); }
     this.renderShell(`
       <div class="card empty-state times-up-card">
         <h2>${reason === 'time-up' ? "Time's up!" : (isMock ? 'Mock assessment submitted' : 'Assessment submitted')}</h2>
