@@ -17,6 +17,8 @@ const Dashboard = {
   focusedSessionId: null,
 
   clearListeners() {
+    if (this._livePollIv) { try { clearInterval(this._livePollIv); } catch (_) {} this._livePollIv = null; }
+
     this.unsubscribers.forEach(u => u && u());
     this.unsubscribers = [];
   },
@@ -97,9 +99,9 @@ const Dashboard = {
               <div class="assess-meta">
                 <span class="chip">${type}${lang ? ' · ' + lang : ''}</span>
                 <span class="chip">${escapeHtml(ex.subject || 'General')}</span>
-                <span class="chip ${live ? 'chip-ok' : (ex.status === 'draft' ? '' : 'chip-danger')}">${live ? 'Live window open' : (ex.status === 'draft' ? 'Draft' : 'Closed')}</span>
               </div>
               <div class="text-muted" style="font-size:0.8rem;margin-top:0.35rem">${start} → ${end}</div>
+              <div style="margin-top:0.35rem"><span class="chip ${live ? 'chip-ok' : (ex.status === 'draft' ? '' : 'chip-danger')}">${live ? 'Live window open' : (ex.status === 'draft' ? 'Draft' : 'Closed')}</span></div>
             </div>
             <div class="assess-cat-grid">
               <div class="action-group-box">
@@ -186,7 +188,7 @@ const Dashboard = {
           </div>
           ${!isProctor ? `<button class="btn btn-primary" id="btn-extend-all">⏱ Extend all</button>` : ''}
           ${!isProctor ? `<button class="btn btn-danger" id="btn-end-all">End all assessments</button>` : ''}
-          <button class="btn btn-ghost" onclick="App.showTeacherHome()">← Back</button>
+          <button class="btn btn-ghost" onclick="App.showInstructorHome ? App.showInstructorHome() : App.showDashboard()">← Back</button>
         </div>
       </div>
       <div id="integrity-modal-root"></div>
@@ -265,34 +267,50 @@ const Dashboard = {
     this._liveMsgsPrimed = false; // first snapshot only seeds — no popup for old messages
     document.getElementById('student-msg-modal')?.remove();
     document.getElementById('critical-paste-modal')?.remove();
-    const unsub = Exam.listenToSessions(examId, (sessions) => {
-      let list = sessions;
-      if (proctorFilterIds) list = sessions.filter(s => proctorFilterIds.includes(s.studentId));
+    // Merge helper — keeps thumbs and never drops sessions that integrity already saw
+    this._mergeSessions = (incoming) => {
+      const map = {};
+      (this.sessionsCache || []).forEach(s => { if (s && s.id) map[s.id] = s; });
+      (incoming || []).forEach(s => {
+        if (!s || !s.id) return;
+        map[s.id] = { ...(map[s.id] || {}), ...s };
+        if (this._liveThumbs[s.id] && !map[s.id].screenThumb) map[s.id].screenThumb = this._liveThumbs[s.id];
+      });
+      let list = Object.values(map);
+      if (proctorFilterIds) list = list.filter(s => proctorFilterIds.includes(s.studentId));
       if (!this._liveMsgsPrimed) {
-        list.forEach(s => {
-          if (s.chatPing) this._seenStudentMsgs[s.id] = s.chatPing;
-        });
+        list.forEach(s => { if (s.chatPing) this._seenStudentMsgs[s.id] = s.chatPing; });
         this._liveMsgsPrimed = true;
       } else {
         list.forEach(s => {
-          if (this._liveThumbs[s.id] && !s.screenThumb) s.screenThumb = this._liveThumbs[s.id];
           if (s.lastStudentMessage && s.chatPing && this._seenStudentMsgs[s.id] !== s.chatPing) {
             this._seenStudentMsgs[s.id] = s.chatPing;
-            if (s.awaitingAdmit || s.lockedUntilAdmit) {
-              this.showAdmitRequest(s);
-            } else {
-              this.showIncomingStudentMessage(s);
-            }
+            if (s.awaitingAdmit || s.lockedUntilAdmit) this.showAdmitRequest(s);
+            else this.showIncomingStudentMessage(s);
           }
         });
       }
-      list.forEach(s => {
-        if (this._liveThumbs[s.id] && !s.screenThumb) s.screenThumb = this._liveThumbs[s.id];
-      });
       this.sessionsCache = list;
       this._renderSessions(list, exam);
+    };
+
+    // Primary live listener
+    const unsub = Exam.listenToSessions(examId, (sessions) => {
+      this._mergeSessions(sessions);
     });
     this.unsubscribers.push(unsub);
+
+    // Fallback poll if snapshot is empty/slow (permissions, index lag, etc.)
+    const pollOnce = async () => {
+      try {
+        const snap = await window.db.collection('sessions').where('examId', '==', examId).get();
+        this._mergeSessions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.warn('sessions poll', e);
+      }
+    };
+    pollOnce();
+    this._livePollIv = setInterval(pollOnce, 8000);
     // Live screen thumbs collection (optional)
     try {
       const unsubLS = window.db.collection('liveScreens').onSnapshot(snap => {
@@ -318,6 +336,20 @@ const Dashboard = {
 
     // Live integrity from notifications
     const unsubN = Exam.listenToNotifications([examId], (notifs) => {
+      // Pull any session docs referenced by integrity events into the live grid
+      (notifs || []).forEach(n => {
+        const sid = n.sessionId;
+        if (!sid) return;
+        if ((this.sessionsCache || []).some(s => s.id === sid)) return;
+        window.db.collection('sessions').doc(sid).get().then(snap => {
+          if (!snap.exists) return;
+          const data = snap.data() || {};
+          if (data.examId && data.examId !== examId) return;
+          if (this._mergeSessions) {
+            this._mergeSessions([{ id: snap.id, ...data, studentName: data.studentName || n.studentName, studentEmail: data.studentEmail || n.studentEmail }]);
+          }
+        }).catch(() => {});
+      });
       let filtered = notifs;
       if (proctorFilterIds) {
         filtered = notifs.filter(n => {
@@ -897,19 +929,20 @@ const Dashboard = {
     const subEl = document.getElementById('live-submitted-count');
     if (subEl) subEl.textContent = submittedCount + ' submitted';
 
-    // In-progress sessions on live board (not submitted/ended/test)
+    // In-progress sessions on live board
     let list = all.filter(s => {
+      if (!s || !s.id) return false;
       if (String(s.id).startsWith('test_')) return false;
       if (s.isMock) return false;
       const st = String(s.status || 'active').toLowerCase();
       if (st === 'submitted' || st === 'ended' || st === 'graded') return false;
-      // Include active / in-progress / missing status / monitoring still on
+      if (s.monitoringStopped === true && st !== 'active') return false;
       return true;
     });
-    // If still empty but integrity exists, try showing any non-submitted from cache
+    // Fallback: any non-submitted non-mock session for this exam
     if (!list.length && all.length) {
-      list = all.filter(s => !String(s.id).startsWith('test_') && !s.isMock
-        && String(s.status || '').toLowerCase() !== 'submitted');
+      list = all.filter(s => s && s.id && !String(s.id).startsWith('test_') && !s.isMock
+        && !['submitted','ended','graded'].includes(String(s.status || '').toLowerCase()));
     }
     const q = (this._sessionScreenFilter || '').toLowerCase();
     if (q) {

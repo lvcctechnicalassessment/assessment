@@ -92,23 +92,29 @@ const Monitor = {
     if (this._mmIv) return;
     this._mmLocked = false;
     this._mmIv = setInterval(async () => {
-      if (this.submitting || this.stopped) return;
+      if (this.submitting || this.stopped || window._testMode || window._isMockExam) return;
+      // Never lock/count during integrity gate or 30s grace after join
+      const joined = this._joinedAt || 0;
+      const grace = this._graceMs || 30000;
+      if (!joined || (Date.now() - joined) < grace) return;
+      if (!this.started) return;
       try {
         const multi = await this.detectMultiMonitor();
         if (multi && !this._mmLocked) {
           this._mmLocked = true;
-          this.beginViolation('second-monitor', true);
+          this.beginViolation('second-monitor');
           this.showLockOverlay(
-            'A second monitor was detected. Remove the 2nd monitor before returning to the assessment.',
-            'Connected 2nd Monitor'
+            'A second monitor was detected. Remove the 2nd monitor before returning to the assessment.'
           );
         } else if (!multi && this._mmLocked) {
           this._mmLocked = false;
-          this.hideLockOverlay && this.hideLockOverlay();
-          document.getElementById('monitor-gate')?.remove();
-          // remove lock overlay if our type
-          document.querySelectorAll('.monitor-lock-overlay').forEach(el => {
-            if ((el.textContent || '').includes('second monitor') || (el.textContent || '').includes('2nd monitor')) el.remove();
+          try { this.endViolation('second-monitor'); } catch (_) {}
+          const lock = document.getElementById('monitor-lock');
+          if (lock) lock.classList.add('hidden');
+          document.querySelectorAll('.monitor-lock, .monitor-lock-overlay').forEach(el => {
+            if ((el.textContent || '').includes('second monitor') || (el.textContent || '').includes('2nd monitor')) {
+              el.classList.add('hidden');
+            }
           });
         }
       } catch (_) {}
@@ -186,6 +192,7 @@ const Monitor = {
     this.sessionId = sessionId;
     this.examId = examId;
     this.submitting = false;
+    this.stopped = false;
     this.detectDevice();
 
     if (window._testMode || String(sessionId).startsWith('test_')) {
@@ -221,8 +228,10 @@ const Monitor = {
         const btn = document.getElementById('monitor-accept');
         btn.disabled = true;
         btn.textContent = 'Starting…';
-        this._joinedAt = Date.now();
-        try { this.startMultiMonitorWatch(); } catch (_) {}
+        if (!this._joinedAt) this._joinedAt = Date.now();
+        this.started = true;
+        // Delay multi-monitor watch until after grace
+        setTimeout(() => { try { this.startMultiMonitorWatch(); } catch (_) {} }, (this._graceMs || 30000) + 500);
         this._graceMs = 30000; // no join-time false positives
 
         try {
@@ -474,7 +483,7 @@ const Monitor = {
    * Instant events (paste/copy/right-click) log once with optional clipboard snippet.
    */
   async recordViolation(type, forceHq = true, extraIn = {}) {
-    if (this.submitting) return;
+    if (this.submitting || this.stopped) return;
     if (window._isMockExam) return;
     const joined = this._joinedAt || 0;
     const grace = this._graceMs || 30000;
@@ -799,6 +808,14 @@ const Monitor = {
   stop() {
     this.submitting = true;
     this.started = false;
+    this.stopped = true;
+    // Stop multi-monitor polling and any integrity timers
+    if (this._mmIv) {
+      try { clearInterval(this._mmIv); } catch (_) {}
+      this._mmIv = null;
+    }
+    this._mmLocked = false;
+    this._episodes = {};
     if (this.timer) {
       try { clearInterval(this.timer); } catch (_) {}
       this.timer = null;
@@ -811,6 +828,7 @@ const Monitor = {
       try { this._sessionEndUnsub(); } catch (_) {}
       this._sessionEndUnsub = null;
     }
+    // Stop all media tracks (screen share + camera)
     if (this.stream) {
       try { this.stream.getTracks().forEach(tr => tr.stop()); } catch (_) {}
       this.stream = null;
@@ -825,7 +843,7 @@ const Monitor = {
     }
     document.getElementById('monitor-gate')?.remove();
     document.getElementById('monitor-lock')?.remove();
-    // Clear ids last so any in-flight pushLiveThumbs bails out
+    // Clear ids last so any in-flight pushLiveThumbs / recordViolation bails out
     this.sessionId = null;
     this.examId = null;
   }

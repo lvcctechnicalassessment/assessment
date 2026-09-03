@@ -370,7 +370,13 @@ const Exam = {
       .where('examId', '==', examId)
       .onSnapshot(snap => {
         callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      }, err => console.error(err));
+      }, err => {
+        console.error('listenToSessions', err);
+        // Fallback one-shot so live board is not stuck empty
+        window.db.collection('sessions').where('examId', '==', examId).get()
+          .then(snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+          .catch(e2 => { console.error(e2); callback([]); });
+      });
   },
 
   listenToSession(sessionId, callback) {

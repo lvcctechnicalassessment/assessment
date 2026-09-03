@@ -414,3 +414,23 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - PDF export always clears "Generating PDF…" overlay; direct download preferred
 - Logged-in refresh routes to Dashboard (not join screen)
 - History stats use stored total/correct/incorrect/unattempted/accuracy with score fallbacks
+
+## v1.5.43
+- Live window open chip moved below start/end dates (Manage/Monitor/Share stay aligned)
+- Question progress spacing lowered so it is not cut off
+- Join/screenshare/login loop: multi-monitor watch delayed until after grace; no integrity lock on first join for 2nd monitor
+- Categorize + wordbank: drag items back to options/bank pool
+- Wordbank chips: responsive flex, adaptive width; sentence line-height so blanks do not intersect
+- Categorize: 100vh layout with per-column / options scroll
+- Categorize total points auto = items × points per item
+- CRITICAL: Regular.gradeAnswers implemented — correct answers score correctly
+- PDF: direct download preferred; loading overlay always cleared
+- Match take: bullets toward center, labels outside
+- Refresh while logged in → dashboard (LOCAL persistence)
+- Sessions: as-you-type search; per-student integrity view + PDF export; session integrity search
+
+## v1.5.44
+- Live dashboard: resilient session load (snapshot + 8s poll + sessions discovered from integrity events)
+- Live cards show for active sessions on newly published and reopened assessments
+- Monitor.stop clears multi-monitor interval, stops all screen-share tracks, and blocks further integrity writes
+- Submit/end assessment always stops monitoring and screen share

@@ -90,7 +90,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.42</div>
+          <div class="app-version">Build v1.5.44</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -219,7 +219,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.42</div>
+              <div class="app-version">v1.5.44</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -2097,10 +2097,11 @@ const App = {
           const q = (window._builderQuestions || [])[qi];
           if (!q) return;
           q.pointsPerItem = el.value === '' ? null : Number(el.value);
-          if ((q.pointsMode || 'all') === 'each') {
+          if ((q.pointsMode || 'all') === 'each' || q.type === 'categorize') {
             let blankN = 0;
             if (q.type === 'fill' && Array.isArray(q.parts)) blankN = q.parts.filter(p => p.kind === 'blank').length;
             else if (q.type === 'table' && q.cells) blankN = Object.keys(q.cells).filter(k => q.cells[k] && q.cells[k].blank).length;
+            else if (q.type === 'categorize') blankN = (q.items || []).length;
             else if (q.blanks) blankN = q.blanks.length;
             const per = Number(q.pointsPerItem) || 1;
             q.points = blankN * per;
@@ -2833,6 +2834,7 @@ const App = {
     this.renderShell(`
       <h2 class="page-title">Sessions</h2>
       <p class="page-subtitle">Past assessment runs — results and integrity history are kept per session.</p>
+      <input type="search" id="sessions-filter" class="form-control" placeholder="Search by assessment, code, date…" style="max-width:420px;margin-bottom:0.75rem" />
       <div id="sessions-grid" class="table-wrap">Loading…</div>
     `, 'sessions');
     try { UI.showLoading('Loading sessions…'); } catch (_) {}
@@ -2914,6 +2916,15 @@ const App = {
           this.showSessionIntegrity(btn.getAttribute('data-exam'), '');
         };
       });
+      const filterEl = document.getElementById('sessions-filter');
+      if (filterEl) {
+        filterEl.oninput = () => {
+          const q = (filterEl.value || '').toLowerCase();
+          el.querySelectorAll('.sessions-row').forEach(tr => {
+            tr.style.display = !q || (tr.textContent || '').toLowerCase().includes(q) ? '' : 'none';
+          });
+        };
+      }
     } catch (e) {
       console.error(e);
       const el = document.getElementById('sessions-grid');
@@ -2939,16 +2950,27 @@ const App = {
           </div>
           <button class="btn btn-ghost" onclick="App.showSessionsPage()">← Sessions</button>
         </div>
-        <div class="table-wrap mt-2"><table class="table">
-          <thead><tr><th>Participant</th><th>Status</th><th>Score</th><th>Accuracy</th></tr></thead>
-          <tbody>${sessions.map(s => `<tr>
+        <input type="search" id="sess-detail-filter" class="form-control" placeholder="Search student name or email…" style="max-width:420px;margin:0.75rem 0" />
+        <div class="table-wrap mt-2"><table class="table" id="sess-detail-table">
+          <thead><tr><th>Participant</th><th>Status</th><th>Score</th><th>Accuracy</th><th>Integrity</th></tr></thead>
+          <tbody>${sessions.map(s => `<tr class="sess-student-row">
             <td>${escapeHtml(s.studentName||s.studentEmail||'—')}<div class="text-muted" style="font-size:0.75rem">${escapeHtml(s.studentEmail||'')}</div></td>
             <td>${escapeHtml(s.status||'—')}</td>
             <td>${s.score!=null?s.score:'—'} / ${s.maxScore!=null?s.maxScore:'—'}</td>
             <td>${s.accuracy!=null?s.accuracy+'%':'—'}</td>
-          </tr>`).join('') || '<tr><td colspan="4">No participants</td></tr>'}</tbody>
+            <td><button type="button" class="btn btn-sm btn-ghost" data-sid="${s.id}" data-sname="${escapeHtml(s.studentName||'')}" data-semail="${escapeHtml(s.studentEmail||'')}" data-exam="${examId}">View issues</button></td>
+          </tr>`).join('') || '<tr><td colspan="5">No participants</td></tr>'}</tbody>
         </table></div>
       `, 'sessions');
+      document.getElementById('sess-detail-filter')?.addEventListener('input', (e) => {
+        const q = (e.target.value || '').toLowerCase();
+        document.querySelectorAll('.sess-student-row').forEach(tr => {
+          tr.style.display = !q || (tr.textContent || '').toLowerCase().includes(q) ? '' : 'none';
+        });
+      });
+      document.querySelectorAll('[data-sid]').forEach(btn => {
+        btn.onclick = () => this.showStudentSessionIntegrity(btn.getAttribute('data-exam'), btn.getAttribute('data-sid'), btn.getAttribute('data-sname'), btn.getAttribute('data-semail'));
+      });
     } catch (e) {
       await UI.alert(e.message || String(e), 'Error');
     } finally {
@@ -2961,6 +2983,7 @@ const App = {
     overlay.className = 'modal-overlay ui-modal-overlay';
     overlay.innerHTML = `<div class="modal ui-modal" style="max-width:900px;width:95%;height:90vh;display:flex;flex-direction:column">
       <h2 style="margin-top:0">Integrity issues</h2>
+      <input type="search" id="sess-int-filter" class="form-control" placeholder="Search student or issue…" style="margin-bottom:0.5rem" />
       <div id="sess-integrity-body" style="flex:1;overflow-y:auto">Loading…</div>
       <div class="modal-actions"><button class="btn btn-ghost" id="sess-int-close">Close</button></div>
     </div>`;
@@ -2972,17 +2995,33 @@ const App = {
       let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       items.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       const body = document.getElementById('sess-integrity-body');
+      const paint = (list) => {
+        if (!list.length) {
+          body.innerHTML = '<p class="text-muted">No integrity issues recorded for this session.</p>';
+          return;
+        }
+        body.innerHTML = `<table class="table"><thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>When</th></tr></thead><tbody>
+          ${list.map(n => {
+            const t = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '—';
+            return `<tr><td>${escapeHtml(n.studentName||'—')}</td><td>${escapeHtml(n.studentEmail||'—')}</td>
+              <td><span class="chip">${escapeHtml(n.type||'')}</span> ${escapeHtml(n.details||'')}</td>
+              <td>${escapeHtml(t)}</td></tr>`;
+          }).join('')}</tbody></table>`;
+      };
       if (!items.length) {
-        body.innerHTML = '<p class="text-muted">No integrity issues recorded for this session.</p>';
+        paint([]);
         return;
       }
-      body.innerHTML = `<table class="table"><thead><tr><th>Name</th><th>Email</th><th>Issue</th><th>When</th></tr></thead><tbody>
-        ${items.map(n => {
-          const t = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : '—';
-          return `<tr><td>${escapeHtml(n.studentName||'—')}</td><td>${escapeHtml(n.studentEmail||'—')}</td>
-            <td><span class="chip">${escapeHtml(n.type||'')}</span> ${escapeHtml(n.details||'')}</td>
-            <td>${escapeHtml(t)}</td></tr>`;
-        }).join('')}</tbody></table>`;
+      paint(items);
+      document.getElementById('sess-int-filter')?.addEventListener('input', (e) => {
+        const q = (e.target.value || '').toLowerCase();
+        paint(!q ? items : items.filter(n =>
+          (n.studentName||'').toLowerCase().includes(q) ||
+          (n.studentEmail||'').toLowerCase().includes(q) ||
+          (n.type||'').toLowerCase().includes(q) ||
+          (n.details||'').toLowerCase().includes(q)
+        ));
+      });
     } catch (e) {
       document.getElementById('sess-integrity-body').innerHTML = `<p>${escapeHtml(e.message||'Error')}</p>`;
     }
@@ -3584,6 +3623,67 @@ const App = {
   },
 
   computeAttemptStats(session, exam) {
+    const questions = session.questionsSnapshot?.length
+      ? session.questionsSnapshot
+      : (exam ? (typeof Regular.flattenQuestions === 'function' ? Regular.flattenQuestions(exam) : (exam.questions || [])) : []);
+    const answers = session.answers || {};
+    // Prefer live grade when we have questions + answers
+    if (questions.length && typeof Regular.gradeAnswers === 'function') {
+      let correct = 0, incorrect = 0, unattempted = 0;
+      const total = questions.length;
+      questions.forEach(q => {
+        if (!q) return;
+        if (q.type === 'essay' || q.type === 'open') {
+          const resp = answers[q.id];
+          const empty = resp === undefined || resp === null || resp === '';
+          if (empty) unattempted++;
+          else unattempted++; // essay counted as unscored
+          return;
+        }
+        // passage: count nested
+        if ((q.type === 'passage' || q.isPassageSet) && Array.isArray(q.questions)) {
+          q.questions.forEach(nq => {
+            const r = Regular._gradeOne(nq, answers[nq.id]);
+            if (r.skipped || (answers[nq.id] === undefined || answers[nq.id] === null || answers[nq.id] === '')) {
+              if (answers[nq.id] === undefined || answers[nq.id] === null || answers[nq.id] === '') unattempted++;
+              else unattempted++;
+            } else if (r.ok) correct++;
+            else incorrect++;
+          });
+          return;
+        }
+        if (q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
+          q.questions.forEach(kq => {
+            const r = Regular._gradeOne({ ...kq, type: 'wordbox', blanks: kq.blanks }, answers[kq.id] ?? answers[q.id]);
+            const resp = answers[kq.id] ?? answers[q.id];
+            const empty = resp === undefined || resp === null || resp === '' ||
+              (typeof resp === 'object' && !Object.keys(resp || {}).length);
+            if (empty) unattempted++;
+            else if (r.ok) correct++;
+            else incorrect++;
+          });
+          return;
+        }
+        const resp = answers[q.id];
+        const empty = resp === undefined || resp === null || resp === '' ||
+          (Array.isArray(resp) && !resp.length) ||
+          (typeof resp === 'object' && !Array.isArray(resp) && !Object.keys(resp).length);
+        if (empty) { unattempted++; return; }
+        const r = Regular._gradeOne(q, resp);
+        if (r.ok) correct++;
+        else incorrect++;
+      });
+      // Recount total for nested
+      let totalCount = 0;
+      questions.forEach(q => {
+        if ((q.type === 'passage' || q.isPassageSet) && Array.isArray(q.questions)) totalCount += q.questions.length;
+        else if (q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) totalCount += q.questions.length;
+        else totalCount += 1;
+      });
+      const accuracy = totalCount ? Math.round((correct / totalCount) * 100) : 0;
+      return { total: totalCount, correct, incorrect, unattempted, accuracy };
+    }
+    // Fallback to stored fields
     if (session && (session.totalQuestions != null || session.correctCount != null) && (session.correctCount != null || session.score != null)) {
       const total = Number(session.totalQuestions != null ? session.totalQuestions : session.maxScore) || 0;
       const correct = Number(session.correctCount != null ? session.correctCount : session.score) || 0;
@@ -3592,10 +3692,6 @@ const App = {
       const accuracy = session.accuracy != null ? Number(session.accuracy) : (total ? Math.round((correct / total) * 100) : 0);
       return { total, correct, incorrect, unattempted, accuracy };
     }
-    const questions = session.questionsSnapshot?.length
-      ? session.questionsSnapshot
-      : (exam ? (typeof Regular.flattenQuestions === 'function' ? Regular.flattenQuestions(exam) : (exam.questions || [])) : []);
-    const answers = session.answers || {};
     let correct = 0, incorrect = 0, unattempted = 0, total = questions.length;
     if (!total && session.code != null) {
       // code assessment single item
@@ -5376,6 +5472,8 @@ const App = {
     // Always kill live uploads first (protects Spark write quota)
     try { if (window.Monitor) Monitor.markSubmitting(); } catch (_) {}
     try { if (window.Monitor) Monitor.stop(); } catch (_) {}
+    // Ensure screen share tracks end and integrity writing stops
+    try { if (window.Monitor && Monitor.stream) Monitor.stream.getTracks().forEach(t => t.stop()); } catch (_) {}
     try { CodeEditor.beginSubmit(); } catch (_) {}
     const isTest = !!(session._testMode || window._testMode || String(session.id).startsWith('test_'));
     if (!isTest) {

@@ -4784,3 +4784,157 @@ input.fill-inline-text,
   background: transparent !important;
   box-shadow: none !important;
 }
+
+
+/* v1.5.43 */
+.take-progress, .question-progress, #take-progress, .exam-take-progress {
+  margin-top: 0.75rem !important;
+  padding-top: 0.25rem;
+  position: relative;
+  z-index: 2;
+}
+.exam-take-topbar {
+  padding-bottom: 0.5rem;
+}
+
+/* Wordbank chips responsive flex */
+.wb-bank-table, .wb-bank, .wb-bank-scroll {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.5rem !important;
+  width: 100% !important;
+  align-content: flex-start;
+}
+.wb-chip, .wb-bank-cell {
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  width: auto !important;
+  min-width: 2.5rem;
+  max-width: 100%;
+  white-space: normal !important;
+  word-break: break-word;
+  padding: 0.35rem 0.65rem !important;
+  border-radius: 8px !important;
+  font-size: 1em !important;
+  line-height: 1.35 !important;
+}
+.wb-inline-drop, .wb-drop-zone {
+  border-radius: 8px !important;
+  min-height: 1.55em !important;
+  height: auto !important;
+  padding: 0.12em 0.5em !important;
+  margin: 0 0.15em;
+  vertical-align: baseline;
+}
+/* sentence line height so blanks don't intersect */
+.wb-sentence, .wb-student-sentence, .wb-dual .wb-right p, .wb-q-sentence {
+  line-height: 2.1 !important;
+  font-size: 1.05em;
+}
+
+/* Categorize fixed 100vh panels with individual scroll */
+.cat-student {
+  height: calc(100vh - 140px) !important;
+  max-height: calc(100dvh - 140px) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.cat-student-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex !important;
+  gap: 0.75rem;
+  overflow: hidden !important;
+}
+.cat-options-panel {
+  flex: 0 0 28%;
+  max-width: 280px;
+  min-width: 140px;
+  overflow-y: auto !important;
+  max-height: 100%;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 0.5rem;
+}
+.cat-board {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex !important;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-height: 100%;
+}
+.cat-col {
+  flex: 1 1 0;
+  min-width: 130px;
+  max-height: 100%;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+}
+.cat-col-drop {
+  flex: 1 1 auto;
+  overflow-y: auto !important;
+  min-height: 48px;
+  padding: 0.5rem;
+}
+
+/* Match: words left of A bullets, right of B bullets, bullets center */
+.match-board {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 2.5rem !important;
+  position: relative;
+  max-width: 860px;
+  margin: 0 auto;
+}
+.match-col-a { align-items: flex-end !important; }
+.match-col-b { align-items: flex-start !important; }
+.match-item.match-left {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  gap: 0.6rem;
+  width: 100%;
+}
+.match-item.match-left .match-label { order: 1; text-align: right !important; }
+.match-item.match-left .match-node { order: 2; }
+.match-item.match-right {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: 0.6rem;
+  width: 100%;
+}
+.match-item.match-right .match-node { order: 1; }
+.match-item.match-right .match-label { order: 2; text-align: left !important; }
+
+/* PDF generating overlay safety */
+.ui-loading-overlay, .loading-overlay {
+  z-index: 99999;
+}
+
+/* v1.5.44 live cards always visible when sessions exist */
+.live-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+  align-content: start;
+  min-height: 120px;
+}
+.live-grid .session-card,
+.live-grid .live-card {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+.live-main {
+  min-height: 200px;
+  overflow-y: auto;
+}

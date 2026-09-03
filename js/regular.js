@@ -1346,6 +1346,39 @@ const Regular = {
         }
       });
     });
+ 
+    // Allow returning a word to the bank
+    root.querySelectorAll('.wb-bank-table, .wb-bank, .wb-bank-title').forEach(zone => {
+      zone.addEventListener('dragover', (e) => { e.preventDefault(); });
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        let word = '';
+        try { word = (e.dataTransfer.getData('text/plain') || '').trim(); } catch (_) {}
+        if (!word) word = dragWord;
+        if (!word) return;
+        root.querySelectorAll('.wb-inline-drop.filled, .wb-drop-zone.filled').forEach(z => {
+          if ((z.textContent || '').trim() === word) {
+            z.classList.remove('filled');
+            z.innerHTML = '<span class="wb-placeholder">&nbsp;</span>';
+          }
+        });
+        const bank = root.querySelector('.wb-bank-table') || root.querySelector('.wb-bank');
+        if (bank && !bank.querySelector('[data-word="' + word.replace(/"/g, '') + '"]')) {
+          const chip = document.createElement('div');
+          chip.className = 'wb-chip wb-bank-cell';
+          chip.setAttribute('draggable', 'true');
+          chip.setAttribute('data-word', word);
+          chip.textContent = word;
+          bank.appendChild(chip);
+          chip.addEventListener('dragstart', (ev) => {
+            dragWord = word;
+            try { ev.dataTransfer.setData('text/plain', word); } catch (_) {}
+          });
+        }
+        dragWord = '';
+        if (typeof onChange === 'function') onChange();
+      });
+    });
   },
 
   bindCategorizeDrag(root, onChange) {
@@ -1423,7 +1456,9 @@ const Regular = {
     };
     root.querySelectorAll('.cat-col-drop').forEach(bindZone);
     // Allow returning items to the options bank
-    root.querySelectorAll('.cat-items-pool, .cat-items-scroll, .cat-bank').forEach(bindZone);
+    root.querySelectorAll('.cat-items-pool, .cat-items-scroll, .cat-bank, .cat-options-panel, .cat-options-title').forEach(bindZone);
+    // Also make options panel itself a drop target for return-to-pool
+    root.querySelectorAll('.cat-options-panel').forEach(bindZone);
   },
 
 
@@ -1448,6 +1483,223 @@ const Regular = {
       exam.questions.forEach(push);
     }
     return out;
+  },
+
+
+  /** Normalize text for answer comparison (case-insensitive, trim, collapse spaces) */
+  normAns(s) {
+    return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+  },
+
+  /** True if student value matches correct or any alternative */
+  matchesCorrect(student, correct, alternatives) {
+    const s = this.normAns(student);
+    if (!s) return false;
+    const list = [];
+    if (Array.isArray(correct)) correct.forEach(c => list.push(c));
+    else if (correct != null && correct !== '') list.push(correct);
+    (alternatives || []).forEach(a => list.push(a));
+    return list.some(c => this.normAns(c) === s);
+  },
+
+  /**
+   * Grade a set of questions against student answers.
+   * Returns { score, maxScore, details: [{id, earned, max, correct}] }
+   */
+  gradeAnswers(questions, answers) {
+    answers = answers || {};
+    let score = 0;
+    let maxScore = 0;
+    const details = [];
+    const qs = Array.isArray(questions) ? questions : [];
+    qs.forEach(q => {
+      if (!q) return;
+      // Expand passage nested questions
+      if ((q.type === 'passage' || q.isPassageSet) && Array.isArray(q.questions)) {
+        const nested = this.gradeAnswers(q.questions, answers);
+        score += nested.score;
+        maxScore += nested.maxScore;
+        details.push(...(nested.details || []));
+        return;
+      }
+      // Wordbox multi-child questions
+      if (q.type === 'wordbox' && Array.isArray(q.questions) && q.questions.length) {
+        q.questions.forEach(kq => {
+          const r = this._gradeOne({ ...kq, type: 'wordbox', bank: q.bank, blanks: kq.blanks }, answers[kq.id] ?? answers[q.id]);
+          score += r.earned;
+          maxScore += r.max;
+          details.push({ id: kq.id, earned: r.earned, max: r.max, correct: r.ok });
+        });
+        return;
+      }
+      const r = this._gradeOne(q, answers[q.id]);
+      score += r.earned;
+      maxScore += r.max;
+      details.push({ id: q.id, earned: r.earned, max: r.max, correct: r.ok });
+    });
+    return { score, maxScore, details };
+  },
+
+  _gradeOne(q, resp) {
+    const pts = Number(q.points) || 1;
+    const empty = resp === undefined || resp === null || resp === '' ||
+      (Array.isArray(resp) && !resp.length) ||
+      (typeof resp === 'object' && !Array.isArray(resp) && !Object.keys(resp).length);
+    if (q.type === 'essay' || q.type === 'open') {
+      // not auto-scored
+      return { earned: 0, max: pts, ok: false, skipped: true };
+    }
+    if (empty) return { earned: 0, max: pts, ok: false };
+
+    // Multiple choice
+    if (q.type === 'multiple' || q.type === 'mc' || q.type === 'truefalse' || q.type === 'tf') {
+      const multi = !!q.multiCorrect || Array.isArray(q.correct);
+      if (multi) {
+        const correctSet = new Set((Array.isArray(q.correct) ? q.correct : [q.correct]).map(Number));
+        const studentSet = new Set((Array.isArray(resp) ? resp : [resp]).map(Number));
+        if (q.pointsMode === 'each') {
+          const per = Number(q.pointsPerItem) || 1;
+          let earned = 0;
+          let max = correctSet.size * per;
+          correctSet.forEach(i => { if (studentSet.has(i)) earned += per; });
+          // wrong selections deduct? keep simple: only reward correct picks
+          return { earned, max: max || pts, ok: earned >= max && max > 0 };
+        }
+        // all-or-nothing
+        let ok = correctSet.size === studentSet.size;
+        if (ok) correctSet.forEach(i => { if (!studentSet.has(i)) ok = false; });
+        return { earned: ok ? pts : 0, max: pts, ok };
+      }
+      const c = Number(Array.isArray(q.correct) ? q.correct[0] : q.correct);
+      const s = Number(Array.isArray(resp) ? resp[0] : resp);
+      const ok = !Number.isNaN(c) && c === s;
+      return { earned: ok ? pts : 0, max: pts, ok };
+    }
+
+    if (q.type === 'modified_tf' || q.type === 'modified') {
+      const tfOk = Number(resp?.tf) === Number(q.correct);
+      const textOk = this.matchesCorrect(resp?.text || resp?.correction || '', q.correction || q.correctText, q.alternatives);
+      // 1pt TF + 1pt text when pointsMode split, else full
+      if ((q.pointsMode || 'split') === 'split') {
+        const earned = (tfOk ? 1 : 0) + (Number(q.correct) === 0 ? (textOk ? 1 : 0) : (tfOk ? 1 : 0));
+        // if True is correct, only TF matters for full 2? keep 1+1
+        const max = 2;
+        return { earned: Math.min(earned, max), max, ok: earned >= max };
+      }
+      const ok = tfOk && (Number(q.correct) !== 0 || textOk);
+      return { earned: ok ? pts : 0, max: pts, ok };
+    }
+
+    // Fill / wordbox blanks
+    if (q.type === 'fill' || q.type === 'wordbox') {
+      let blanks = q.blanks || [];
+      if (!blanks.length && q.sentence) {
+        let n = 0;
+        String(q.sentence).replace(/\{([^{}]+)\}/g, (_, w) => {
+          n += 1;
+          blanks.push({ id: String(n), correct: String(w).trim(), alternatives: [] });
+          return _;
+        });
+      }
+      if (!blanks.length) return { earned: 0, max: pts, ok: false };
+      const ans = (resp && typeof resp === 'object' && !Array.isArray(resp)) ? resp : {};
+      // flatten nested
+      const flat = {};
+      Object.entries(ans).forEach(([k, v]) => {
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          Object.entries(v).forEach(([bk, bv]) => { flat[bk] = bv; });
+        } else flat[k] = v;
+      });
+      let right = 0;
+      blanks.forEach(b => {
+        const student = flat[b.id] ?? flat['b' + b.id] ?? flat[String(b.id)] ?? '';
+        const corr = Array.isArray(b.correct) ? b.correct : [b.correct];
+        const alts = b.alternatives || (Array.isArray(b.correct) ? b.correct.slice(1) : []);
+        if (this.matchesCorrect(student, corr[0], [...corr.slice(1), ...alts])) right++;
+      });
+      if ((q.pointsMode || 'all') === 'each') {
+        const per = Number(q.pointsPerItem) || 1;
+        const earned = right * per;
+        const max = blanks.length * per;
+        return { earned, max, ok: right === blanks.length };
+      }
+      const ok = right === blanks.length;
+      return { earned: ok ? pts : 0, max: pts, ok };
+    }
+
+    // Categorize: answer map itemId -> categoryId
+    if (q.type === 'categorize') {
+      const items = q.items || [];
+      if (!items.length) return { earned: 0, max: pts, ok: false };
+      const ans = (resp && typeof resp === 'object') ? resp : {};
+      let right = 0;
+      items.forEach(it => {
+        const studentCat = ans[it.id] ?? ans[it.name];
+        const expected = it.category ?? it.categoryId ?? it.answer;
+        if (studentCat != null && expected != null && String(studentCat) === String(expected)) right++;
+        else if (studentCat != null && expected != null && this.normAns(studentCat) === this.normAns(expected)) right++;
+      });
+      if ((q.pointsMode || 'each') === 'each' || q.pointsPerItem != null) {
+        const per = Number(q.pointsPerItem) || 1;
+        const earned = right * per;
+        const max = items.length * per;
+        return { earned, max, ok: right === items.length };
+      }
+      const ok = right === items.length;
+      return { earned: ok ? pts : 0, max: pts, ok };
+    }
+
+    // Match: answer map leftIndex -> rightIndex; correct is array of right indices
+    if (q.type === 'match') {
+      const left = q.left || [];
+      const correct = Array.isArray(q.correct) ? q.correct : [];
+      const ans = (resp && typeof resp === 'object') ? resp : {};
+      let right = 0;
+      left.forEach((_, i) => {
+        const student = ans[i] != null ? ans[i] : ans[String(i)];
+        if (student == null) return;
+        const expected = correct[i];
+        if (Number(student) === Number(expected)) right++;
+      });
+      const per = 1;
+      const max = left.length * per;
+      const earned = right * per;
+      // if points set, scale
+      if (q.points && left.length) {
+        const scale = pts / left.length;
+        return { earned: right * scale, max: pts, ok: right === left.length };
+      }
+      return { earned, max, ok: right === left.length };
+    }
+
+    // Table fill: cells map "r-c" -> value
+    if (q.type === 'table' || q.type === 'tablefill') {
+      const cells = q.cells || {};
+      const blanks = Object.keys(cells).filter(k => cells[k] && cells[k].blank);
+      if (!blanks.length) return { earned: 0, max: pts, ok: true };
+      const ans = (resp && typeof resp === 'object') ? resp : {};
+      let right = 0;
+      blanks.forEach(key => {
+        const cell = cells[key] || {};
+        const student = ans[key] ?? ans[key.replace('-', '_')] ?? '';
+        const corr = Array.isArray(cell.correct) ? cell.correct : [cell.correct];
+        const alts = cell.alternatives || [];
+        if (this.matchesCorrect(student, corr[0], [...corr.slice(1), ...alts])) right++;
+      });
+      if ((q.pointsMode || 'all') === 'each') {
+        const per = Number(q.pointsPerItem) || 1;
+        return { earned: right * per, max: blanks.length * per, ok: right === blanks.length };
+      }
+      const ok = right === blanks.length;
+      return { earned: ok ? pts : 0, max: pts, ok };
+    }
+
+    // Fallback: string compare
+    if (typeof resp === 'string' || typeof resp === 'number') {
+      const ok = this.matchesCorrect(resp, q.correct, q.alternatives);
+      return { earned: ok ? pts : 0, max: pts, ok };
+    }
+    return { earned: 0, max: pts, ok: false };
   },
 
   /**
