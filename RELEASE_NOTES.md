@@ -434,3 +434,8 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - Live cards show for active sessions on newly published and reopened assessments
 - Monitor.stop clears multi-monitor interval, stops all screen-share tracks, and blocks further integrity writes
 - Submit/end assessment always stops monitoring and screen share
+
+## v1.5.45
+- FIXED: View issues on session detail — full integrity table with thumbnails + direct PDF export (jsPDF)
+- FIXED: Live dashboard sessions — immediate get + snapshot + 5s poll (simple applySessions, no broken merge)
+- FIXED: PDF export uses jsPDF only — direct download, no print dialog / new tab; loading overlay always cleared

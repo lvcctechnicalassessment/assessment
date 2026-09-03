@@ -90,7 +90,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.44</div>
+          <div class="app-version">Build v1.5.45</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -219,7 +219,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.44</div>
+              <div class="app-version">v1.5.45</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -2978,6 +2978,176 @@ const App = {
     }
   },
 
+
+  async showStudentSessionIntegrity(examId, sessionId, studentName, studentEmail) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay ui-modal-overlay';
+    overlay.id = 'stu-int-overlay';
+    overlay.innerHTML = `<div class="modal ui-modal" style="max-width:960px;width:95%;height:90vh;display:flex;flex-direction:column">
+      <h2 style="margin-top:0;text-align:center">Integrity — ${escapeHtml(studentName || studentEmail || 'Student')}</h2>
+      <input type="search" id="stu-int-filter" class="form-control" placeholder="Filter issues…" style="margin-bottom:0.5rem" />
+      <div id="stu-int-body" style="flex:1;overflow-y:auto">Loading…</div>
+      <div class="modal-actions" style="display:flex;gap:0.5rem;justify-content:flex-end">
+        <button class="btn btn-primary" id="stu-int-export">Export PDF</button>
+        <button class="btn btn-ghost" id="stu-int-close">Close</button>
+      </div>
+    </div>`;
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+    document.getElementById('stu-int-close').onclick = () => overlay.remove();
+
+    let items = [];
+    try {
+      // integrityHistory
+      try {
+        const snap = await window.db.collection('integrityHistory').where('examId', '==', examId).limit(500).get();
+        snap.docs.forEach(d => {
+          const n = { id: d.id, ...d.data() };
+          if (n.sessionId === sessionId || (studentEmail && n.studentEmail === studentEmail)) items.push(n);
+        });
+      } catch (_) {}
+      // notifications
+      try {
+        const snap = await window.db.collection('notifications').where('examId', '==', examId).limit(500).get();
+        snap.docs.forEach(d => {
+          const n = { id: d.id, ...d.data() };
+          if (n.sessionId === sessionId || (studentEmail && n.studentEmail === studentEmail)) items.push(n);
+        });
+      } catch (_) {}
+      // session.events
+      try {
+        const ss = await window.db.collection('sessions').doc(sessionId).get();
+        if (ss.exists) {
+          const s = ss.data() || {};
+          (s.events || []).forEach((e, i) => {
+            items.push({
+              id: sessionId + '_ev_' + i,
+              sessionId,
+              examId,
+              studentName: s.studentName || studentName,
+              studentEmail: s.studentEmail || studentEmail,
+              type: e.type,
+              details: e.details,
+              createdAt: e.timestamp || e.createdAt,
+              screenshot: e.screenshot || e.extra?.screenshot,
+              extra: e
+            });
+          });
+        }
+      } catch (_) {}
+      // dedupe
+      const seen = new Set();
+      items = items.filter(n => {
+        const key = n.id || ((n.type || '') + (n.details || '') + (n.createdAt?.toMillis?.() || n.createdAt || ''));
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      items.sort((a, b) => (b.createdAt?.toMillis?.() || Date.parse(b.createdAt || 0) || 0) - (a.createdAt?.toMillis?.() || Date.parse(a.createdAt || 0) || 0));
+    } catch (e) {
+      document.getElementById('stu-int-body').innerHTML = `<p>${escapeHtml(e.message || 'Error')}</p>`;
+      return;
+    }
+
+    const paint = (list) => {
+      const body = document.getElementById('stu-int-body');
+      if (!body) return;
+      if (!list.length) {
+        body.innerHTML = '<p class="text-muted">No integrity issues for this student.</p>';
+        return;
+      }
+      body.innerHTML = `<div class="table-wrap"><table class="table">
+        <thead><tr><th>Thumb</th><th>Name</th><th>Email</th><th>Issue</th><th>Details</th><th>When</th></tr></thead>
+        <tbody>${list.map(n => {
+          const t = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
+            : (n.createdAt ? new Date(n.createdAt).toLocaleString() : '—');
+          const shot = n.screenshot || n.extra?.screenshot || '';
+          const thumb = shot
+            ? `<img src="${shot}" alt="" style="width:64px;height:40px;object-fit:cover;border-radius:4px;cursor:pointer" onclick="UI.showImage && UI.showImage(this.src,'Screenshot')" />`
+            : '—';
+          const issue = this.integrityTypeLabel(n.type) || n.type || '';
+          return `<tr>
+            <td>${thumb}</td>
+            <td>${escapeHtml(n.studentName || studentName || '—')}</td>
+            <td>${escapeHtml(n.studentEmail || studentEmail || '—')}</td>
+            <td><span class="chip">${escapeHtml(issue)}</span></td>
+            <td>${escapeHtml(n.details || '')}</td>
+            <td>${escapeHtml(String(t))}</td>
+          </tr>`;
+        }).join('')}</tbody></table></div>`;
+    };
+    window._stuIntExport = items;
+    document.getElementById('stu-int-filter').oninput = (e) => {
+      const q = (e.target.value || '').toLowerCase();
+      const filtered = !q ? items : items.filter(n =>
+        (n.type || '').toLowerCase().includes(q) ||
+        (n.details || '').toLowerCase().includes(q) ||
+        (this.integrityTypeLabel(n.type) || '').toLowerCase().includes(q)
+      );
+      window._stuIntExport = filtered;
+      paint(filtered);
+    };
+    paint(items);
+
+    document.getElementById('stu-int-export').onclick = async () => {
+      try { UI.showLoading('Generating PDF…'); } catch (_) {}
+      try {
+        await this.downloadIntegrityPdfDirect(
+          window._stuIntExport || items,
+          studentName || studentEmail || 'Student',
+          'Integrity_' + String(studentName || 'student').replace(/[^\w\-]+/g, '_').slice(0, 30) + '.pdf'
+        );
+      } catch (e) {
+        console.error(e);
+        try { await UI.alert(e.message || String(e), 'Export'); } catch (_) {}
+      } finally {
+        try { UI.hideLoading(); } catch (_) {}
+        setTimeout(() => { try { UI.hideLoading(); } catch (_) {} }, 300);
+      }
+    };
+  },
+
+  /** Direct PDF download via jsPDF — never opens print dialog or new tab */
+  async downloadIntegrityPdfDirect(items, title, filename) {
+    const JsPDF = await this.ensureJsPdf();
+    const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+    doc.setFontSize(16);
+    doc.text('Integrity Issues', 14, 18);
+    doc.setFontSize(11);
+    doc.setTextColor(80);
+    doc.text(String(title || ''), 14, 26);
+    doc.setTextColor(0);
+    let y = 36;
+    (items || []).forEach(n => {
+      if (y > 270) { doc.addPage(); y = 20; }
+      const issue = this.integrityTypeLabel(n.type) || n.type || '';
+      const details = n.details || '';
+      const t = n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString()
+        : (n.createdAt ? String(n.createdAt) : '');
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.text(String(issue).slice(0, 80), 14, y);
+      y += 5;
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(9);
+      const lines = doc.splitTextToSize(String(details).slice(0, 400), 180);
+      doc.text(lines, 14, y);
+      y += lines.length * 4.5 + 2;
+      if (t) { doc.setTextColor(100); doc.text(String(t), 14, y); doc.setTextColor(0); y += 5; }
+      // thumbnail if small data URL
+      const shot = n.screenshot || n.extra?.screenshot;
+      if (shot && String(shot).startsWith('data:image') && String(shot).length < 200000) {
+        try {
+          if (y > 240) { doc.addPage(); y = 20; }
+          doc.addImage(shot, 'JPEG', 14, y, 40, 24);
+          y += 28;
+        } catch (_) {}
+      }
+      y += 4;
+    });
+    doc.save(filename || 'Integrity.pdf');
+  },
+
   async showSessionIntegrity(examId, runId) {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay ui-modal-overlay';
@@ -4320,114 +4490,101 @@ const App = {
     const name = session.studentName || session.studentEmail || 'Student';
     const st = this.computeAttemptStats(session, exam);
     const pct = st.accuracy != null ? st.accuracy : 0;
-    const pctColor = pct >= 70 ? '#16a34a' : (pct >= 40 ? '#f97316' : '#f97316');
-    const safe = (s) => String(s == null ? '' : s)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-    // Group by question type for blue bars
-    const typeOrder = ['multiple','truefalse','modified_tf','fill','wordbox','categorize','essay','match','passage','table'];
-    const typeLabel = {
-      multiple: 'Multiple choice', truefalse: 'True or False', modified_tf: 'Modified True or False',
-      fill: 'Fill in the blank', wordbox: 'Word Box', categorize: 'Categorize', essay: 'Open-ended',
-      match: 'Match', passage: 'Passage', table: 'Table fill'
-    };
-    const groups = {};
-    rows.forEach(r => {
-      if (r.sectionHeader) return;
-      const t = (r.qType || r.q?.type || 'other').toLowerCase();
-      if (!groups[t]) groups[t] = [];
-      groups[t].push(r);
-    });
-    const ordered = [...typeOrder.filter(t => groups[t]), ...Object.keys(groups).filter(t => !typeOrder.includes(t))];
-
-    let sectionsHtml = '';
-    ordered.forEach(t => {
-      const items = groups[t] || [];
-      if (!items.length) return;
-      sectionsHtml += `<div class="pdf-section" style="page-break-inside:avoid;break-inside:avoid;margin:16px 0">
-        <div class="pdf-sec-bar" style="background:#1d4ed8;color:#fff;font-weight:700;padding:10px 14px;border-radius:10px 10px 0 0;font-size:13px">${safe(typeLabel[t] || t)}</div>`;
-      items.forEach(r => {
-        sectionsHtml += `<div class="pdf-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:0 0 12px 12px;padding:14px 16px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid">
-          <div style="font-weight:600;color:#0f172a;margin-bottom:8px;font-size:13px">${safe(r.prompt || 'Question')}</div>
-          <div style="font-size:11px;color:#64748b;margin-bottom:2px">Your response</div>
-          <div style="color:#0f172a;font-size:13px;margin-bottom:8px">${safe(r.response || '—')}</div>
-          <div style="font-size:11px;color:#64748b;margin-bottom:2px">Correct answer</div>
-          <div style="color:#16a34a;font-size:13px;font-weight:500">${safe(r.correct || '—')}</div>
-        </div>`;
-      });
-      sectionsHtml += `</div>`;
-    });
-
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-      <link rel="icon" href="assets/lvcc-logo.png"/>
-      <style>
-        @page { size: A4 portrait; margin: 0; }
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f1f5f9; color: #0f172a; }
-        .hdr { background: #0b1220; color: #fff; padding: 22px 28px; width: 100%; }
-        .hdr h1 { margin: 0; font-size: 18px; letter-spacing: 0.04em; font-weight: 700; }
-        .hdr .sub { margin: 6px 0 0; color: #94a3b8; font-size: 13px; font-weight: 400; }
-        .body { padding: 20px 28px 32px; background: #f1f5f9; }
-        .atitle { font-size: 15px; font-weight: 600; margin: 0 0 14px; color: #0f172a; }
-        .score { display: flex; justify-content: space-between; align-items: center;
-          background: #eef6fb; border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; }
-        .score .lab { font-size: 10px; letter-spacing: 0.06em; color: #64748b; text-transform: uppercase; }
-        .score .big { font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 4px; }
-        .score .pct { font-size: 28px; font-weight: 700; color: ${pctColor}; text-align: right; }
-        .score .ofmax { font-size: 11px; color: #64748b; text-align: right; }
-      </style></head><body>
-      <div class="hdr">
-        <h1>ASSESSMENT RESULTS</h1>
-        <div class="sub">${safe(name)}</div>
-      </div>
-      <div class="body">
-        <div class="atitle">${safe(title)}</div>
-        <div class="score">
-          <div><div class="lab">Your overall score</div><div class="big">${st.correct} / ${st.total}</div></div>
-          <div><div class="pct">${pct}%</div><div class="ofmax">of maximum</div></div>
-        </div>
-        ${sectionsHtml}
-      </div>
-    </body></html>`;
-
-    const fname = 'Assessment_Results_' + String(name).replace(/[^\\w\\-]+/g, '_').slice(0, 40) + '.pdf';
+    const fname = 'Assessment_Results_' + String(name).replace(/[^\w\-]+/g, '_').slice(0, 40) + '.pdf';
 
     try { UI.showLoading('Generating PDF…'); } catch (_) {}
     try {
-      // Prefer html2pdf from CDN
-      if (!window.html2pdf) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-          s.onload = resolve; s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-      const host = document.createElement('div');
-      host.style.position = 'fixed';
-      host.style.left = '-9999px';
-      host.style.top = '0';
-      host.style.width = '210mm';
-      host.innerHTML = html;
-      document.body.appendChild(host);
-      const opt = {
-        margin: 0,
-        filename: fname,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'legacy'] }
+      const JsPDF = await this.ensureJsPdf();
+      const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+      // Header bar (simulated)
+      doc.setFillColor(11, 18, 32);
+      doc.rect(0, 0, 210, 28, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.text('ASSESSMENT RESULTS', 14, 14);
+      doc.setFontSize(10);
+      doc.setTextColor(180, 190, 200);
+      doc.text(String(name), 14, 22);
+      doc.setTextColor(15, 23, 42);
+      let y = 38;
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.text(String(title).slice(0, 90), 14, y);
+      y += 10;
+      // Score card
+      doc.setFillColor(238, 246, 251);
+      doc.roundedRect(14, y, 182, 22, 3, 3, 'F');
+      doc.setFontSize(9);
+      doc.setTextColor(100);
+      doc.text('YOUR OVERALL SCORE', 18, y + 7);
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont(undefined, 'bold');
+      doc.text(st.correct + ' / ' + st.total, 18, y + 16);
+      doc.setFontSize(16);
+      const pctCol = pct >= 70 ? [22, 163, 74] : [249, 115, 22];
+      doc.setTextColor(...pctCol);
+      doc.text(pct + '%', 160, y + 14);
+      doc.setTextColor(15, 23, 42);
+      y += 30;
+
+      const typeLabel = {
+        multiple: 'Multiple choice', truefalse: 'True or False', modified_tf: 'Modified True or False',
+        fill: 'Fill in the blank', wordbox: 'Word Box', categorize: 'Categorize', essay: 'Open-ended',
+        match: 'Match', passage: 'Passage', table: 'Table fill', tablefill: 'Table fill'
       };
-      await window.html2pdf().set(opt).from(host).save();
-      host.remove();
-      await UI.alert('PDF downloaded.', 'Export');
+      const groups = {};
+      (rows || []).forEach(r => {
+        if (r.sectionHeader) return;
+        const t = (r.qType || r.q?.type || 'other').toLowerCase();
+        if (!groups[t]) groups[t] = [];
+        groups[t].push(r);
+      });
+      Object.keys(groups).forEach(t => {
+        if (y > 260) { doc.addPage(); y = 20; }
+        doc.setFillColor(29, 78, 216);
+        doc.roundedRect(14, y, 182, 8, 2, 2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(11);
+        doc.setFont(undefined, 'bold');
+        doc.text(typeLabel[t] || t, 18, y + 5.5);
+        doc.setTextColor(15, 23, 42);
+        y += 12;
+        groups[t].forEach(r => {
+          if (y > 250) { doc.addPage(); y = 20; }
+          doc.setFont(undefined, 'bold');
+          doc.setFontSize(10);
+          const promptLines = doc.splitTextToSize(String(r.prompt || 'Question').slice(0, 300), 178);
+          doc.text(promptLines, 16, y);
+          y += promptLines.length * 5 + 2;
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100);
+          doc.text('Your response', 16, y); y += 4;
+          doc.setTextColor(15, 23, 42);
+          doc.setFontSize(9);
+          const respLines = doc.splitTextToSize(String(r.response || '—').slice(0, 400), 178);
+          doc.text(respLines, 16, y);
+          y += respLines.length * 4.5 + 2;
+          doc.setFontSize(8);
+          doc.setTextColor(100);
+          doc.text('Correct answer', 16, y); y += 4;
+          doc.setTextColor(22, 163, 74);
+          doc.setFontSize(9);
+          const corrLines = doc.splitTextToSize(String(r.correct || '—').slice(0, 400), 178);
+          doc.text(corrLines, 16, y);
+          y += corrLines.length * 4.5 + 6;
+          doc.setTextColor(15, 23, 42);
+        });
+        y += 4;
+      });
+      doc.save(fname);
     } catch (e) {
       console.error(e);
-      // Fallback: open printable HTML with same template
-      this.exportHtmlAsPdf(fname.replace(/\\.pdf$/, ''), title, html);
-      await UI.alert('Opened printable export (use Print → Save as PDF).', 'Export');
+      try { await UI.alert('Could not generate PDF: ' + (e.message || e), 'Export'); } catch (_) {}
     } finally {
       try { UI.hideLoading(); } catch (_) {}
+      setTimeout(() => { try { UI.hideLoading(); } catch (_) {} }, 400);
     }
   },
 

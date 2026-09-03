@@ -267,17 +267,19 @@ const Dashboard = {
     this._liveMsgsPrimed = false; // first snapshot only seeds — no popup for old messages
     document.getElementById('student-msg-modal')?.remove();
     document.getElementById('critical-paste-modal')?.remove();
-    // Merge helper — keeps thumbs and never drops sessions that integrity already saw
-    this._mergeSessions = (incoming) => {
-      const map = {};
-      (this.sessionsCache || []).forEach(s => { if (s && s.id) map[s.id] = s; });
-      (incoming || []).forEach(s => {
-        if (!s || !s.id) return;
-        map[s.id] = { ...(map[s.id] || {}), ...s };
-        if (this._liveThumbs[s.id] && !map[s.id].screenThumb) map[s.id].screenThumb = this._liveThumbs[s.id];
-      });
-      let list = Object.values(map);
-      if (proctorFilterIds) list = list.filter(s => proctorFilterIds.includes(s.studentId));
+    this.sessionsCache = [];
+    this._liveThumbs = this._liveThumbs || {};
+
+    const applySessions = (sessions) => {
+      let list = Array.isArray(sessions) ? sessions.slice() : [];
+      // Attach live thumbs
+      list = list.map(s => ({
+        ...s,
+        screenThumb: s.screenThumb || this._liveThumbs[s.id] || null
+      }));
+      if (proctorFilterIds) {
+        list = list.filter(s => proctorFilterIds.includes(s.studentId));
+      }
       if (!this._liveMsgsPrimed) {
         list.forEach(s => { if (s.chatPing) this._seenStudentMsgs[s.id] = s.chatPing; });
         this._liveMsgsPrimed = true;
@@ -291,26 +293,28 @@ const Dashboard = {
         });
       }
       this.sessionsCache = list;
-      this._renderSessions(list, exam);
+      this._renderSessions(list, this.currentExam || exam);
     };
 
-    // Primary live listener
+    // 1) Immediate one-shot load so cards appear without waiting for snapshot
+    window.db.collection('sessions').where('examId', '==', examId).get()
+      .then(snap => applySessions(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .catch(e => console.warn('sessions get', e));
+
+    // 2) Live snapshot
     const unsub = Exam.listenToSessions(examId, (sessions) => {
-      this._mergeSessions(sessions);
+      applySessions(sessions);
     });
     this.unsubscribers.push(unsub);
 
-    // Fallback poll if snapshot is empty/slow (permissions, index lag, etc.)
+    // 3) Light poll every 5s as safety net
     const pollOnce = async () => {
       try {
         const snap = await window.db.collection('sessions').where('examId', '==', examId).get();
-        this._mergeSessions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e) {
-        console.warn('sessions poll', e);
-      }
+        applySessions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) { console.warn('sessions poll', e); }
     };
-    pollOnce();
-    this._livePollIv = setInterval(pollOnce, 8000);
+    this._livePollIv = setInterval(pollOnce, 5000);
     // Live screen thumbs collection (optional)
     try {
       const unsubLS = window.db.collection('liveScreens').onSnapshot(snap => {
@@ -345,9 +349,10 @@ const Dashboard = {
           if (!snap.exists) return;
           const data = snap.data() || {};
           if (data.examId && data.examId !== examId) return;
-          if (this._mergeSessions) {
-            this._mergeSessions([{ id: snap.id, ...data, studentName: data.studentName || n.studentName, studentEmail: data.studentEmail || n.studentEmail }]);
-          }
+          const row = { id: snap.id, ...data, studentName: data.studentName || n.studentName, studentEmail: data.studentEmail || n.studentEmail };
+          const merged = [...(this.sessionsCache || []).filter(s => s.id !== row.id), row];
+          this.sessionsCache = merged;
+          this._renderSessions(merged, this.currentExam || exam);
         }).catch(() => {});
       });
       let filtered = notifs;
@@ -929,21 +934,14 @@ const Dashboard = {
     const subEl = document.getElementById('live-submitted-count');
     if (subEl) subEl.textContent = submittedCount + ' submitted';
 
-    // In-progress sessions on live board
+    // Show all non-finished sessions (default status = active)
     let list = all.filter(s => {
       if (!s || !s.id) return false;
       if (String(s.id).startsWith('test_')) return false;
       if (s.isMock) return false;
-      const st = String(s.status || 'active').toLowerCase();
-      if (st === 'submitted' || st === 'ended' || st === 'graded') return false;
-      if (s.monitoringStopped === true && st !== 'active') return false;
-      return true;
+      const st = String(s.status || 'active').toLowerCase().trim();
+      return st !== 'submitted' && st !== 'ended' && st !== 'graded';
     });
-    // Fallback: any non-submitted non-mock session for this exam
-    if (!list.length && all.length) {
-      list = all.filter(s => s && s.id && !String(s.id).startsWith('test_') && !s.isMock
-        && !['submitted','ended','graded'].includes(String(s.status || '').toLowerCase()));
-    }
     const q = (this._sessionScreenFilter || '').toLowerCase();
     if (q) {
       list = list.filter(s =>
