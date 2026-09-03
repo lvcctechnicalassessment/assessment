@@ -971,6 +971,7 @@ const Dashboard = {
     list.sort((a, b) => (b.violationCount||0) - (a.violationCount||0) || String(a.studentName||'').localeCompare(String(b.studentName||'')));
     const isRegular = exam?.examType === 'regular';
 
+    try {
     grid.innerHTML = list.map(s => {
       const last = s.lastUpdate?.toDate ? s.lastUpdate.toDate().toLocaleTimeString() : '—';
       const remain = s.endsAt ? Math.max(0, s.endsAt - Date.now()) : null;
@@ -979,9 +980,19 @@ const Dashboard = {
         const cls = ['copy','paste','paste-key','tabswitch','blur','close','rightclick','drop','cut'].includes(e.type) ? 'danger' : '';
         return `<div class="event-item ${cls}">⚠ ${e.type}: ${escapeHtml(e.details || '')}</div>`;
       }).join('') || '<span class="text-muted">No events</span>';
-      const preview = isRegular
-        ? escapeHtml(Regular.answersPreview(s.answers, exam?.questions))
-        : escapeHtml(s.code || '');
+      let preview = '';
+      try {
+        if (isRegular) {
+          if (typeof Regular.answersPreview === 'function') {
+            preview = escapeHtml(Regular.answersPreview(s.answers, exam?.questions));
+          } else {
+            const n = s.answers && typeof s.answers === 'object' ? Object.keys(s.answers).length : 0;
+            preview = n ? (n + ' answer(s)') : '';
+          }
+        } else {
+          preview = escapeHtml(s.code || '');
+        }
+      } catch (_) { preview = ''; }
 
       const live = this._liveThumbs || {};
       const feed = s.screenThumb || live[s.id];
@@ -1035,6 +1046,23 @@ const Dashboard = {
           </div>
         </div>`;
     }).join('');
+    } catch (err) {
+      console.error('live card render', err);
+      grid.innerHTML = list.map(s => {
+        const name = escapeHtml(s.studentName || s.studentEmail || s.id);
+        const st = escapeHtml(s.status || 'active');
+        return `<div class="student-card"><div class="student-card-header"><div>
+          <strong>${name}</strong>
+          <div class="text-muted">${escapeHtml(s.studentEmail || '')}</div>
+          <div>Violations: ${s.violationCount || 0}</div>
+        </div><span class="chip chip-ok">${st}</span></div>
+        <div class="action-btns" style="padding:0.5rem">
+          <button class="btn btn-sm btn-ghost" onclick="Dashboard.openStudentDetail('${s.id}')">Details</button>
+          <button class="btn btn-sm btn-ghost" onclick="Dashboard.messageStudent('${s.id}')">Message student</button>
+          <button class="btn btn-sm btn-primary" onclick="App.gradeSession('${s.id}', '${s.examId || ''}')">Grade</button>
+        </div></div>`;
+      }).join('') || '<div class="empty-state">Waiting for students…</div>';
+    }
   }
 };
 

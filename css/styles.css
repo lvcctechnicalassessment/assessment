@@ -4938,3 +4938,146 @@ input.fill-inline-text,
   min-height: 200px;
   overflow-y: auto;
 }
+
+
+/* v1.5.46 — Match take: clean two columns, labels with bullets */
+.match-take {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+.match-prompt {
+  text-align: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 0.35rem;
+}
+.match-instruction {
+  text-align: center;
+  color: #64748b;
+  font-size: 0.9rem;
+  margin-bottom: 1.25rem;
+}
+.match-board {
+  position: relative !important;
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 3rem !important;
+  align-items: start;
+  width: 100%;
+  min-height: 180px;
+}
+.match-lines {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: none !important;
+  z-index: 0;
+}
+.match-col {
+  position: relative;
+  z-index: 1;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1rem !important;
+}
+.match-col-a { align-items: stretch !important; }
+.match-col-b { align-items: stretch !important; }
+.match-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.match-item.match-left {
+  flex-direction: row !important;
+  justify-content: flex-end !important;
+  text-align: right !important;
+}
+.match-item.match-left .match-label {
+  flex: 1;
+  text-align: right !important;
+  order: 1;
+}
+.match-item.match-left .match-node { order: 2; }
+.match-item.match-right {
+  flex-direction: row !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+}
+.match-item.match-right .match-node { order: 1; }
+.match-item.match-right .match-label {
+  flex: 1;
+  text-align: left !important;
+  order: 2;
+}
+.match-label {
+  font-size: 0.95rem;
+  line-height: 1.35;
+  color: var(--text, #0f172a);
+}
+.match-node {
+  display: inline-block !important;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  border-radius: 50% !important;
+  border: 3px solid #2563eb !important;
+  background: #0f172a !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box;
+}
+.match-item.pending,
+.match-item.selected,
+.match-item.match-pending {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+.match-item.pending .match-node,
+.match-item.selected .match-node {
+  background: #2563eb !important;
+}
+.match-pair-hints {
+  text-align: center;
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: center;
+}
+.match-pair-chip {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8rem;
+}
+@media (max-width: 640px) {
+  .match-board {
+    grid-template-columns: 1fr !important;
+    gap: 1.25rem !important;
+  }
+  .match-item.match-left {
+    justify-content: flex-start !important;
+  }
+  .match-item.match-left .match-label { text-align: left !important; order: 2; }
+  .match-item.match-left .match-node { order: 1; }
+}
+
+/* Live student cards must show */
+.live-grid .student-card {
+  display: block !important;
+  visibility: visible !important;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  overflow: hidden;
+}

@@ -439,3 +439,7 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - FIXED: View issues on session detail — full integrity table with thumbnails + direct PDF export (jsPDF)
 - FIXED: Live dashboard sessions — immediate get + snapshot + 5s poll (simple applySessions, no broken merge)
 - FIXED: PDF export uses jsPDF only — direct download, no print dialog / new tab; loading overlay always cleared
+
+## v1.5.46
+- CRITICAL: Live dashboard cards crashed on Regular.answersPreview (undefined) — counts updated but grid stayed empty; fixed with safe preview + fallback card render
+- Match take UI rebuilt: two clean columns, labels with center-facing bullets, readable cards (not scattered dots)

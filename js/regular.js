@@ -663,22 +663,22 @@ const Regular = {
     const left = q.left || [];
     const right = q.right || [];
     const pairs = (answer && typeof answer === 'object') ? answer : {};
-    // Column A: words LEFT of bullet (bullet toward center). Column B: bullet then words.
+    // Col A: [label][•]   Col B: [•][label]  — bullets face center for lines
     const leftHtml = left.map((t, i) => `
       <div class="match-item match-left" data-match-left="${i}" data-qid="${q.id}">
         <span class="match-label">${i + 1}. ${escapeHtml(t)}</span>
-        <button type="button" class="match-node" data-match-node="L${i}" aria-label="Match start"></button>
+        <span class="match-node" data-match-node="L${i}" role="button" tabindex="0"></span>
       </div>`).join('');
     const rightHtml = right.map((t, i) => `
       <div class="match-item match-right" data-match-right="${i}" data-qid="${q.id}">
-        <button type="button" class="match-node" data-match-node="R${i}" aria-label="Match end"></button>
+        <span class="match-node" data-match-node="R${i}" role="button" tabindex="0"></span>
         <span class="match-label">${escapeHtml(t)}</span>
       </div>`).join('');
     const pairHints = left.map((_, i) => {
       const r = pairs[i] != null ? pairs[i] : pairs[String(i)];
       return r != null ? `<span class="match-pair-chip">A${i + 1}→B${Number(r) + 1}</span>` : '';
     }).join('');
-    return `<div class="match-take vh-lock-inner" data-qid="${q.id}" data-type="match" id="match-take-${q.id}">
+    return `<div class="match-take" data-qid="${q.id}" data-type="match" id="match-take-${q.id}">
       <div class="match-prompt">${escapeHtml(q.prompt || 'Match Column A with Column B')}</div>
       <p class="match-instruction">Click an item in Column A, then click its pair in Column B to match.</p>
       <div class="match-board">
@@ -1506,6 +1506,12 @@ const Regular = {
    * Grade a set of questions against student answers.
    * Returns { score, maxScore, details: [{id, earned, max, correct}] }
    */
+  answersPreview(answers, questions) {
+    if (!answers || typeof answers !== 'object') return '';
+    const n = Object.keys(answers).length;
+    return n ? (n + ' answer(s) recorded') : '';
+  },
+
   gradeAnswers(questions, answers) {
     answers = answers || {};
     let score = 0;
