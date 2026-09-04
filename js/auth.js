@@ -16,6 +16,9 @@ const Auth = {
     if (!window.auth) {
       throw new Error('Firebase Auth is not initialized. Check firebase-config.js.');
     }
+    try {
+      await window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    } catch (e) { console.warn('auth persistence', e); }
     return new Promise((resolve) => {
       window.auth.onAuthStateChanged(async (user) => {
         if (user) {

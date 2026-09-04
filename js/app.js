@@ -90,7 +90,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.46</div>
+          <div class="app-version">Build v1.5.47</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -219,7 +219,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.46</div>
+              <div class="app-version">v1.5.47</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -4267,7 +4267,8 @@ const App = {
     });
     if (cur.items.length || sections.length === 0) sections.push(cur);
 
-    const sectionHtml = sections.map((sec, si) => `
+    // Drop empty sections (e.g. Match/Table headers with all items moved to special blocks)
+    const sectionHtml = sections.filter(sec => sec.items && sec.items.length).map((sec, si) => `
       <div class="result-section card" data-result-sec="${si}">
         <button type="button" class="result-sec-toggle" data-toggle-sec="${si}">
           <span>${escapeHtml(sec.title)}</span>
@@ -4281,7 +4282,7 @@ const App = {
                 <td data-label="Question" class="hist-cell-q"><div class="hist-value">${escapeHtml(r.prompt)}</div></td>
                 <td data-label="Response" class="hist-cell-r"><div class="hist-value">${escapeHtml(r.response)}</div></td>
                 <td data-label="Correct" class="hist-cell-c"><div class="hist-value">${escapeHtml(r.correct)}</div></td>
-              </tr>`).join('') || '<tr><td colspan="3" class="text-muted">No items</td></tr>'}
+              </tr>`).join('')}
             </tbody>
           </table>
         </div>
@@ -4392,7 +4393,18 @@ const App = {
       // Group by parent passage if possible
       const seen = new Set();
       const flat = Regular.flattenQuestions ? Regular.flattenQuestions(exam || session) : [];
-      const passages = (exam?.sections || []).flatMap(s => (s.questions||[]).filter(q => q.type==='passage' || q.isPassageSet));
+      let passages = (exam?.sections || []).flatMap(s => (s.questions||[]).filter(q => q.type==='passage' || q.isPassageSet));
+      if (!passages.length && Array.isArray(session.questionsSnapshot)) {
+        passages = session.questionsSnapshot.filter(q => q && (q.type === 'passage' || q.isPassageSet));
+      }
+      if (!passages.length && Array.isArray(exam?.questions)) {
+        passages = exam.questions.filter(q => q && (q.type === 'passage' || q.isPassageSet));
+      }
+      // Also from matchBlocks source: passage questions embedded in flatten
+      if (!passages.length) {
+        const flat = Regular.flattenQuestions ? Regular.flattenQuestions(exam || { questions: session.questionsSnapshot || [] }) : (session.questionsSnapshot || []);
+        passages = (flat || []).filter(q => q && (q.type === 'passage' || q.isPassageSet));
+      }
       const passList = passages.length ? passages : [];
       if (passList.length) {
         passList.forEach(pq => {
@@ -4443,23 +4455,28 @@ const App = {
         const blankKeys = Object.keys(cells).filter(k => cells[k] && cells[k].blank);
         const correctList = [];
         if (tableRows && tableRows.length) {
-          tableRows.forEach((tr, ri) => {
+          let dataIdx = 0;
+          tableRows.forEach((tr) => {
             if (tr.type === 'subheader') {
-              tableHtml += `<tr class="tf-subheader-row"><td colspan="${colsN || headers.length || 1}">${esc(tr.label || '')}</td></tr>`;
+              const label = tr.label || (tr.values && tr.values.filter(Boolean).join(' / ')) || '';
+              tableHtml += `<tr class="tf-subheader-row"><td colspan="${colsN || headers.length || 1}">${esc(label)}</td></tr>`;
               return;
             }
+            const r = dataIdx++;
             tableHtml += '<tr>';
-            for (let c = 0; c < (colsN || (tr.cells||[]).length); c++) {
-              const key = ri + '_' + c;
-              const cell = cells[key] || {};
+            for (let c = 0; c < (colsN || headers.length || (tr.cells||[]).length || 1); c++) {
+              const key = r + '-' + c;
+              const cell = cells[key] || cells[r + '_' + c] || {};
               if (cell.blank) {
-                const stud = resp[key] != null ? String(resp[key]) : '';
+                const stud = resp[key] != null ? String(resp[key]) : (resp[r + '_' + c] != null ? String(resp[r + '_' + c]) : '');
                 const corr = Array.isArray(cell.correct) ? cell.correct[0] : (cell.correct || '');
                 const ok = stud.trim().toLowerCase() === String(corr).trim().toLowerCase();
                 tableHtml += `<td class="${ok ? 'tf-cell-ok' : 'tf-cell-bad'}">${esc(stud || '—')}</td>`;
                 correctList.push(String(corr || '—'));
               } else {
-                const val = (tr.cells && tr.cells[c]) != null ? tr.cells[c] : (cell.value || '');
+                const val = (tr.cells && tr.cells[c] != null) ? tr.cells[c]
+                  : (tr.values && tr.values[c] != null) ? tr.values[c]
+                  : (cell.value || '');
                 tableHtml += `<td>${esc(val)}</td>`;
               }
             }
@@ -4493,8 +4510,16 @@ const App = {
     const fname = 'Assessment_Results_' + String(name).replace(/[^\w\-]+/g, '_').slice(0, 40) + '.pdf';
 
     try { UI.showLoading('Generating PDF…'); } catch (_) {}
+    const clearLoad = () => {
+      try { UI.hideLoading(); } catch (_) {}
+      const el = document.getElementById('global-loading');
+      if (el) { el.classList.remove('visible'); el.style.display = 'none'; }
+    };
     try {
-      const JsPDF = await this.ensureJsPdf();
+      const JsPDF = await Promise.race([
+        this.ensureJsPdf(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('PDF library timeout')), 8000))
+      ]);
       const doc = new JsPDF({ unit: 'mm', format: 'a4' });
       // Header bar (simulated)
       doc.setFillColor(11, 18, 32);
@@ -4579,12 +4604,15 @@ const App = {
         y += 4;
       });
       doc.save(fname);
+      clearLoad();
     } catch (e) {
       console.error(e);
+      clearLoad();
       try { await UI.alert('Could not generate PDF: ' + (e.message || e), 'Export'); } catch (_) {}
     } finally {
-      try { UI.hideLoading(); } catch (_) {}
-      setTimeout(() => { try { UI.hideLoading(); } catch (_) {} }, 400);
+      clearLoad();
+      setTimeout(clearLoad, 200);
+      setTimeout(clearLoad, 1000);
     }
   },
 

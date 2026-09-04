@@ -443,3 +443,12 @@ If features seem missing, replace **all** app files from the zip (not only one J
 ## v1.5.46
 - CRITICAL: Live dashboard cards crashed on Regular.answersPreview (undefined) — counts updated but grid stayed empty; fixed with safe preview + fallback card render
 - Match take UI rebuilt: two clean columns, labels with center-facing bullets, readable cards (not scattered dots)
+
+## v1.5.47
+- Live grid: 2 cards per row; cards no longer clip action buttons / content
+- Match take: forced two-column card layout (label+bullet)
+- History: removed empty Match/Table collapsible sections ("No items")
+- History table fill: correct cell keys (data-row index with hyphen) so student answers and values show
+- History passage: load passage HTML from exam sections or questionsSnapshot
+- PDF: timeout on library load + aggressive clear of Generating PDF overlay
+- Auth: LOCAL persistence so refresh keeps session and opens dashboard
