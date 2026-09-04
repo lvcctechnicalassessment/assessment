@@ -16,7 +16,8 @@ const App = {
 
   async init() {
     Theme.init();
-    try { if (window.UI) UI.showLoading('Signing in…'); } catch (_) {}
+    // Never show "Signing in…" on refresh / restore — only on explicit Google sign-in click
+    try { if (window.UI) UI.hideLoading(); } catch (_) {}
     const loading = document.getElementById('loading');
     try {
       const ok = await this.waitForFirebase(8000);
@@ -90,7 +91,7 @@ const App = {
         </p>
         <div id="login-error" class="hidden login-error"></div>
         <div class="mt-2" style="text-align:center">${Theme.buttonHtml()}
-          <div class="app-version">Build v1.5.47</div>
+          <div class="app-version">Build v1.5.48</div>
         </div>
       </div>`;
     document.getElementById('google-signin').onclick = async () => {
@@ -219,7 +220,7 @@ const App = {
             </button>
             <div class="brand-text">
               <div class="logo-text">LVCC Assessment Portal</div>
-              <div class="app-version">v1.5.47</div>
+              <div class="app-version">v1.5.48</div>
             </div>
           </div>
           <nav class="sidebar-nav">${navItems}</nav>
@@ -3090,6 +3091,11 @@ const App = {
     paint(items);
 
     document.getElementById('stu-int-export').onclick = async () => {
+      const clear = () => {
+        try { UI.hideLoading(); } catch (_) {}
+        const el = document.getElementById('global-loading');
+        if (el) { el.classList.remove('visible'); el.style.display = 'none'; el.remove(); }
+      };
       try { UI.showLoading('Generating PDF…'); } catch (_) {}
       try {
         await this.downloadIntegrityPdfDirect(
@@ -3101,15 +3107,19 @@ const App = {
         console.error(e);
         try { await UI.alert(e.message || String(e), 'Export'); } catch (_) {}
       } finally {
-        try { UI.hideLoading(); } catch (_) {}
-        setTimeout(() => { try { UI.hideLoading(); } catch (_) {} }, 300);
+        clear();
+        setTimeout(clear, 100);
+        setTimeout(clear, 500);
       }
     };
   },
 
   /** Direct PDF download via jsPDF — never opens print dialog or new tab */
   async downloadIntegrityPdfDirect(items, title, filename) {
-    const JsPDF = await this.ensureJsPdf();
+    const JsPDF = await Promise.race([
+      this.ensureJsPdf(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('PDF library timeout')), 6000))
+    ]);
     const doc = new JsPDF({ unit: 'mm', format: 'a4' });
     doc.setFontSize(16);
     doc.text('Integrity Issues', 14, 18);
@@ -3724,41 +3734,35 @@ const App = {
 
 
   async ensureJsPdf() {
-    const pick = () => {
+    const grab = () => {
       if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
       if (window.jspdf && typeof window.jspdf === 'function') return window.jspdf;
       if (typeof window.jsPDF === 'function') return window.jsPDF;
       if (window.jsPDF && window.jsPDF.jsPDF) return window.jsPDF.jsPDF;
       return null;
     };
-    let Ctor = pick();
-    if (Ctor) return Ctor;
-    const urls = [
+    const existing = grab();
+    if (existing) return existing;
+    const sources = [
       'js/vendor/jspdf.umd.min.js',
-      './js/vendor/jspdf.umd.min.js',
-      'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
-      'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'
+      './js/vendor/jspdf.umd.min.js'
     ];
-    for (const url of urls) {
+    for (const src of sources) {
       try {
         await new Promise((resolve, reject) => {
-          const existing = document.querySelector('script[data-jspdf="1"]');
-          if (existing && pick()) { resolve(); return; }
+          const t = setTimeout(() => reject(new Error('timeout')), 4000);
           const s = document.createElement('script');
-          s.src = url;
+          s.src = src;
           s.async = true;
-          s.dataset.jspdf = '1';
-          s.onload = () => resolve();
-          s.onerror = () => reject(new Error('load fail'));
+          s.onload = () => { clearTimeout(t); resolve(); };
+          s.onerror = () => { clearTimeout(t); reject(new Error('load fail')); };
           document.head.appendChild(s);
         });
-        // small delay for UMD to attach
-        await new Promise(r => setTimeout(r, 50));
-        Ctor = pick();
-        if (Ctor) return Ctor;
+        const g = grab();
+        if (g) return g;
       } catch (_) {}
     }
-    throw new Error('PDF library not available');
+    throw new Error('PDF library not available. Hard-refresh and try again.');
   },
 
   /** Always-works export: download printable HTML (Save as PDF from print dialog) */
@@ -5249,8 +5253,8 @@ const App = {
         return `<button type="button" class="take-opt gq-option ${selected ? 'selected' : ''}" style="background:${color}" data-opt="${i}" data-multi="${multi ? '1' : '0'}">${escapeHtml((o && String(o).trim()) ? o : ('Option ' + (i + 1)))}</button>`;
       }).join('');
       const head = withBanner
-        ? `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(q.prompt || q.statement || 'Question')}</div>`
-        : `<div class="gq-question-box"><div class="gq-question-text">${escapeHtml(q.prompt || 'Question')} <span class="text-muted">(${q.points ?? 1} pt)</span></div></div>`;
+        ? `<div class="take-q-banner">${escapeHtml(q.prompt || q.statement || 'Question')}</div>`
+        : `<div class="gq-question-box"><div class="gq-question-text">${escapeHtml(q.prompt || 'Question')}</div></div>`;
       return `${head}<div class="take-options-grid" data-qid="${q.id}">${cards}</div>`;
     };
 
@@ -5348,7 +5352,7 @@ const App = {
         } else if (currentQ.type === 'match') {
           body = `<div class="take-q-stack" style="width:100%" id="take-q-box">${Regular.renderStudentMatch(currentQ, answers[currentQ.id])}</div>`;
         } else {
-          body = `<div class="take-q-banner"><span class="take-q-num">${gi + 1} / ${groups.length}</span>${escapeHtml(currentQ.prompt || 'Question')}</div>
+          body = `<div class="take-q-banner">${escapeHtml(currentQ.prompt || 'Question')}</div>
             <div class="take-single" id="take-q-box">${Regular.renderStudentQuestion(currentQ, answers[currentQ.id])}</div>`;
         }
       }

@@ -20,9 +20,11 @@ const UI = {
     if (el) {
       el.classList.remove('visible');
       el.setAttribute('aria-busy', 'false');
-      // Force hide even if CSS class stuck
       el.style.display = 'none';
-      setTimeout(() => { try { el.style.display = ''; } catch (_) {} }, 50);
+      el.style.visibility = 'hidden';
+      el.style.opacity = '0';
+      el.style.pointerEvents = 'none';
+      try { el.remove(); } catch (_) {}
     }
   },
   _root() {

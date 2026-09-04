@@ -109,7 +109,7 @@ const Dashboard = {
                 <div class="btn-row">
                   <button class="btn btn-sm btn-ghost" onclick="App.editExam('${ex.id}')">Edit</button>
                   <button class="btn btn-sm btn-ghost" onclick="App.duplicateExam('${ex.id}')">Duplicate</button>
-                  ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : (this.isExamEnded(ex) || ex.active === false ? `<button class="btn btn-sm btn-primary" onclick="App.reopenExam('${ex.id}')">Reopen</button>` : `<button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', false)">Close</button>`)}
+                  ${ex.status === 'draft' ? `<button class="btn btn-sm btn-primary" onclick="App.publishDraft('${ex.id}')">Publish</button>` : (this.isExamEnded(ex) || ex.active === false || !live ? `<button class="btn btn-sm btn-primary" onclick="App.reopenExam('${ex.id}')">Reopen</button>` : `<button class="btn btn-sm btn-ghost" onclick="App.toggleExamActive('${ex.id}', false)">Close</button>`)}
                   <button class="btn btn-sm btn-danger" onclick="App.deleteExam('${ex.id}', '${escapeHtml(ex.title).replace(/'/g, "\\'")}')">Delete</button>
                 </div>
               </div>

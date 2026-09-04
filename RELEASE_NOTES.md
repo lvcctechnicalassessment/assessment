@@ -452,3 +452,10 @@ If features seem missing, replace **all** app files from the zip (not only one J
 - History passage: load passage HTML from exam sections or questionsSnapshot
 - PDF: timeout on library load + aggressive clear of Generating PDF overlay
 - Auth: LOCAL persistence so refresh keeps session and opens dashboard
+
+## v1.5.48
+- Removed "Signing in…" overlay on page refresh / session restore (only on explicit Google sign-in)
+- PDF: local-only jsPDF load with timeout; force-remove loading overlay so it cannot stick
+- Removed question progress counter (e.g. 7/11) from assessment question banner
+- Close button only when live; closed assessments show Reopen only
+- Match take: exact reference layout — text + center-facing dots + blue connecting lines (no cards)

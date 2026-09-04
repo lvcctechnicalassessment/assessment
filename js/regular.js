@@ -662,31 +662,26 @@ const Regular = {
   renderStudentMatch(q, answer) {
     const left = q.left || [];
     const right = q.right || [];
-    const pairs = (answer && typeof answer === 'object') ? answer : {};
-    // Col A: [label][•]   Col B: [•][label]  — bullets face center for lines
+    // Reference layout: Column A text LEFT of node; Column B node LEFT of text; SVG lines between nodes
     const leftHtml = left.map((t, i) => `
-      <div class="match-item match-left" data-match-left="${i}" data-qid="${q.id}">
-        <span class="match-label">${i + 1}. ${escapeHtml(t)}</span>
-        <span class="match-node" data-match-node="L${i}" role="button" tabindex="0"></span>
+      <div class="m-row m-left" data-match-left="${i}" data-qid="${q.id}">
+        <span class="m-text">${i + 1}. ${escapeHtml(t)}</span>
+        <span class="m-dot" data-match-node="L${i}"></span>
       </div>`).join('');
     const rightHtml = right.map((t, i) => `
-      <div class="match-item match-right" data-match-right="${i}" data-qid="${q.id}">
-        <span class="match-node" data-match-node="R${i}" role="button" tabindex="0"></span>
-        <span class="match-label">${escapeHtml(t)}</span>
+      <div class="m-row m-right" data-match-right="${i}" data-qid="${q.id}">
+        <span class="m-dot" data-match-node="R${i}"></span>
+        <span class="m-text">${escapeHtml(t)}</span>
       </div>`).join('');
-    const pairHints = left.map((_, i) => {
-      const r = pairs[i] != null ? pairs[i] : pairs[String(i)];
-      return r != null ? `<span class="match-pair-chip">A${i + 1}→B${Number(r) + 1}</span>` : '';
-    }).join('');
-    return `<div class="match-take" data-qid="${q.id}" data-type="match" id="match-take-${q.id}">
-      <div class="match-prompt">${escapeHtml(q.prompt || 'Match Column A with Column B')}</div>
+    return `<div class="match-take match-ref" data-qid="${q.id}" data-type="match" id="match-take-${q.id}">
+      <div class="match-prompt">${escapeHtml(q.prompt || 'SAMPLE INSTRUCTION')}</div>
       <p class="match-instruction">Click an item in Column A, then click its pair in Column B to match.</p>
-      <div class="match-board">
+      <div class="match-board match-ref-board">
         <svg class="match-lines" id="match-svg-${q.id}"></svg>
         <div class="match-col match-col-a">${leftHtml}</div>
         <div class="match-col match-col-b">${rightHtml}</div>
       </div>
-      <div class="match-pair-hints">${pairHints || '<span class="text-muted">Tap an item in A, then its match in B</span>'}</div>
+      <div class="match-pair-hints"></div>
     </div>`;
   },
 
@@ -719,8 +714,8 @@ const Regular = {
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         line.setAttribute('x1', x1); line.setAttribute('y1', y1);
         line.setAttribute('x2', x2); line.setAttribute('y2', y2);
-        line.setAttribute('stroke', 'currentColor');
-        line.setAttribute('stroke-width', '2');
+        line.setAttribute('stroke', '#2563eb');
+        line.setAttribute('stroke-width', '2.5');
         svg.appendChild(line);
       });
       const hints = root.querySelector('.match-pair-hints');
@@ -736,8 +731,8 @@ const Regular = {
         e.preventDefault();
         e.stopPropagation();
         pending = Number(el.getAttribute('data-match-left'));
-        root.querySelectorAll('.match-left').forEach(n => n.classList.remove('match-pending', 'selected', 'pending'));
-        el.classList.add('match-pending', 'selected', 'pending');
+        root.querySelectorAll('[data-match-left]').forEach(n => n.classList.remove('pending'));
+        el.classList.add('pending');
       };
     });
     root.querySelectorAll('[data-match-right]').forEach(el => {
@@ -746,11 +741,10 @@ const Regular = {
         e.stopPropagation();
         if (pending == null) return;
         const ri = Number(el.getAttribute('data-match-right'));
-        // remove existing use of this right
         Object.keys(pairs).forEach(k => { if (Number(pairs[k]) === ri) delete pairs[k]; });
         pairs[pending] = ri;
         pending = null;
-        root.querySelectorAll('.match-item').forEach(x => x.classList.remove('pending'));
+        root.querySelectorAll('[data-match-left]').forEach(x => x.classList.remove('pending'));
         redraw();
       };
     });

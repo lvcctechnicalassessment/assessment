@@ -5202,3 +5202,106 @@ input.fill-inline-text,
   max-height: 280px;
   overflow-y: auto;
 }
+
+
+/* v1.5.48 — Match reference layout (no cards, text + dots + lines) */
+.match-take.match-ref {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem;
+  background: transparent !important;
+}
+.match-ref .match-prompt {
+  text-align: center;
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.35rem;
+  color: #0f172a;
+}
+.match-ref .match-instruction {
+  text-align: center;
+  color: #334155;
+  font-size: 0.95rem;
+  margin-bottom: 2rem;
+}
+.match-ref-board.match-board {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 4rem !important;
+  position: relative !important;
+  min-height: 200px;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+.match-ref .match-col {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1.75rem !important;
+  background: transparent !important;
+  border: none !important;
+  z-index: 2;
+}
+.match-ref .m-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.65rem !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-height: 28px;
+  cursor: pointer;
+  user-select: none;
+}
+.match-ref .m-left {
+  justify-content: flex-end !important;
+  text-align: right !important;
+}
+.match-ref .m-right {
+  justify-content: flex-start !important;
+  text-align: left !important;
+}
+.match-ref .m-text {
+  font-size: 1rem;
+  color: #0f172a;
+  line-height: 1.4;
+}
+.match-ref .m-dot {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  border-radius: 50% !important;
+  background: #0f172a !important;
+  border: 3px solid #2563eb !important;
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  display: inline-block !important;
+}
+.match-ref .m-row.pending .m-dot,
+.match-ref .m-row.pending .m-text {
+  outline: none;
+}
+.match-ref .m-row.pending .m-dot {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  background: #2563eb !important;
+}
+.match-ref .match-lines {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+.match-ref .match-pair-hints { display: none; }
+[data-theme="dark"] .match-ref .match-prompt,
+[data-theme="dark"] .match-ref .m-text { color: #e2e8f0; }
+[data-theme="dark"] .match-ref .match-instruction { color: #94a3b8; }
+[data-theme="dark"] .match-ref .m-dot { background: #e2e8f0 !important; }
+.take-q-num { display: none !important; }
+
+/* Force hide stuck loading overlays */
+.global-loading:not(.visible) { display: none !important; pointer-events: none !important; }
